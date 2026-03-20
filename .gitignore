@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Cache data (large files, regenerated at runtime)
+data/cache/ibtracs_all.csv
+data/cache/ibtracs_recent.csv
+data/cache/ibtracs_catalog.json
+data/cache/ike/
+
+# Debug/analysis scripts (one-off)
+analyze_*.py
+compare_*.py
+debug_*.py
+final_check.py
+get_preset_updates.py
+search_catalog.py
+show_*.py
+check_*.py
+test_*.py
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

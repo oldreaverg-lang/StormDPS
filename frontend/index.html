@@ -1,0 +1,1980 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hurricane IKE Visualizer</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root{--primary:#6366f1;--primary-hover:#4f46e5;--bg-dark:#0a0e1a;--bg-card:#111827;--bg-card-hover:#1a2234;--bg-input:#0d1221;--text-main:#f1f5f9;--text-muted:#64748b;--text-dim:#475569;--border:#1e293b;--border-hover:#334155;--success:#10b981;--danger:#ef4444;--cat1:#60a5fa;--cat2:#34d399;--cat3:#fbbf24;--cat4:#f97316;--cat5:#ef4444;--ts:#818cf8;--td:#94a3b8;--radius:10px;--radius-lg:14px}
+        *{box-sizing:border-box;margin:0;padding:0}body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg-dark);color:var(--text-main);min-height:100vh;overflow-x:hidden}
+        header{background:linear-gradient(180deg,rgba(17,24,39,.97),rgba(10,14,26,.97));backdrop-filter:blur(12px);padding:.5rem 1.2rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+        .logo{display:flex;align-items:center;gap:.6rem}.logo-icon{width:32px;height:32px;background:linear-gradient(135deg,var(--primary),#a78bfa);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1.05rem}h1{font-size:1.1rem;font-weight:700;letter-spacing:-.03em}
+        .header-status{display:flex;align-items:center;gap:.4rem;font-size:.75rem;color:var(--text-muted)}.status-dot{width:6px;height:6px;border-radius:50%;background:var(--success);box-shadow:0 0 6px rgba(16,185,129,.5)}
+        .app-layout{display:grid;grid-template-columns:260px 1fr;min-height:calc(100vh - 49px)}
+        .sidebar{background:var(--bg-card);border-right:1px solid var(--border);padding:1rem;display:flex;flex-direction:column;gap:1rem;overflow-y:auto}.sidebar-section{display:flex;flex-direction:column;gap:.5rem}
+        .sidebar-title{font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-dim);padding-bottom:.2rem;border-bottom:1px solid var(--border)}
+        .input-group{display:flex;flex-direction:column;gap:.3rem}.input-group label{font-size:.9rem;font-weight:500;color:var(--text-muted)}
+        input,select{background:var(--bg-input);border:1px solid var(--border);color:var(--text-main);padding:.5rem .65rem;border-radius:var(--radius);font-size:.95rem;font-family:inherit;outline:none;transition:border-color .2s;width:100%}input:focus,select:focus{border-color:var(--primary)}input::placeholder{color:var(--text-dim)}
+        .btn{display:flex;align-items:center;justify-content:center;gap:.4rem;padding:.5rem .85rem;border-radius:var(--radius);border:none;font-size:.95rem;font-weight:600;font-family:inherit;cursor:pointer;transition:all .15s}.btn-primary{background:var(--primary);color:#fff}.btn-primary:hover{background:var(--primary-hover)}.btn-secondary{background:transparent;color:var(--text-muted);border:1px solid var(--border)}.btn-secondary:hover{border-color:var(--border-hover);color:var(--text-main)}.btn:disabled{opacity:.4;cursor:not-allowed}.btn:active:not(:disabled){transform:scale(.97)}.btn-block{width:100%}
+        .preset-grid{display:flex;flex-direction:column;gap:.3rem}.preset-chip{display:flex;align-items:center;gap:.5rem;padding:.4rem .55rem;border-radius:var(--radius);background:var(--bg-input);border:1px solid var(--border);cursor:pointer;transition:all .2s;font-size:.9rem}.preset-chip:hover{border-color:var(--primary);background:var(--bg-card-hover)}.preset-chip.selected{border-color:var(--primary);background:rgba(99,102,241,.12);transform:scale(1.03);box-shadow:0 0 12px rgba(99,102,241,.25)}.preset-chip.selected .chip-name{color:#fff}.preset-chip.selected .chip-meta{color:var(--text-muted)}.cat-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}.chip-name{font-weight:600;color:var(--text-main)}.chip-meta{color:var(--text-dim);font-size:.67rem;margin-left:auto}
+        .accordion{display:flex;flex-direction:column;gap:.35rem}.accordion-section{border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;background:var(--bg-input)}.accordion-header{display:flex;align-items:center;justify-content:space-between;padding:.45rem .6rem;cursor:pointer;user-select:none;transition:background .15s;font-size:.9rem;font-weight:600;color:var(--text-muted)}.accordion-header:hover{background:var(--bg-card-hover)}.accordion-arrow{transition:transform .2s;font-size:.6rem;color:var(--text-dim)}.accordion-section.open .accordion-arrow{transform:rotate(90deg)}.accordion-body{display:none;padding:.35rem .5rem .5rem}.accordion-section.open .accordion-body{display:block}.accordion-header .acc-count{font-weight:400;font-size:.62rem;color:var(--text-dim);margin-left:auto;margin-right:.4rem}
+        .main-content{padding:.5rem .65rem;display:flex;flex-direction:column;gap:.4rem;overflow:hidden;height:calc(100vh - 49px)}
+        .error-bar{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);color:#fca5a5;padding:.65rem .85rem;border-radius:var(--radius);font-size:.95rem;display:none}.error-bar.visible{display:block;animation:fadeIn .3s}
+        .loading-bar{display:none;align-items:center;gap:.5rem;color:var(--primary);font-size:.95rem;font-weight:500}.loading-bar.visible{display:flex;animation:fadeIn .3s}.spinner{width:16px;height:16px;border:2px solid rgba(99,102,241,.2);border-radius:50%;border-top-color:var(--primary);animation:spin .8s linear infinite}
+        .stats-row{display:none;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:.5rem;flex-shrink:0}.stats-row.visible{display:grid;animation:fadeIn .4s}.stat-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:.4rem .7rem}.stat-label{font-size:.7rem;font-weight:500;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em}.stat-value{font-size:1.2rem;font-weight:800;margin-top:.05rem;letter-spacing:-.03em}.stat-sub{font-size:.75rem;color:var(--text-muted);margin-top:.05rem}
+        .viz-area{display:none;flex:1;gap:.5rem;min-height:0;overflow:hidden}.viz-area.visible{display:flex;animation:fadeIn .4s}.map-panel{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;position:relative;flex:1.2;min-height:0}#map{width:100%;height:100%}.charts-stack{display:flex;flex-direction:column;gap:.4rem;flex:1;min-height:0;overflow:hidden}.chart-panel{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;position:relative;flex:1;padding:.5rem;display:flex;flex-direction:column;min-height:0}.chart-panel canvas{flex:1;min-height:0}
+        .chart-tabbed{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;position:relative;flex:1;display:flex;flex-direction:column;min-height:0}
+        .chart-tabs{display:flex;border-bottom:1px solid var(--border);padding:0 .5rem;gap:0;flex-shrink:0}
+        .chart-tab{background:none;border:none;color:var(--text-dim);font-size:.68rem;font-weight:600;padding:.35rem .55rem;cursor:pointer;border-bottom:2px solid transparent;transition:color .2s,border-color .2s;text-transform:uppercase;letter-spacing:.04em}
+        .chart-tab:hover{color:var(--text-secondary)}
+        .chart-tab.active{color:var(--primary);border-bottom-color:var(--primary)}
+        .chart-tab.sst-loading{position:relative}.chart-tab.sst-loading::after{content:'';display:inline-block;width:8px;height:8px;border:1.5px solid rgba(99,102,241,.3);border-radius:50%;border-top-color:var(--primary);animation:spin .8s linear infinite;margin-left:6px;vertical-align:middle}
+        .chart-tab-body{flex:1;position:relative;padding:.4rem;min-height:0;overflow:hidden}
+        .chart-tab-pane{display:none;width:100%;height:100%;position:absolute;top:0;left:0;padding:.4rem;box-sizing:border-box}
+        .chart-tab-pane.active{display:block;position:relative}
+        .chart-tab-pane canvas{width:100%!important;height:100%!important}
+        .scrubber-bar{display:none;align-items:center;gap:.4rem;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:.3rem .6rem;flex-shrink:0}.scrubber-bar.visible{display:flex;animation:fadeIn .3s}
+        .scrubber-bar input[type="range"]{flex:1;-webkit-appearance:none;background:transparent;border:none;padding:0;height:18px}.scrubber-bar input[type="range"]::-webkit-slider-track{height:4px;background:var(--border);border-radius:2px}.scrubber-bar input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;background:var(--primary);border-radius:50%;margin-top:-5px;cursor:pointer;box-shadow:0 0 8px rgba(99,102,241,.4)}.scrubber-bar input[type="range"]::-moz-range-track{height:4px;background:var(--border);border-radius:2px;border:none}.scrubber-bar input[type="range"]::-moz-range-thumb{width:14px;height:14px;background:var(--primary);border-radius:50%;border:none;cursor:pointer}
+        .scrubber-time{font-size:.78rem;font-weight:600;color:var(--text-muted);min-width:90px;text-align:center;font-variant-numeric:tabular-nums}.scrubber-ike{font-size:.78rem;font-weight:700;color:var(--primary);min-width:60px;text-align:right;font-variant-numeric:tabular-nums}
+        .map-legend{position:absolute;bottom:8px;left:8px;z-index:500;background:rgba(10,14,26,.88);backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:var(--radius);padding:.35rem .5rem;display:flex;flex-direction:column;gap:.15rem;font-size:.65rem;color:var(--text-muted);max-height:50%;overflow-y:auto}.legend-item{display:flex;align-items:center;gap:.25rem}.legend-swatch{width:14px;height:6px;border-radius:2px;flex-shrink:0}
+        .leaflet-popup-content-wrapper{background:rgba(17,24,39,.95);color:var(--text-main);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.4)}.leaflet-popup-tip{background:rgba(17,24,39,.95);border:1px solid var(--border)}.leaflet-popup-content{margin:8px 12px;line-height:1.5}
+        .welcome-state{flex:1;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--text-dim)}.welcome-state.hidden{display:none}.welcome-icon{font-size:2.5rem;margin-bottom:.75rem;opacity:.5}.welcome-text{font-size:.9rem;font-weight:500;max-width:300px;line-height:1.6}
+        @keyframes spin{to{transform:rotate(360deg)}}@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+
+        /* Help tooltips */
+        .tip{display:inline-block;width:15px;height:15px;background:rgba(99,102,241,.35);border-radius:50%;text-align:center;line-height:15px;font-size:10px;font-weight:700;color:var(--text-main);cursor:help;margin-left:4px;position:relative;user-select:none;vertical-align:middle}
+        .tip:hover::after{content:attr(data-tip);position:absolute;top:calc(100% + 6px);left:50%;transform:translateX(-50%);background:rgba(10,14,26,.96);border:1px solid var(--border);color:var(--text-main);padding:8px 12px;border-radius:8px;font-size:12px;font-weight:400;white-space:normal;width:220px;z-index:9999;pointer-events:none;line-height:1.5;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+
+        /* Help button in header */
+        .btn-help{background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);color:var(--primary);width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:1rem;font-weight:700;transition:all .15s}.btn-help:hover{background:rgba(99,102,241,.3);border-color:var(--primary)}
+
+        /* Help modal */
+        .modal-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:2000;backdrop-filter:blur(4px)}
+        .modal-overlay.visible{display:flex}
+        .modal-box{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;max-width:520px;width:90%;max-height:80vh;overflow-y:auto;position:relative;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+        .modal-box h2{font-size:1.15rem;margin-bottom:1rem;color:var(--text-main)}
+        .modal-box h3{font-size:.9rem;margin-top:1.2rem;margin-bottom:.5rem;color:var(--primary);text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+        .modal-box p,.modal-box li{font-size:.88rem;color:var(--text-muted);line-height:1.7}
+        .modal-box ul{list-style:none;padding:0}.modal-box ul li{padding:.25rem 0;border-bottom:1px solid var(--border)}
+        .modal-box ul li b{color:var(--text-main)}
+        .modal-close{position:absolute;top:.75rem;right:1rem;font-size:1.4rem;cursor:pointer;color:var(--text-dim);background:none;border:none;line-height:1}.modal-close:hover{color:var(--text-main)}
+
+        /* Speed label */
+        .speed-label{font-size:.78rem;color:var(--text-dim);white-space:nowrap}
+
+        /* Better mobile */
+        @media(max-width:900px){.app-layout{grid-template-columns:1fr}.sidebar{border-right:none;border-bottom:1px solid var(--border);max-height:50vh;overflow-y:auto}}
+        /* Active Storms panel */
+        .active-storms-section{display:flex;flex-direction:column;gap:.5rem}
+        .active-header{display:flex;align-items:center;gap:.4rem;font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-dim);padding-bottom:.2rem;border-bottom:1px solid var(--border)}
+        .active-header .live-badge{background:var(--danger);color:#fff;font-size:.55rem;font-weight:700;padding:1px 5px;border-radius:4px;letter-spacing:.04em;text-transform:uppercase;animation:livePulse 2s ease-in-out infinite}
+        @keyframes livePulse{0%,100%{opacity:1}50%{opacity:.5}}
+        .active-storms-list{display:flex;flex-direction:column;gap:.35rem}
+        .active-chip{display:flex;align-items:center;gap:.5rem;padding:.5rem .6rem;border-radius:var(--radius);background:rgba(239,68,68,.04);border:1px solid rgba(239,68,68,.15);cursor:pointer;transition:all .2s;font-size:.9rem;position:relative;overflow:hidden}
+        .active-chip:hover{border-color:rgba(239,68,68,.4);background:rgba(239,68,68,.08)}
+        .active-chip.selected{border-color:var(--primary);background:rgba(99,102,241,.12);transform:scale(1.03);box-shadow:0 0 12px rgba(99,102,241,.25)}
+        .active-chip.selected .chip-name{color:#fff}
+        .active-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;position:relative}
+        .active-dot::after{content:'';position:absolute;top:-3px;left:-3px;width:15px;height:15px;border-radius:50%;background:inherit;opacity:.3;animation:activePing 2s cubic-bezier(0,.2,.8,1) infinite}
+        @keyframes activePing{0%{transform:scale(1);opacity:.3}100%{transform:scale(2);opacity:0}}
+        .active-chip .chip-detail{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1}
+        .active-chip .chip-name{font-weight:700;color:var(--text-main);font-size:.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .active-chip .chip-stats{font-size:.65rem;color:var(--text-muted);white-space:nowrap}
+        .active-chip .chip-intensity{font-size:.72rem;font-weight:700;margin-left:auto;white-space:nowrap;padding-left:.4rem}
+        .offseason-msg{font-size:.78rem;color:var(--text-dim);line-height:1.5;padding:.4rem 0}
+        .active-refresh{font-size:.6rem;color:var(--text-dim);margin-left:auto;font-weight:400;text-transform:none;letter-spacing:0}
+        .forecast-line{stroke-dasharray:8 4;stroke-opacity:.7}
+        .forecast-label{background:rgba(10,14,26,.8)!important;border:1px solid rgba(255,255,255,.15)!important;color:var(--text-muted)!important;font-size:9px!important;font-family:Inter,sans-serif!important;padding:1px 5px!important;border-radius:4px!important;box-shadow:none!important}
+        .forecast-label::before{display:none!important}
+
+        .dps-context-toggle{position:absolute;top:4px;right:4px;width:18px;height:18px;border-radius:50%;background:rgba(99,102,241,.35);border:none;color:var(--text-main);font-size:10px;font-weight:700;cursor:pointer;z-index:10;line-height:18px;padding:0;transition:background .15s}.dps-context-toggle:hover{background:rgba(99,102,241,.6)}
+        .dps-context-box{position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(10,14,26,.95);backdrop-filter:blur(8px);z-index:5;padding:.5rem .6rem;overflow-y:auto;border-radius:var(--radius);display:flex;flex-direction:column;justify-content:center}
+        .dps-context-bullets{font-size:.7rem;color:var(--text-muted);line-height:1.6}.dps-context-bullets .ctx-bullet{padding:2px 0;border-bottom:1px solid rgba(255,255,255,.05);display:flex;align-items:baseline;gap:4px}.dps-context-bullets .ctx-bullet::before{content:'\2022';color:var(--primary);font-weight:700;flex-shrink:0}
+        @media(max-width:600px){.stat-value{font-size:1.2rem!important}.chart-panel{min-height:250px!important}.scrubber-bar{flex-wrap:wrap;gap:.4rem}.modal-box{padding:1rem}}
+    </style>
+</head>
+<body>
+<header>
+    <div class="logo"><div class="logo-icon">&#127744;</div><h1>Hurricane IKE Visualizer</h1></div>
+    <div style="display:flex;align-items:center;gap:.75rem">
+        <div class="header-status"><div class="status-dot"></div>API connected</div>
+        <button class="btn-help" onclick="document.getElementById('helpModal').classList.add('visible')" title="Help &amp; Glossary">?</button>
+    </div>
+</header>
+<div class="app-layout">
+    <aside class="sidebar">
+        <div class="active-storms-section" id="activeStormsSection">
+            <div class="active-header">
+                <span>Active Storms</span>
+                <span class="live-badge" id="liveBadge" style="display:none">LIVE</span>
+                <span class="active-refresh" id="activeRefreshTime"></span>
+            </div>
+            <div class="active-storms-list" id="activeStormsList">
+                <div class="offseason-msg" id="offseasonMsg">Checking for active storms...</div>
+            </div>
+        </div>
+        <div class="sidebar-section">
+            <div class="sidebar-title">Storm Lookup</div>
+            <div class="input-group"><label for="stormId">Storm ID or Name</label><input type="text" id="stormId" placeholder="e.g. AL092008, IKE" value=""></div>
+            <div class="input-group"><label for="basinSelect">Filter by Basin</label>
+                <select id="basinSelect">
+                    <option value="">All Basins</option>
+                    <option value="NA" selected>Atlantic</option>
+                    <option value="EP">East Pacific</option>
+                    <option value="WP">West Pacific</option>
+                    <option value="NI">North Indian</option>
+                    <option value="SI">South Indian</option>
+                    <option value="SP">South Pacific</option>
+                    <option value="SA">South Atlantic</option>
+                </select>
+            </div>
+            <div class="input-group" id="nameSearchGroup" style="display:none;">
+                <label for="searchYear">Year (for name search)</label>
+                <input type="number" id="searchYear" placeholder="e.g. 2008" min="1851" max="2099">
+            </div>
+            <button class="btn btn-primary btn-block" id="fetchBtn" onclick="fetchHistory()"><svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>Visualize</button>
+        </div>
+        <div class="sidebar-section">
+            <div class="sidebar-title">Storm Browser</div>
+            <div class="accordion" id="stormAccordion">
+                <div class="accordion-section" id="accFamous">
+                    <div class="accordion-header" onclick="toggleAccordion('accFamous')"><span>Historic Storms</span><span class="acc-count">15</span><span class="accordion-arrow">&#9654;</span></div>
+                    <div class="accordion-body"><div class="preset-grid" id="presetGrid"></div></div>
+                </div>
+                <!-- Year tabs will be inserted here dynamically -->
+            </div>
+        </div>
+    </aside>
+    <div class="main-content">
+        <div id="errorBox" class="error-bar"></div>
+        <div id="loadingBar" class="loading-bar"><div class="spinner"></div><span>Fetching storm data (HURDAT2, IBTrACS, Custom) and computing IKE...</span></div>
+        <div id="statsRow" class="stats-row">
+            <div class="stat-card" style="border-color:var(--primary);background:rgba(99,102,241,.03)"><div class="stat-label">Damage Potential<span class="tip" data-tip="DPS: A 0-100 score combining storm surge, wind field size, wind speed, and forward speed. Higher = more destructive. Unlike the Category scale, DPS captures storm SIZE and surge threat.">?</span></div><div class="stat-value" id="statPeakDPS" style="color:var(--text-main);">-</div><div class="stat-sub" id="statDPSLabel">-</div></div>
+            <div class="stat-card"><div class="stat-label">Peak Wind Energy<span class="tip" data-tip="IKE (Integrated Kinetic Energy) measures total wind energy in Terajoules. A large Cat 1 can have MORE energy than a compact Cat 5.">?</span></div><div class="stat-value" id="statPeakIke" style="color:var(--primary);">-</div><div class="stat-sub" id="statPeakTime">-</div></div>
+        </div>
+        <div id="scrubberBar" class="scrubber-bar">
+            <button class="btn btn-secondary" onclick="toggleAnimation()" id="scrubPlay" style="padding:.35rem .7rem;gap:.4rem;font-size:.8rem;font-weight:600;"><svg id="scrubPlayIcon" width="14" height="14" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg><span id="scrubPlayLabel">Play</span></button>
+            <span class="speed-label">Speed:</span><select id="speedSelect" style="width:65px;font-size:.75rem;padding:.3rem .4rem;background:var(--bg-input);border:1px solid var(--border);color:var(--text-main);border-radius:var(--radius);cursor:pointer;" onchange="setSpeed(this.value)"><option value="2000">0.5x</option><option value="1000" selected>1x</option><option value="500">2x</option><option value="250">4x</option></select>
+            <span class="scrubber-time" id="scrubTime">--</span>
+            <input type="range" id="scrubSlider" min="0" max="100" value="0" step="1" oninput="onScrub(this.value)">
+            <span class="scrubber-ike" id="scrubIke" title="Wind Energy (Terajoules)">-- TJ</span>
+        </div>
+        <div id="vizArea" class="viz-area">
+            <div class="map-panel" style="position:relative;">
+                <div id="map"></div>
+                <div class="map-legend" id="mapLegend" style="display:none;">
+                    <div style="font-weight:600;margin-bottom:2px;color:#e2e8f0;">Wind Speed</div>
+                    <div class="legend-item"><div class="legend-swatch" style="background:#ff4da6"></div>Cat 5 (&ge;157 mph)</div>
+                    <div class="legend-item"><div class="legend-swatch" style="background:#ef4444"></div>Cat 3-4 (111-156 mph)</div>
+                    <div class="legend-item"><div class="legend-swatch" style="background:#f97316"></div>Cat 1-2 (74-110 mph)</div>
+                    <div class="legend-item"><div class="legend-swatch" style="background:#fbbf24"></div>Tropical Storm (39-73 mph)</div>
+                    <div style="margin-top:3px;font-weight:600;color:#e2e8f0;">Track Energy</div>
+                    <div class="legend-item"><div class="legend-swatch" style="background:#ef4444;width:12px;height:3px;border-radius:1px"></div>Extreme (&gt;200 TJ)</div>
+                    <div class="legend-item"><div class="legend-swatch" style="background:#f97316;width:12px;height:3px;border-radius:1px"></div>High (&gt;120 TJ)</div>
+                    <div class="legend-item"><div class="legend-swatch" style="background:#fbbf24;width:12px;height:3px;border-radius:1px"></div>Moderate (&gt;60 TJ)</div>
+                    <div class="legend-item"><div class="legend-swatch" style="background:#60a5fa;width:12px;height:3px;border-radius:1px"></div>Low (&le;60 TJ)</div>
+                    <div style="margin-top:3px;font-weight:600;color:#e2e8f0;">Destructive Potential</div>
+                    <div class="legend-item"><div class="legend-swatch" style="background:var(--cat5);border-radius:50%;width:10px;height:10px"></div>Catastrophic (80-100)</div>
+                    <div class="legend-item"><div class="legend-swatch" style="background:var(--cat4);border-radius:50%;width:10px;height:10px"></div>Extreme (60-79)</div>
+                    <div class="legend-item"><div class="legend-swatch" style="background:var(--cat3);border-radius:50%;width:10px;height:10px"></div>Severe (40-59)</div>
+                    <div class="legend-item"><div class="legend-swatch" style="background:var(--cat2);border-radius:50%;width:10px;height:10px"></div>Moderate (20-39)</div>
+                </div>
+            </div>
+            <div class="charts-stack">
+                <div class="chart-panel" style="position:relative;">
+                    <canvas id="dpiChart"></canvas>
+                    <div id="dpsContextBox" class="dps-context-box" style="display:none;">
+                        <div class="dps-context-bullets" id="dpsContextBullets"></div>
+                    </div>
+                    <button id="dpsContextToggle" class="dps-context-toggle" style="display:none;" onclick="toggleDpsContext()" title="Storm context">?</button>
+                </div>
+                <div class="chart-tabbed" id="chartTabbed">
+                    <div class="chart-tabs">
+                        <button class="chart-tab active" data-tab="ike" onclick="switchChartTab('ike')">Wind Energy (IKE)</button>
+                        <button class="chart-tab" data-tab="surge" onclick="switchChartTab('surge')">Storm Surge <span class="tip" data-tip="This shows estimated open-water surge POTENTIAL based on wind speed, pressure deficit, and storm size. Actual surge at landfall is usually lower — it depends on coastal shape, bathymetry (water depth), angle of approach, and timing with tides. Think of this as a worst-case baseline.">?</span></button>
+                        <button class="chart-tab" data-tab="pressure" onclick="switchChartTab('pressure')">Pressure</button>
+                        <button class="chart-tab" data-tab="wind" onclick="switchChartTab('wind')">Wind Speed</button>
+                        <button class="chart-tab" data-tab="sst" onclick="switchChartTab('sst')">Sea Surface Temp</button>
+                    </div>
+                    <div class="chart-tab-body">
+                        <div class="chart-tab-pane active" id="tabIKE"><canvas id="ikeChart"></canvas></div>
+                        <div class="chart-tab-pane" id="tabSurge"><canvas id="surgeChart"></canvas></div>
+                        <div class="chart-tab-pane" id="tabPressure"><canvas id="pressureChart"></canvas></div>
+                        <div class="chart-tab-pane" id="tabWind"><canvas id="windChart"></canvas></div>
+                        <div class="chart-tab-pane" id="tabSST"><canvas id="sstChart"></canvas></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="welcome-state" id="welcomeState"><div><div class="welcome-icon">&#127744;</div><div class="welcome-text">Select a storm from the sidebar or type a name to see its full wind energy and damage potential over time.<br><span style="font-size:.8rem;color:var(--text-dim);margin-top:.5rem;display:inline-block">Tip: Click the <b>?</b> button in the top-right to learn what the metrics mean.</span></div></div></div>
+    </div>
+</div>
+<!-- Help Modal -->
+<div class="modal-overlay" id="helpModal" onclick="if(event.target===this)this.classList.remove('visible')">
+    <div class="modal-box">
+        <button class="modal-close" onclick="document.getElementById('helpModal').classList.remove('visible')">&times;</button>
+        <h2>&#127744; How to Use This App</h2>
+        <p>This tool visualizes the <b>true destructive potential</b> of hurricanes &mdash; going beyond the simple Category 1-5 scale to show how much total wind energy a storm carries and the damage it can cause.</p>
+
+        <h3>Key Metrics</h3>
+        <ul>
+            <li><b>Damage Potential (DPS)</b> &mdash; A 0-100 score combining storm surge, wind field size, wind speed, and forward speed. A large Cat 1 like Sandy can score as high as a compact Cat 5 — reflecting equal real-world danger.</li>
+            <li><b>Wind Energy (IKE)</b> &mdash; Total kinetic energy of all winds in Terajoules (TJ). Captures both wind speed AND storm size in one number.</li>
+            <li><b>Storm Surge</b> &mdash; Estimated open-water surge potential in feet, driven by pressure and wind.</li>
+        </ul>
+
+        <h3>Why Not Just Use Categories?</h3>
+        <p>The Saffir-Simpson scale only measures <b>peak wind speed</b> at the center. It ignores the storm's <b>size</b>, which is often the biggest factor in damage. Hurricane Ike (2008) made landfall as "only" a Cat 2, but its enormous wind field caused $40 billion in damage across the entire Texas coast.</p>
+
+        <h3>Quick Reference</h3>
+        <ul>
+            <li><b>TJ (Terajoules)</b> &mdash; A unit of energy. 1 TJ = 1 trillion joules.</li>
+            <li><b>mph</b> &mdash; Miles per hour (wind speed).</li>
+            <li><b>mb / hPa</b> &mdash; Millibars, a pressure unit. Lower = stronger storm. Normal sea-level is ~1013 mb.</li>
+            <li><b>kt</b> &mdash; Knots (1 kt = 1.15 mph). Used for storm movement speed.</li>
+        </ul>
+
+        <h3>Getting Started</h3>
+        <p>Pick any storm from <b>Historic Storms</b> in the sidebar, or type a name like "Harvey" and its year. Use the timeline slider to step through the storm's life cycle and watch the wind field change on the map.</p>
+    </div>
+</div>
+
+<script>
+// ============================================================
+// CONFIG
+// ============================================================
+const API_BASE='http://127.0.0.1:8000/api/v1';
+let currentDPSChart=null,currentChart=null,currentSurgeChart=null,currentPressureChart=null,currentWindChart=null,currentSSTChart=null,currentMap=null;
+const NM_TO_M=1852.0;
+const DEG_TO_M=111320; // meters per degree at equator (approximate)
+
+// ============================================================
+// PRELOAD CACHE — stores pre-fetched storm data for instant load
+// ============================================================
+// Maps storm_id -> array of IKEResponse objects (all formula inputs).
+// Populated on startup from /api/v1/preload, used by fetchHistory()
+// to skip API calls for cached storms.
+const PRELOAD_CACHE = {};
+let preloadReady = false;
+let preloadPromise = null;
+
+async function loadPreloadBundle() {
+    try {
+        // Load the static bundle file — no API call, served as a plain file.
+        // ~280 KB uncompressed, gzips to ~40 KB. Loads in <50ms on most connections.
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 8000);
+        const r = await fetch('/frontend/preload_bundle.json', { signal: controller.signal });
+        clearTimeout(timeout);
+        if (!r.ok) throw new Error(`Static bundle HTTP ${r.status}`);
+        const bundle = await r.json();
+        if (bundle.storms) {
+            Object.keys(bundle.storms).forEach(sid => {
+                PRELOAD_CACHE[sid] = bundle.storms[sid];
+            });
+        }
+        preloadReady = true;
+        console.log(`[PRELOAD] Static bundle loaded: ${bundle.storm_count || 0} storms (${Object.keys(PRELOAD_CACHE).length} in cache)`);
+        // Recompute preset DPS from full per-snapshot data (fixes catalog mismatch)
+        refreshPresetDPSFromPreload();
+    } catch (e) {
+        // Fallback: try the API endpoint (works if static file is missing)
+        console.warn('[PRELOAD] Static bundle failed, trying API fallback:', e.message);
+        try {
+            const r = await fetch(`${API_BASE}/preload`);
+            if (r.ok) {
+                const bundle = await r.json();
+                if (bundle.storms) {
+                    Object.keys(bundle.storms).forEach(sid => {
+                        PRELOAD_CACHE[sid] = bundle.storms[sid];
+                    });
+                }
+                console.log(`[PRELOAD] API fallback loaded: ${Object.keys(PRELOAD_CACHE).length} storms`);
+                refreshPresetDPSFromPreload();
+            }
+        } catch (e2) {
+            console.warn('[PRELOAD] All preload methods failed (will fetch per-storm):', e2.message);
+        }
+        preloadReady = true;
+    }
+}
+
+// Start preload fetch immediately (non-blocking)
+preloadPromise = loadPreloadBundle();
+
+// ---- Notable Historic Storms (US Atlantic) ----
+// Sorted by pre-computed DPS (Destructive Potential Score).
+// DPS is computed server-side for catalog storms; these are approximate
+// reference values for the preset list, recalculated when a storm is loaded.
+const PRESETS=[
+    {id:'AL122005',name:'Katrina',year:2005,cat:5,dps:95},
+    {id:'AL112017',name:'Irma',year:2017,cat:5,dps:91},
+    {id:'AL092024',name:'Helene',year:2024,cat:4,dps:87},
+    {id:'AL092008',name:'Ike',year:2008,cat:4,dps:78},
+    {id:'AL092022',name:'Ian',year:2022,cat:4,dps:73},
+    {id:'AL062018',name:'Florence',year:2018,cat:4,dps:69},
+    {id:'AL052019',name:'Dorian',year:2019,cat:5,dps:65},
+    {id:'AL182012',name:'Sandy',year:2012,cat:3,dps:65},
+    {id:'AL142024',name:'Milton',year:2024,cat:5,dps:63},
+    {id:'AL152017',name:'Maria',year:2017,cat:5,dps:61},
+    {id:'AL142018',name:'Michael',year:2018,cat:5,dps:61},
+    {id:'AL092017',name:'Harvey',year:2017,cat:4,dps:55},
+    {id:'AL102023',name:'Idalia',year:2023,cat:3,dps:51},
+    {id:'AL022024',name:'Beryl',year:2024,cat:5,dps:47},
+];
+
+function catColor(c){return['var(--td)','var(--cat1)','var(--cat2)','var(--cat3)','var(--cat4)','var(--cat5)'][c]||'var(--td)'}
+function ikeColor(ike){if(ike>200)return'#ef4444';if(ike>120)return'#f97316';if(ike>60)return'#fbbf24';if(ike>30)return'#34d399';if(ike>10)return'#60a5fa';if(ike>2)return'#818cf8';return'#94a3b8'}
+function dpsColor(score){if(score>=80)return'#ef4444';if(score>=60)return'#f97316';if(score>=40)return'#fbbf24';if(score>=20)return'#34d399';if(score>=10)return'#60a5fa';return'#94a3b8'}
+
+// Update preset chip DPS from preloaded per-snapshot data (correct method).
+// The catalog only computes DPS at the peak-wind snapshot, but the TRUE peak
+// DPS often occurs at a different time (near landfall when size + surge align).
+// This function computes DPS across ALL snapshots and uses the maximum.
+function refreshPresetDPSFromPreload(){
+    if(!preloadReady || Object.keys(PRELOAD_CACHE).length===0) return;
+    let changed=false;
+    PRESETS.forEach(p=>{
+        const data=PRELOAD_CACHE[p.id];
+        if(!data||!data.length) return;
+        let maxDps=0;
+        data.forEach(d=>{
+            const dps=calculateDPS(d);
+            if(dps.score>maxDps) maxDps=dps.score;
+        });
+        if(maxDps>0 && maxDps!==p.dps){
+            p.dps=maxDps;
+            changed=true;
+        }
+    });
+    if(changed) rerenderPresetChips();
+}
+
+// Legacy: update from catalog (only used as fallback when preload is unavailable)
+function refreshPresetDPS(catalog){
+    // Skip if preload already computed accurate DPS values
+    if(preloadReady && Object.keys(PRELOAD_CACHE).length>0) return;
+    let changed=false;
+    PRESETS.forEach(p=>{
+        const entry=catalog.find(s=>s.id===p.id)||catalog.find(s=>s.name&&s.name.toUpperCase()===p.name.toUpperCase()&&s.year===p.year);
+        if(entry&&entry.peak_dps&&entry.peak_dps!==p.dps){
+            p.dps=Math.round(entry.peak_dps);
+            changed=true;
+        }
+    });
+    if(changed) rerenderPresetChips();
+}
+
+function rerenderPresetChips(){
+    PRESETS.sort((a,b)=>(b.dps||0)-(a.dps||0));
+    const grid=document.getElementById('presetGrid');
+    if(grid){
+        grid.innerHTML=PRESETS.map(p=>{
+            const dotColor=p.dps>0?dpsChipColor(p.dps):catColor(p.cat);
+            const metaText=p.dps>0?`${p.year} \u00b7 DPS ${p.dps}`:`${p.year} \u00b7 Cat ${p.cat}`;
+            return `<div class="preset-chip" data-storm-id="${p.id}" onclick="loadPreset('${p.id}')"><div class="cat-dot" style="background:${dotColor}"></div><span class="chip-name">${p.name}</span><span class="chip-meta">${metaText}</span></div>`;
+        }).join('');
+    }
+    console.log('Preset DPS refreshed:', PRESETS.map(p=>`${p.name}=${p.dps}`).join(', '));
+}
+
+// ============================================================
+// DPS ZONE BANDS — background shading for charts
+// ============================================================
+// Wind Energy score: min(70, 10*ln(ike))  →  ike = e^(score/10)
+const IKE_ZONES=[
+    {min:0,max:2.718,label:'Minimal',color:'rgba(100,116,139,0.07)'},
+    {min:2.718,max:7.389,label:'Minor',color:'rgba(234,179,8,0.07)'},
+    {min:7.389,max:54.598,label:'Moderate',color:'rgba(249,115,22,0.07)'},
+    {min:54.598,max:403.429,label:'Severe',color:'rgba(239,68,68,0.07)'},
+    {min:403.429,max:1096.633,label:'Extreme',color:'rgba(236,72,153,0.07)'},
+    {min:1096.633,max:null,label:'Catastrophic',color:'rgba(168,85,247,0.07)'}
+];
+// Surge: dp=1013-pressure, surgeScore=min(30,dp*0.3)
+// surgeScore thresholds → pressure: 10→979.7, 20→946.3, 30→913
+const PRESSURE_ZONES=[
+    {min:979.7,max:1013,label:'Minimal',color:'rgba(100,116,139,0.07)'},
+    {min:946.3,max:979.7,label:'Minor',color:'rgba(234,179,8,0.07)'},
+    {min:913,max:946.3,label:'Moderate',color:'rgba(249,115,22,0.07)'},
+    {min:860,max:913,label:'Severe+',color:'rgba(239,68,68,0.07)'}
+];
+// Surge (ft) zone thresholds — derived by computing surge_ft at the pressure boundaries
+// At pressure 979.7 (dp=33.3): v≈~64kt → surge_ft ≈ 12+1.3 ≈ 13.6
+// At pressure 946.3 (dp=66.7): v≈~100kt → surge_ft ≈ 30+2.7 ≈ 33
+// At pressure 913 (dp=100):   v≈~130kt → surge_ft ≈ 51+4 ≈ 55
+const SURGE_ZONES=[
+    {min:0,max:4,label:'Minimal',color:'rgba(100,116,139,0.07)'},
+    {min:4,max:10,label:'Minor',color:'rgba(234,179,8,0.07)'},
+    {min:10,max:20,label:'Moderate',color:'rgba(249,115,22,0.07)'},
+    {min:20,max:35,label:'Severe+',color:'rgba(239,68,68,0.07)'}
+];
+
+// DPS (Destructive Potential Score) zone bands — matches the DPS label thresholds
+const DPS_ZONES=[
+    {min:0,  max:10, label:'Minimal',      color:'rgba(148,163,184,0.06)'},
+    {min:10, max:20, label:'Minor',         color:'rgba(96,165,250,0.08)'},
+    {min:20, max:40, label:'Moderate',      color:'rgba(52,211,153,0.08)'},
+    {min:40, max:60, label:'Severe',        color:'rgba(251,191,36,0.09)'},
+    {min:60, max:80, label:'Extreme',       color:'rgba(249,115,22,0.10)'},
+    {min:80, max:100,label:'Catastrophic',  color:'rgba(239,68,68,0.12)'}
+];
+
+const ZONE_LABEL_COLORS={
+    'Minimal':'rgba(100,116,139,0.5)',
+    'Minor':'rgba(234,179,8,0.5)',
+    'Moderate':'rgba(249,115,22,0.5)',
+    'Severe':'rgba(239,68,68,0.5)',
+    'Severe+':'rgba(239,68,68,0.5)',
+    'Extreme':'rgba(236,72,153,0.5)',
+    'Catastrophic':'rgba(168,85,247,0.5)'
+};
+
+// Chart.js plugin: draws colored horizontal zone bands behind chart data
+const zoneBandsPlugin={
+    id:'zoneBands',
+    beforeDraw(chart){
+        const zones=chart.options.plugins.zoneBands;
+        if(!zones||!zones.zones)return;
+        const{ctx,chartArea:{left,right,top,bottom},scales:{y}}=chart;
+        if(!y)return;
+        ctx.save();
+        zones.zones.forEach(z=>{
+            const yMax=z.max!==null?y.getPixelForValue(z.max):top;
+            const yMin=y.getPixelForValue(z.min);
+            const yTop=Math.max(top,Math.min(yMax,yMin));
+            const yBot=Math.min(bottom,Math.max(yMax,yMin));
+            if(yBot<=yTop)return;
+            ctx.fillStyle=z.color;
+            ctx.fillRect(left,yTop,right-left,yBot-yTop);
+            // Draw zone label on right edge
+            if(zones.showLabels!==false){
+                const labelY=yTop+(yBot-yTop)/2;
+                if(labelY>=top&&labelY<=bottom){
+                    ctx.fillStyle=ZONE_LABEL_COLORS[z.label]||'rgba(148,163,184,0.5)';
+                    ctx.font='600 9px Inter,sans-serif';
+                    ctx.textAlign='right';
+                    ctx.textBaseline='middle';
+                    ctx.fillText(z.label,right-4,labelY);
+                }
+            }
+        });
+        ctx.restore();
+    }
+};
+Chart.register(zoneBandsPlugin);
+
+// ============================================================
+// WIND FIELD COLOR — pink -> red -> orange -> yellow
+// ============================================================
+function windColor(v_ms) {
+    // v in m/s -> RGBA array [r,g,b,a]
+    // pink (#ff4da6) for >= 70 m/s (Cat 5+)
+    // red (#ef4444) for 50-70 m/s (Cat 3-4)
+    // orange (#f97316) for 33-50 m/s (Cat 1-2 / hurricane)
+    // yellow (#fbbf24) for 18-33 m/s (TS)
+    // teal (#2dd4bf) for 8-18 m/s (sub-TS / tropical depression)
+    // Below 8: transparent
+    if (v_ms < 8) return null;
+
+    let r, g, b, a;
+    if (v_ms >= 70) {
+        // Pink: #ff4da6
+        r = 255; g = 77; b = 166; a = 0.65;
+    } else if (v_ms >= 58) {
+        // Lerp pink to red (Cat 4->5 transition)
+        const t = (v_ms - 58) / 12;
+        r = 239 + Math.round(t * 16);  // 239->255
+        g = 68 - Math.round(t * (68 - 77)); // 68->77 (slight uptick for pink)
+        b = 68 + Math.round(t * (166 - 68)); // 68->166
+        a = 0.55 + t * 0.1;
+    } else if (v_ms >= 50) {
+        // Red: #ef4444
+        r = 239; g = 68; b = 68; a = 0.52;
+    } else if (v_ms >= 43) {
+        // Lerp orange to red (Cat 2->3 transition)
+        const t = (v_ms - 43) / 7;
+        r = 249 - Math.round(t * 10);  // 249->239
+        g = 115 - Math.round(t * 47);  // 115->68
+        b = 22 + Math.round(t * 46);   // 22->68
+        a = 0.45 + t * 0.07;
+    } else if (v_ms >= 33) {
+        // Orange: #f97316
+        r = 249; g = 115; b = 22; a = 0.42;
+    } else if (v_ms >= 18) {
+        // Yellow: #fbbf24 (TS force 18-33)
+        const t = (v_ms - 18) / 15;
+        r = 251; g = 191 - Math.round(t * 76); // 191->115
+        b = 36 - Math.round(t * 14);           // 36->22
+        a = 0.2 + t * 0.22;
+    } else {
+        // Teal: #2dd4bf (sub-TS / TD force 8-18 m/s)
+        const t = (v_ms - 8) / 10;
+        r = 45; g = 212; b = 191;
+        a = 0.08 + t * 0.12;  // Very subtle fade-in
+    }
+    return [r, g, b, Math.round(a * 255)];
+}
+
+// ============================================================
+// RMW / R34 ESTIMATION (client-side fallback)
+// ============================================================
+function estimateRmwNm(vmax_ms, lat) {
+    // Willoughby et al. (2006) / Knaff & Zehr (2007):
+    // RMW (km) = 46.4 * exp(-0.0155 * Vmax_kt + 0.0169 * |lat|)
+    const vmax_kt = vmax_ms / 0.514444;
+    const rmw_km = 46.4 * Math.exp(-0.0155 * vmax_kt + 0.0169 * Math.abs(lat));
+    const rmw_nm = rmw_km / 1.852;
+    return Math.max(8, Math.min(80, rmw_nm));
+}
+
+function estimateR34Nm(vmax_ms, rmw_nm) {
+    // Empirical ratio: stronger storms have proportionally larger wind fields
+    const vmax_kt = vmax_ms / 0.514444;
+    if (vmax_ms < 17.5) return rmw_nm * 3;
+    const ratio = Math.min(10, Math.max(3, 2 + 0.08 * vmax_kt));
+    return rmw_nm * ratio;
+}
+
+// ============================================================
+// DESTRUCTIVE POTENTIAL SCORE (DPS) & SURGE ESTIMATION
+// ============================================================
+function calculateSurgeParametric(dataPoint) {
+    if(!dataPoint.max_wind_ms || !dataPoint.min_pressure_hpa) return 0;
+
+    const v_kt = dataPoint.max_wind_ms / 0.514444;
+    const dp = Math.max(0, 1013 - dataPoint.min_pressure_hpa);
+
+    // Wind-stress + inverse-barometer baseline (calibrated to SLOSH benchmarks)
+    let surge_ft = (0.001 * v_kt * v_kt) + (0.04 * dp);
+
+    // Continuous size scaling via sqrt(r34/100) — larger storms push more water
+    if(dataPoint.r34_nm && dataPoint.r34_nm > 0) {
+        const sizeMult = Math.min(1.6, Math.max(0.7, Math.sqrt(dataPoint.r34_nm / 100)));
+        surge_ft *= sizeMult;
+    }
+
+    // Tanh saturation — physics caps open-coast surge near ~40 ft
+    surge_ft = 40 * Math.tanh(surge_ft / 40);
+
+    return surge_ft;
+}
+
+// ============================================================
+// Continental-shelf factor — geography-aware surge adjustment for DPS
+// Wide, shallow shelves (Gulf of Mexico) amplify surge; narrow shelves
+// (Caribbean islands) dramatically reduce it.  Open ocean = minimal.
+// Regions are tested in order; first match wins.
+// ============================================================
+const SHELF_REGIONS = [
+    // Gulf of Mexico — wide, shallow continental shelf (Katrina, Ike territory)
+    { name:'Gulf of Mexico',   factor:1.00, test:(lat,lon)=> lat>=18 && lat<=31 && lon>=-98 && lon<=-81 },
+    // Bay of Bengal — extremely wide shelf, highest surge risk globally
+    { name:'Bay of Bengal',    factor:1.05, test:(lat,lon)=> lat>=10 && lat<=24 && lon>=80  && lon<=95  },
+    // US Southeast Atlantic — moderate shelf (Carolinas, Georgia, NE Florida)
+    { name:'US SE Atlantic',   factor:0.75, test:(lat,lon)=> lat>=25 && lat<=37 && lon>=-82 && lon<=-74 },
+    // US Mid-Atlantic/NE — moderate-to-wide (Sandy territory: NY Bight, Chesapeake)
+    { name:'US Mid-Atlantic',  factor:0.80, test:(lat,lon)=> lat>=37 && lat<=42 && lon>=-76 && lon<=-70 },
+    // Caribbean Islands — narrow shelves, steep drop-offs
+    { name:'Caribbean Islands',factor:0.45, test:(lat,lon)=> lat>=10 && lat<=24 && lon>=-86 && lon<=-59 },
+    // Central America Pacific — variable, mostly narrow
+    { name:'Central America',  factor:0.55, test:(lat,lon)=> lat>=8  && lat<=20 && lon>=-110&& lon<=-77 },
+    // West Africa — narrow shelf
+    { name:'West Africa',      factor:0.50, test:(lat,lon)=> lat>=5  && lat<=20 && lon>=-20 && lon<=0   },
+    // East Asia / Philippines — variable
+    { name:'West Pacific',     factor:0.65, test:(lat,lon)=> lat>=5  && lat<=35 && lon>=115 && lon<=145 },
+];
+
+function getShelfFactor(lat, lon) {
+    if(lat == null || lon == null) return 0.5; // unknown location — conservative
+    for(const r of SHELF_REGIONS) {
+        if(r.test(lat, lon)) return r.factor;
+    }
+    // Open ocean / no matching region — surge threat minimal away from coast
+    return 0.30;
+}
+
+function calculateDPS(dataPoint) {
+    if(!dataPoint.max_wind_ms || dataPoint.max_wind_ms <= 0) {
+        return { score: 0, label: "Minimal", color: "var(--text-muted)" };
+    }
+
+    // ================================================================
+    // Destructive Potential Score (DPS) — 0-100 composite score
+    //
+    // DPS = 45*S + 35*Wf + 10*V + 10*F
+    //
+    // Unlike Saffir-Simpson (wind speed only), DPS captures the FULL
+    // picture: surge, storm size, intensity, and forward speed.
+    //
+    // A Cat 1 (Sandy, DPS ~71) can match a Cat 5 (Michael, DPS ~72)
+    // because Sandy's record-breaking wind field and surge potential
+    // offset her weaker peak winds — reflecting equal real-world danger.
+    //
+    // Components (each normalized 0→1):
+    //   S  (45%): Storm surge height with shelf factor — #1 damage driver
+    //   Wf (35%): Wind field area (R64² + R34²) — total energy footprint
+    //   V  (10%): Peak wind speed — intensity above hurricane threshold
+    //   F  (10%): Forward speed (inverse) — slower = more damage
+    //
+    // Calibrated against: Michael (72), Sandy (71), Katrina (91+)
+    // ================================================================
+
+    const v_kt = dataPoint.max_wind_ms / 0.514444;
+    const v_mph = v_kt * 1.15078;
+
+    // 1. Storm Surge (S) — 45% weight
+    // Biggest driver of catastrophic loss. Uses parametric surge model
+    // with continental shelf factor for geography-aware adjustment.
+    let S = 0;
+    const surgeRaw = calculateSurgeParametric(dataPoint);
+    if(surgeRaw > 0) {
+        const shelf = getShelfFactor(dataPoint.lat, dataPoint.lon);
+        const surgeShelved = surgeRaw * shelf;
+        S = Math.min(surgeShelved / 25, 1.0);
+    }
+
+    // 2. Wind Field / Storm Size (Wf) — 35% weight
+    // Weighted area approach: R64² (hurricane-force core) weighted 70%,
+    // R34² (tropical-storm footprint) weighted 30%. Area ∝ radius² so
+    // a storm with twice the radius affects 4× the territory.
+    // R64_max=45nm rewards compact but intense hurricane cores.
+    // Wf cap of 1.5 allows oversized storms to exceed baseline.
+    // If R64 unavailable (weaker storms), only R34 contributes.
+    const R64_MAX = 45;   // nm — normalization ceiling for hurricane-force radius
+    const R34_MAX = 300;  // nm — normalization ceiling for TS-force radius
+    let Wf = 0;
+    const r64 = dataPoint.r64_nm || 0;
+    const r34 = dataPoint.r34_nm || 0;
+    if(r64 > 0) {
+        Wf = 0.7 * (r64 * r64) / (R64_MAX * R64_MAX) + 0.3 * (r34 * r34) / (R34_MAX * R34_MAX);
+    } else if(r34 > 0) {
+        // No hurricane-force winds reported — only TS footprint contributes
+        Wf = 0.3 * (r34 * r34) / (R34_MAX * R34_MAX);
+    }
+    Wf = Math.min(Wf, 1.5) / 1.5;  // Normalize: 0→1.5 maps to 0→1.0; oversized storms still rewarded
+
+    // 3. Wind Speed (V) — 10% weight
+    // Important but less than people think vs. water + size.
+    // Floor at 40 mph (strong TS) to give partial credit to sub-hurricane winds.
+    // Range: 40 mph → 0, 157 mph → 1.0  (span = 117 mph).
+    let V = Math.max(0, Math.min((v_mph - 40) / 117, 1.0));
+
+    // 4. Forward Speed (F) — 10% weight
+    // Inverse: slower storms = more damage (prolonged rain, surge, wind).
+    // ≥25 mph forward speed → 0 (minimal added impact).
+    let F = 0;
+    if(dataPoint.forward_speed_knots && dataPoint.forward_speed_knots > 0) {
+        const fwd_mph = dataPoint.forward_speed_knots * 1.15078;
+        F = Math.max(0, 1.0 - Math.min(fwd_mph / 25, 1.0));
+    }
+
+    // Compose DPS Score (Cap at 100)
+    let rawScore = 40 * S + 40 * Wf + 10 * V + 10 * F;
+    let scoreObj = Math.min(100, Math.round(rawScore));
+
+    // Determine Label and Color
+    // These categories reflect ACTUAL destructive potential, not just wind speed
+    let label = "Minimal";
+    let color = "var(--text-muted)";
+    if(scoreObj >= 80)      { label="Catastrophic"; color="var(--cat5)"; }
+    else if(scoreObj >= 60) { label="Extreme";      color="var(--cat4)"; }
+    else if(scoreObj >= 40) { label="Severe";       color="var(--cat3)"; }
+    else if(scoreObj >= 20) { label="Moderate";     color="var(--cat2)"; }
+    else if(scoreObj >= 10) { label="Minor";        color="var(--cat1)"; }
+
+    return { score: scoreObj, label: label, color: color };
+}
+
+// ============================================================
+// STORM CONTEXT SUMMARY — auto-generated bullet points
+// ============================================================
+function generateStormContext(data) {
+    if (!data || !data.length) return [];
+
+    // Find peak values across the storm's life
+    let peakWind = 0, peakWindIdx = 0, peakDps = 0, peakDpsIdx = 0;
+    let minPressure = 9999, peakIke = 0, maxR34 = 0, maxR64 = 0;
+    let minFwd = 999, maxFwd = 0, peakSurge = 0;
+    data.forEach((d, i) => {
+        const vkt = d.max_wind_ms ? d.max_wind_ms / 0.514444 : 0;
+        const vmph = vkt * 1.15078;
+        if (vmph > peakWind) { peakWind = vmph; peakWindIdx = i; }
+        if (d.dps && d.dps.score > peakDps) { peakDps = d.dps.score; peakDpsIdx = i; }
+        if (d.min_pressure_hpa && d.min_pressure_hpa < minPressure) minPressure = d.min_pressure_hpa;
+        if (d.ike_total_tj > peakIke) peakIke = d.ike_total_tj;
+        if (d.r34_nm && d.r34_nm > maxR34) maxR34 = d.r34_nm;
+        if (d.r64_nm && d.r64_nm > maxR64) maxR64 = d.r64_nm;
+        if (d.forward_speed_knots && d.forward_speed_knots > 0) {
+            const fmph = d.forward_speed_knots * 1.15078;
+            if (fmph < minFwd) minFwd = fmph;
+            if (fmph > maxFwd) maxFwd = fmph;
+        }
+        const surge = calculateSurgeParametric(d);
+        if (surge > peakSurge) peakSurge = surge;
+    });
+
+    // Saffir-Simpson category from peak wind
+    let cat = 0;
+    if (peakWind >= 157) cat = 5;
+    else if (peakWind >= 130) cat = 4;
+    else if (peakWind >= 111) cat = 3;
+    else if (peakWind >= 96) cat = 2;
+    else if (peakWind >= 74) cat = 1;
+
+    const bullets = [];
+
+    // Line 1: Classification + peak stats
+    const catLabel = cat > 0 ? `Cat ${cat}` : (peakWind >= 39 ? 'Tropical Storm' : 'Tropical Depression');
+    bullets.push(`${catLabel} | ${Math.round(peakWind)} mph | ${minPressure < 9999 ? minPressure + ' mb' : 'N/A'}`);
+
+    // Wind field size assessment
+    if (maxR34 > 0) {
+        let sizeDesc;
+        if (maxR34 >= 300) sizeDesc = 'Massive';
+        else if (maxR34 >= 200) sizeDesc = 'Large';
+        else if (maxR34 >= 120) sizeDesc = 'Average';
+        else sizeDesc = 'Compact';
+        let detail = `${sizeDesc} wind field (R34: ${Math.round(maxR34)} nm)`;
+        if (maxR64 > 0) detail += ` | R64: ${Math.round(maxR64)} nm`;
+        else if (cat >= 1) detail += ' | R64: no data';
+        bullets.push(detail);
+    }
+
+    // Shelf / geography context at peak DPS
+    const peakD = data[peakDpsIdx];
+    if (peakD && peakD.lat != null) {
+        const shelf = getShelfFactor(peakD.lat, peakD.lon);
+        const region = SHELF_REGIONS.find(r => r.test(peakD.lat, peakD.lon));
+        if (region) {
+            const shelfDesc = shelf >= 0.9 ? 'Shallow shelf amplifies surge' :
+                              shelf >= 0.7 ? 'Moderate shelf enhances surge' :
+                              shelf <= 0.5 ? 'Steep coastline limits surge' :
+                              'Deep shelf moderates surge';
+            bullets.push(`${region.name}: ${shelfDesc}`);
+        }
+    }
+
+    // Notable anomalies / characteristics
+    if (cat >= 4 && maxR34 < 130) {
+        bullets.push('Extremely compact core limited widespread damage despite intensity');
+    } else if (cat <= 2 && maxR34 >= 250) {
+        bullets.push('Outsized wind field drove damage well beyond what category suggests');
+    }
+
+    if (minFwd < 5 && minFwd < 999) {
+        bullets.push('Near-stall at times — prolonged exposure and rainfall');
+    } else if (maxFwd > 35) {
+        bullets.push('Fast-moving — reduced exposure time at any one location');
+    }
+
+    if (peakSurge >= 20) {
+        bullets.push(`Extreme surge potential: ~${Math.round(peakSurge)} ft open-water estimate`);
+    } else if (peakSurge >= 12) {
+        bullets.push(`Major surge potential: ~${Math.round(peakSurge)} ft open-water estimate`);
+    }
+
+    if (peakIke >= 150) {
+        bullets.push(`Very high total wind energy: ${peakIke.toFixed(0)} TJ peak`);
+    }
+
+    return bullets;
+}
+
+// ============================================================
+// HOLLAND WIND PROFILE (client-side)
+// ============================================================
+function hollandWindSpeed(r_m, vmax_ms, rmw_m, b) {
+    // V(r) = Vmax * sqrt((Rmw/r)^B * exp(1 - (Rmw/r)^B))
+    if (r_m < 1) r_m = 1;
+    const ratio_B = Math.pow(rmw_m / r_m, b);
+    return vmax_ms * Math.sqrt(ratio_B * Math.exp(1.0 - ratio_B));
+}
+
+function computeWindFieldImage(dataPoint, map) {
+    // Returns {url, bounds} for a Leaflet ImageOverlay
+    const vmax = dataPoint.max_wind_ms;
+    if (!vmax || vmax < 10) return null; // skip very weak systems
+
+    const lat = dataPoint.lat;
+    const lon = dataPoint.lon;
+
+    // Estimate RMW and R34 if not provided by the API
+    let rmw_nm = dataPoint.rmw_nm || estimateRmwNm(vmax, lat);
+    let r34_nm = dataPoint.r34_nm || estimateR34Nm(vmax, rmw_nm);
+
+    const rmw_m = rmw_nm * NM_TO_M;
+    const r34_m = r34_nm * NM_TO_M;
+
+    // Holland B parameter
+    const b = Math.min(2.5, Math.max(1.0, 1.0 + 0.5 * (vmax / 70.0)));
+
+    // Grid extent: 1.3x the r34 radius
+    const extent_m = r34_m * 1.3;
+
+    // Canvas resolution: ~200x200 pixels for performance
+    const canvasSize = 200;
+    const halfSize = canvasSize / 2;
+    const pixelScale = extent_m / halfSize; // meters per pixel
+
+    // Quadrant r34 values (in meters)
+    const q = dataPoint.r34_quadrants;
+    const hasQuads = q && (q.NE || q.SE || q.SW || q.NW);
+    let qNE_m, qSE_m, qSW_m, qNW_m, meanR34;
+    if (hasQuads) {
+        qNE_m = (q.NE || r34_nm) * NM_TO_M;
+        qSE_m = (q.SE || r34_nm) * NM_TO_M;
+        qSW_m = (q.SW || r34_nm) * NM_TO_M;
+        qNW_m = (q.NW || r34_nm) * NM_TO_M;
+        meanR34 = (qNE_m + qSE_m + qSW_m + qNW_m) / 4;
+    }
+
+    // Forward motion for translational asymmetry
+    const fwd_speed = dataPoint.forward_speed_knots ? dataPoint.forward_speed_knots * 0.514444 : 0;
+    const fwd_dir = dataPoint.forward_direction_deg || 0;
+    const theta_max_rad = ((fwd_dir + 90) % 360) * Math.PI / 180;
+
+    // Create canvas and compute wind field
+    const canvas = document.createElement('canvas');
+    canvas.width = canvasSize;
+    canvas.height = canvasSize;
+    const ctx = canvas.getContext('2d');
+    const imgData = ctx.createImageData(canvasSize, canvasSize);
+    const pixels = imgData.data;
+
+    for (let py = 0; py < canvasSize; py++) {
+        for (let px = 0; px < canvasSize; px++) {
+            // Convert pixel to meters relative to storm center
+            // x = east, y = north (canvas y is inverted)
+            const dx_m = (px - halfSize) * pixelScale;
+            const dy_m = (halfSize - py) * pixelScale; // flip Y
+            const r_m = Math.sqrt(dx_m * dx_m + dy_m * dy_m);
+            if (r_m < 1) continue;
+
+            let wind;
+
+            if (hasQuads) {
+                // Asymmetric: compute azimuth and scale radius by quadrant
+                const theta_rad = Math.atan2(dx_m, dy_m); // angle from north
+                const theta_deg = ((theta_rad * 180 / Math.PI) + 360) % 360;
+
+                // Interpolate quadrant r34 at this azimuth
+                const r34_at_theta = interpQuadrantRadius(theta_deg, qNE_m, qSE_m, qSW_m, qNW_m);
+                const scale = r34_at_theta / meanR34;
+                const r_scaled = r_m / scale;
+
+                wind = hollandWindSpeed(r_scaled, vmax, rmw_m, b);
+
+                // Taper beyond quadrant-specific outer radius
+                if (r_m > r34_at_theta * 0.9) {
+                    const taper_frac = Math.min(1, (r_m - r34_at_theta * 0.9) / (r34_at_theta * 0.3));
+                    wind *= 0.5 * (1.0 + Math.cos(Math.PI * taper_frac));
+                }
+                if (r_m > r34_at_theta * 1.2) wind = 0;
+
+                // Translational asymmetry
+                if (fwd_speed > 0) {
+                    const delta = theta_rad - theta_max_rad;
+                    const decay = Math.exp(-0.5 * Math.pow((r_m / rmw_m) - 1, 2) / 2);
+                    wind = Math.max(0, wind + 0.5 * fwd_speed * Math.cos(delta) * decay);
+                }
+            } else {
+                // Symmetric Holland
+                wind = hollandWindSpeed(r_m, vmax, rmw_m, b);
+
+                // Taper beyond r34
+                if (r_m > r34_m * 0.9) {
+                    const taper_frac = Math.min(1, (r_m - r34_m * 0.9) / (r34_m * 0.3));
+                    wind *= 0.5 * (1.0 + Math.cos(Math.PI * taper_frac));
+                }
+                if (r_m > r34_m * 1.2) wind = 0;
+            }
+
+            const color = windColor(wind);
+            if (color) {
+                const idx = (py * canvasSize + px) * 4;
+                pixels[idx]   = color[0];
+                pixels[idx+1] = color[1];
+                pixels[idx+2] = color[2];
+                pixels[idx+3] = color[3];
+            }
+        }
+    }
+
+    ctx.putImageData(imgData, 0, 0);
+
+    // Compute geographic bounds for this canvas
+    const deg_lat = extent_m / DEG_TO_M;
+    const deg_lon = extent_m / (DEG_TO_M * Math.cos(lat * Math.PI / 180));
+    const bounds = [
+        [lat - deg_lat, lon - deg_lon],
+        [lat + deg_lat, lon + deg_lon]
+    ];
+
+    return { url: canvas.toDataURL(), bounds };
+}
+
+function interpQuadrantRadius(theta_deg, ne, se, sw, nw) {
+    // Cosine interpolation between quadrant centers
+    // NE center=45, SE=135, SW=225, NW=315
+    const centers = [45, 135, 225, 315];
+    const radii = [ne, se, sw, nw];
+
+    for (let i = 0; i < 4; i++) {
+        const c1 = centers[i];
+        const c2 = centers[(i + 1) % 4];
+        const r1 = radii[i];
+        const r2 = radii[(i + 1) % 4];
+
+        let inRange, frac;
+        if (c2 > c1) {
+            inRange = theta_deg >= c1 && theta_deg < c2;
+            frac = (theta_deg - c1) / (c2 - c1);
+        } else {
+            // Wrap around (315 -> 45)
+            inRange = theta_deg >= c1 || theta_deg < c2;
+            let a = theta_deg < c1 ? theta_deg + 360 : theta_deg;
+            frac = (a - c1) / (c2 + 360 - c1);
+        }
+
+        if (inRange) {
+            const weight = 0.5 * (1.0 - Math.cos(Math.PI * frac));
+            return r1 * (1 - weight) + r2 * weight;
+        }
+    }
+    return ne; // fallback
+}
+
+// ============================================================
+// PRESETS & ACCORDION
+// ============================================================
+function loadPreset(id){document.getElementById('stormId').value=id;fetchHistory()}
+
+function highlightSelectedChip(stormId){
+    document.querySelectorAll('.preset-chip.selected,.active-chip.selected').forEach(el=>el.classList.remove('selected'));
+    document.querySelectorAll('.preset-chip,.active-chip').forEach(el=>{
+        if(el.dataset.stormId===stormId) el.classList.add('selected');
+    });
+}
+
+function toggleAccordion(sectionId){
+    const el=document.getElementById(sectionId);
+    if(!el)return;
+    el.classList.toggle('open');
+}
+
+function catLabel(c){return c===0?'TS':('Cat '+c)}
+
+// Render famous storms (starts collapsed)
+(function(){
+    document.getElementById('presetGrid').innerHTML=PRESETS.map(p=>{
+        const dotColor=p.dps>0?dpsChipColor(p.dps):catColor(p.cat);
+        const metaText=p.dps>0?`${p.year} \u00b7 DPS ${p.dps}`:`${p.year} \u00b7 Cat ${p.cat}`;
+        return `<div class="preset-chip" data-storm-id="${p.id}" onclick="loadPreset('${p.id}')"><div class="cat-dot" style="background:${dotColor}"></div><span class="chip-name">${p.name}</span><span class="chip-meta">${metaText}</span></div>`;
+    }).join('');
+})();
+
+// ============================================================
+// ACTIVE STORMS — live NHC feed with auto-polling
+// ============================================================
+let activeStormsPollTimer=null;
+let lastActiveStorms=[];
+
+function intensityColor(kt){
+    if(!kt||kt<34) return 'var(--ts)';
+    if(kt<64) return 'var(--cat1)';
+    if(kt<83) return 'var(--cat2)';
+    if(kt<96) return 'var(--cat3)';
+    if(kt<113) return 'var(--cat4)';
+    if(kt<137) return 'var(--cat4)';
+    return 'var(--cat5)';
+}
+function intensityLabel(kt){
+    if(!kt||kt<34) return 'Tropical Storm';
+    if(kt<64) return 'Cat 1';
+    if(kt<83) return 'Cat 2';
+    if(kt<96) return 'Cat 3';
+    if(kt<113) return 'Cat 4';
+    return 'Cat 5';
+}
+function classificationShort(cls){
+    if(!cls)return '';
+    const map={'Tropical Storm':'TS','Hurricane':'HU','Tropical Depression':'TD',
+        'Post-Tropical Cyclone':'PT','Subtropical Storm':'SS','Subtropical Depression':'SD',
+        'Potential Tropical Cyclone':'PTC','Remnants':'REM'};
+    return map[cls]||cls.substring(0,3).toUpperCase();
+}
+
+let _lastActiveStormsJson='';
+function renderActiveStorms(storms){
+    // Skip re-rendering if data hasn't changed (avoids unnecessary DOM rebuilds)
+    const currentJson=JSON.stringify(storms);
+    if(currentJson===_lastActiveStormsJson) return;
+    _lastActiveStormsJson=currentJson;
+
+    lastActiveStorms=storms;
+    const list=document.getElementById('activeStormsList');
+    const badge=document.getElementById('liveBadge');
+    const offseason=document.getElementById('offseasonMsg');
+    const refreshEl=document.getElementById('activeRefreshTime');
+
+    const now=new Date();
+    refreshEl.textContent=now.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+
+    if(!storms||storms.length===0){
+        badge.style.display='none';
+        list.innerHTML=`<div class="offseason-msg">No active tropical cyclones in any basin. During hurricane season (Jun\u2013Nov Atlantic, May\u2013Nov East Pacific), active storms will appear here automatically with live DPS tracking.</div>`;
+        return;
+    }
+
+    badge.style.display='inline';
+    list.innerHTML=storms.map(s=>{
+        const kt=s.intensity_knots||0;
+        const color=intensityColor(kt);
+        const label=intensityLabel(kt);
+        const cls=classificationShort(s.classification);
+        const wind=kt?`${kt} kt`:'--';
+        const pres=s.pressure_mb?`${s.pressure_mb} mb`:'';
+        const loc=s.lat&&s.lon?`${Math.abs(s.lat).toFixed(1)}\u00b0${s.lat>=0?'N':'S'} ${Math.abs(s.lon).toFixed(1)}\u00b0${s.lon>=0?'E':'W'}`:'';
+        return `<div class="active-chip" data-storm-id="${s.id}" onclick="loadActiveStorm('${s.id}')">
+            <div class="active-dot" style="background:${color}"></div>
+            <div class="chip-detail">
+                <span class="chip-name">${s.name||'Unnamed'}</span>
+                <span class="chip-stats">${cls} &middot; ${wind}${pres?' &middot; '+pres:''}${loc?' &middot; '+loc:''}</span>
+            </div>
+            <span class="chip-intensity" style="color:${color}">${label}</span>
+        </div>`;
+    }).join('');
+}
+
+function loadActiveStorm(id){
+    document.getElementById('stormId').value=id;
+    window._isActiveStorm=true;
+    fetchHistory();
+}
+
+async function fetchActiveStorms(){
+    try{
+        const controller=new AbortController();
+        const timeout=setTimeout(()=>controller.abort(),3000); // 3 second timeout
+        const r=await fetch(`${API_BASE}/storms/active`,{signal:controller.signal});
+        clearTimeout(timeout);
+        if(!r.ok) throw new Error(`HTTP ${r.status}`);
+        const storms=await r.json();
+        renderActiveStorms(storms);
+        // If there are active storms and nothing is currently visualized, auto-load the first one
+        if(storms.length>0 && !document.getElementById('statsRow').classList.contains('visible')){
+            loadActiveStorm(storms[0].id);
+        }
+    }catch(e){
+        console.warn('Active storms fetch failed:',e);
+        renderActiveStorms([]);
+    }
+}
+
+function startActiveStormPolling(intervalMs=300000){ // 5 minutes
+    fetchActiveStorms();
+    activeStormsPollTimer=setInterval(fetchActiveStorms,intervalMs);
+}
+
+// Start polling on page load
+startActiveStormPolling();
+
+// Basin display names
+const BASIN_NAMES={NA:'Atlantic',EP:'East Pacific',WP:'West Pacific',NI:'N. Indian',SI:'S. Indian',SP:'S. Pacific',SA:'S. Atlantic'};
+function basinName(b){return BASIN_NAMES[b]||b}
+
+// Fetch HURDAT2 catalog (Atlantic) + IBTrACS global catalog
+(async function loadCatalog(){
+    const container=document.getElementById('stormAccordion');
+    
+    if(!container) {
+        console.warn('Storm catalog container not found');
+        return;
+    }
+
+    // Abort if taking too long
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+
+    try {
+        // Fetch catalogs in parallel. Custom storms are local and should return quickly.
+        const [hurdat, ibtracs, custom] = await Promise.all([
+            fetch(`${API_BASE}/storms/catalog?min_year=2015`, {signal: controller.signal})
+                .then(r => r.ok ? r.json() : [])
+                .catch(e => { console.error('HURDAT2 catalog fetch failed:', e); return []; }),
+            fetch(`${API_BASE}/storms/catalog/global?min_year=2015`, {signal: controller.signal})
+                .then(r => r.ok ? r.json() : [])
+                .catch(e => { console.error('IBTrACS catalog fetch failed:', e); return []; }),
+            fetch(`${API_BASE}/storms/catalog/custom?min_year=2015`, {signal: controller.signal})
+                .then(r => r.ok ? r.json() : [])
+                .catch(e => { console.error('Custom catalog fetch failed:', e); return []; }),
+        ]);
+
+        clearTimeout(timeout);
+
+        // Merge catalogs — deduplicate by ID AND by name+year
+        // (HURDAT2 uses AL-format IDs, IBTrACS uses SID format — same storm, different IDs)
+        const existingIds = new Set();
+        const existingNameYear = new Set();
+        const stormByNameYear = {};  // for merging DPS data
+        const allStorms = [];
+
+        function nameYearKey(s) { return `${(s.name||'').toUpperCase()}_${s.year}`; }
+
+        // HURDAT2 is authoritative for Atlantic
+        hurdat.forEach(s => {
+            const storm = {...s, basin: s.id.startsWith('EP') ? 'EP' : 'NA', source: 'hurdat2'};
+            allStorms.push(storm);
+            existingIds.add(storm.id);
+            const nyk = nameYearKey(storm);
+            existingNameYear.add(nyk);
+            stormByNameYear[nyk] = storm;
+        });
+
+        // Custom storms (e.g. 2025/2026 or any user edits)
+        custom.forEach(s => {
+            const nyk = nameYearKey(s);
+            if (!existingIds.has(s.id) && !existingNameYear.has(nyk)) {
+                allStorms.push({...s, source: 'custom'});
+                existingIds.add(s.id);
+                existingNameYear.add(nyk);
+                stormByNameYear[nyk] = s;
+            }
+        });
+
+        // IBTrACS fills out other basins and fills gaps for recent Atlantic seasons.
+        // If HURDAT2 failed to load (empty), allow IBTrACS to cover all years.
+        const hurdatFailed = hurdat.length === 0;
+        if (hurdatFailed) console.warn('HURDAT2 returned empty — IBTrACS will cover all basins/years');
+        ibtracs.forEach(s => {
+            if (existingIds.has(s.id)) return; // skip exact ID duplicates
+
+            const nyk = nameYearKey(s);
+            if (existingNameYear.has(nyk)) {
+                // Same storm, different ID — merge DPS data if IBTrACS has it
+                const existing = stormByNameYear[nyk];
+                if (existing && s.peak_dps && (!existing.peak_dps || s.peak_dps > existing.peak_dps)) {
+                    existing.peak_dps = s.peak_dps;
+                    existing.dps_label = s.dps_label;
+                }
+                return; // don't add duplicate
+            }
+
+            if (!hurdatFailed && (s.basin === 'NA' || s.basin === 'EP')) {
+                if (s.year >= 2024) {
+                    allStorms.push({...s, source: 'ibtracs'});
+                    existingIds.add(s.id);
+                    existingNameYear.add(nyk);
+                    stormByNameYear[nyk] = s;
+                }
+            } else {
+                allStorms.push({...s, source: 'ibtracs'});
+                existingIds.add(s.id);
+                existingNameYear.add(nyk);
+                stormByNameYear[nyk] = s;
+            }
+        });
+
+        window.stormCatalog=allStorms;
+
+        // Refresh preset chips with live catalog DPS values
+        refreshPresetDPS(allStorms);
+
+        console.log(`Loaded ${allStorms.length} total storms (${hurdat.length} HURDAT2, ${ibtracs.length} IBTrACS+Custom)`);
+        
+        if(allStorms.length === 0) {
+            console.warn('No storms loaded from catalogs');
+            return;
+        }
+
+        // Group by year descending
+        const byYear={};
+        allStorms.forEach(s=>{
+            if(!byYear[s.year])byYear[s.year]=[];
+            byYear[s.year].push(s);
+        });
+        const years=Object.keys(byYear).sort((a,b)=>b-a);
+
+        console.log('Storm distribution by year:', years);
+
+        years.forEach(yr=>{
+            const storms=byYear[yr];
+            storms.sort((a,b)=>(b.peak_dps||0)-(a.peak_dps||0));
+
+            // Group within year by basin
+            const byBasin={};
+            storms.forEach(s=>{
+                const b=s.basin||'NA';
+                if(!byBasin[b])byBasin[b]=[];
+                byBasin[b].push(s);
+            });
+            const basins=Object.keys(byBasin);
+            const totalCount=storms.length;
+
+            const secId='accYear'+yr;
+            const section=document.createElement('div');
+            section.className='accordion-section';
+            section.id=secId;
+
+            let bodyHtml='';
+            if(basins.length===1){
+                // Single basin — just list storms
+                bodyHtml=`<div class="preset-grid">`+storms.map(s=>stormChipHtml(s)).join('')+`</div>`;
+            } else {
+                // Multiple basins — sub-group with basin labels
+                basins.forEach(b=>{
+                    const bStorms=byBasin[b];
+                    bodyHtml+=`<div data-basin-label="${b}" style="font-size:.6rem;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;margin:${bodyHtml?'.5rem':'.1rem'} 0 .2rem;padding-left:.1rem;">${basinName(b)} (${bStorms.length})</div>`;
+                    bodyHtml+=`<div class="preset-grid">`+bStorms.map(s=>stormChipHtml(s)).join('')+`</div>`;
+                });
+            }
+
+            section.innerHTML=`<div class="accordion-header" onclick="toggleAccordion('${secId}')"><span>${yr} Season</span><span class="acc-count">${totalCount}</span><span class="accordion-arrow">&#9654;</span></div>`
+                +`<div class="accordion-body">${bodyHtml}</div>`;
+            container.appendChild(section);
+        });
+        
+        console.log(`Created year accordion sections for ${years.length} years (${years.join(', ')})`);
+
+        // Apply default basin filter (Atlantic) after catalog loads
+        const defaultBasin = document.getElementById('basinSelect').value;
+        if (defaultBasin) {
+            window.selectedBasin = defaultBasin;
+            filterAccordionByBasin(defaultBasin);
+        }
+    } catch(e) {
+        console.error('Error loading catalog:', e);
+        if(e.name === 'AbortError') {
+            console.error('Catalog loading timed out after 60 seconds');
+        }
+    } finally {
+        clearTimeout(timeout);
+    }
+})();
+
+function dpsChipColor(score){
+    if(score>=80)return'var(--cat5)';if(score>=60)return'var(--cat4)';
+    if(score>=40)return'var(--cat3)';if(score>=20)return'var(--cat2)';
+    if(score>=10)return'var(--cat1)';return'var(--td)';
+}
+function stormChipHtml(s){
+    const cat=s.category||0;
+    const dps=s.peak_dps||0;
+    const basinTag=(s.basin && s.basin!=='NA')?` <span style="color:var(--text-dim);font-size:.58rem">${s.basin}</span>`:'';
+    const dotColor=dps>0?dpsChipColor(dps):catColor(cat);
+    const metaText=dps>0?`DPS ${dps}`:catLabel(cat);
+    return `<div class="preset-chip" data-storm-id="${s.id}" onclick="loadPreset('${s.id}')"><div class="cat-dot" style="background:${dotColor}"></div><span class="chip-name">${s.name}${basinTag}</span><span class="chip-meta">${metaText}</span></div>`;
+}
+
+// ============================================================
+// FETCH & RENDER
+// ============================================================
+// Basin selector: filter accordion display
+window.selectedBasin = document.getElementById('basinSelect').value || '';
+document.getElementById('basinSelect').addEventListener('change', function(){
+    window.selectedBasin = this.value;
+    filterAccordionByBasin(window.selectedBasin);
+});
+
+// Enter key triggers search from either input
+document.getElementById('stormId').addEventListener('keydown', function(e){ if(e.key==='Enter'){e.preventDefault();fetchHistory()} });
+document.getElementById('searchYear').addEventListener('keydown', function(e){ if(e.key==='Enter'){e.preventDefault();fetchHistory()} });
+
+// Show year field when user enters what looks like a storm name
+document.getElementById('stormId').addEventListener('input', function(){
+    const input = this.value.trim().toUpperCase();
+    const looksLikeName = /^[A-Z]{2,}$/.test(input);
+    document.getElementById('nameSearchGroup').style.display = looksLikeName ? 'flex' : 'none';
+});
+
+function filterAccordionByBasin(selectedBasin) {
+    const accordion = document.getElementById('stormAccordion');
+    if (!accordion) return;
+    
+    // Get all accordion sections (year sections)
+    const yearSections = accordion.querySelectorAll('.accordion-section');
+    
+    yearSections.forEach(section => {
+        // Always show the Historic Storms section regardless of basin filter
+        if (section.id === 'accFamous') {
+            section.style.display = 'block';
+            return;
+        }
+        // Get all storm chips in this year section
+        const stormChips = section.querySelectorAll('.preset-chip');
+        const basinLabels = section.querySelectorAll('[data-basin-label]');
+        
+        let visibleCount = 0;
+        
+        stormChips.forEach(chip => {
+            const stormId = chip.getAttribute('onclick').match(/'([^']+)'/)[1];
+            const storm = window.stormCatalog && window.stormCatalog.find(s => s.id === stormId);
+            const stormBasin = storm ? (storm.basin || 'NA') : '';
+            
+            if (!selectedBasin || stormBasin === selectedBasin) {
+                chip.style.display = 'flex';
+                visibleCount++;
+            } else {
+                chip.style.display = 'none';
+            }
+        });
+        
+        // Show/hide basin labels based on visible storms
+        basinLabels.forEach(label => {
+            const basinCode = label.getAttribute('data-basin-label');
+            if (!selectedBasin || basinCode === selectedBasin) {
+                label.style.display = 'block';
+            } else {
+                label.style.display = 'none';
+            }
+        });
+        
+        // Hide year section if no storms are visible in this basin
+        if (visibleCount === 0) {
+            section.style.display = 'none';
+        } else {
+            section.style.display = 'block';
+            // Update count in header
+            const header = section.querySelector('.accordion-header');
+            if (header) {
+                const countSpan = header.querySelector('.acc-count');
+                if (countSpan) {
+                    countSpan.textContent = visibleCount;
+                }
+            }
+        }
+    });
+}
+
+function isAtcfId(s){return /^(AL|EP|CP)\d{6}$/.test(s)}
+function isIbtracsSid(s){return /^\d{7}[NS]\d{5}$/.test(s)}
+
+async function fetchHistory(){
+    const rawId=document.getElementById('stormId').value.trim().toUpperCase();if(!rawId)return;
+    const yearInput=document.getElementById('searchYear').value;
+    const btn=document.getElementById('fetchBtn'),loading=document.getElementById('loadingBar'),errorBox=document.getElementById('errorBox');
+    btn.disabled=true;loading.classList.add('visible');errorBox.classList.remove('visible');hideResults();
+
+    try{
+        let data=null;
+        let usedId=rawId;
+        const t0=performance.now();
+
+        // ---- CHECK PRELOAD CACHE FIRST ----
+        // Wait for preload to finish if it's still loading (max 5s)
+        if (!preloadReady && preloadPromise) {
+            await Promise.race([preloadPromise, new Promise(r => setTimeout(r, 5000))]);
+        }
+
+        if (PRELOAD_CACHE[rawId] && PRELOAD_CACHE[rawId].length > 0) {
+            data = PRELOAD_CACHE[rawId];
+            console.log(`[PRELOAD] Cache hit for ${rawId} — ${data.length} snapshots loaded instantly`);
+        }
+
+        // ---- FALL BACK TO API IF NOT IN CACHE ----
+        if (!data || !data.length) {
+            // Try unified track endpoint (handles ATCF IDs, IBTrACS SIDs, and auto-detection)
+            // skip_points=1 means compute every other point (2x faster), skip_points=0 means all points
+            const r=await fetch(`${API_BASE}/storms/${rawId}/track?grid_resolution_km=15&skip_points=1`);
+            if(r.ok){
+                data=await r.json();
+                // Store in preload cache for future use this session
+                if (data && data.length > 0) {
+                    PRELOAD_CACHE[rawId] = data;
+                    console.log(`[PRELOAD] Cached ${rawId} from API response (${data.length} snapshots)`);
+                }
+            }
+        }
+
+        // Last resort: IBTrACS name search (if input looks like a name, not an ID)
+        if((!data || !data.length) && /^[A-Z]{2,}$/.test(rawId)){
+            const yr=yearInput||'';
+            if(!yr)throw new Error(`"${rawId}" looks like a storm name. Please enter the year in the "Year" field that appeared below, then click Visualize again.`);
+            const r2=await fetch(`${API_BASE}/ibtracs/search`,{
+                method:'POST',
+                headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({name:rawId,year:parseInt(yr)})
+            });
+            if(r2.ok) {
+                data=await r2.json();
+                // Cache IBTrACS results too
+                if (data && data.length > 0) {
+                    PRELOAD_CACHE[rawId] = data;
+                }
+            }
+        }
+
+        if(!data || !data.length) throw new Error(`No results for "${rawId}". Try a storm name with year (e.g. "Katrina" + 2005), or pick one from Historic Storms in the sidebar.`);
+
+        const fetchMs=Math.round(performance.now()-t0);
+        window.stormData=data.sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp));
+        window._lastFetchMs=fetchMs;
+        renderAll(usedId,window.stormData);
+    }catch(e){errorBox.textContent=e.message;errorBox.classList.add('visible')}
+    finally{btn.disabled=false;loading.classList.remove('visible')}
+}
+
+function hideResults(){
+    ['statsRow','vizArea','scrubberBar'].forEach(id=>document.getElementById(id).classList.remove('visible'));
+    document.getElementById('welcomeState').classList.remove('hidden');
+    document.getElementById('mapLegend').style.display='none';
+    window._sstReady=false;window._sstData=null;
+    window.animatedMarker=null;window.windOverlay=null;
+    stopAnimation();
+}
+
+function renderAll(stormId,data){
+    resetChartTracking(); // Force re-render of all charts for new storm data
+    document.getElementById('welcomeState').classList.add('hidden');
+    const preset=PRESETS.find(p=>p.id===stormId);
+    const catalogEntry=window.stormCatalog&&window.stormCatalog.find(s=>s.id===stormId);
+    const name=preset?preset.name:catalogEntry?catalogEntry.name:stormId;
+    const totalIke=data.map(d=>d.ike_total_tj);
+    
+    // Compute DPS for all points
+    data.forEach(d => { d.dps = calculateDPS(d); });
+    const dpsScores = data.map(d => d.dps.score);
+    const peakDpsIdx = dpsScores.indexOf(Math.max(...dpsScores));
+    const peakDpsObj = data[peakDpsIdx].dps;
+
+    const peakIdx=totalIke.indexOf(Math.max(...totalIke)),peakTime=new Date(data[peakIdx].timestamp);
+
+    document.getElementById('statPeakDPS').textContent=peakDpsObj.score;
+    document.getElementById('statPeakDPS').style.color=peakDpsObj.color;
+    document.getElementById('statDPSLabel').textContent=peakDpsObj.label + ' Threat';
+
+    document.getElementById('statPeakIke').textContent=totalIke[peakIdx].toFixed(1)+' TJ';
+    document.getElementById('statPeakTime').textContent='at '+peakTime.toLocaleDateString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+
+    highlightSelectedChip(stormId);
+    document.getElementById('statsRow').classList.add('visible');
+    document.getElementById('vizArea').classList.add('visible');
+    document.getElementById('mapLegend').style.display='flex';
+    const slider=document.getElementById('scrubSlider');slider.max=data.length-1;slider.value=0;
+    document.getElementById('scrubberBar').classList.add('visible');
+    updateScrubDisplay(0);
+    document.getElementById('scrubPlay').disabled=false;
+    renderDPSChart(data);
+    updateStormContext(data);
+    // Render the active tab's chart (IKE is default active tab)
+    const activeTab=document.querySelector('.chart-tab.active');
+    const activeTabName=activeTab?activeTab.dataset.tab:'ike';
+    if(activeTabName==='ike') renderChart(data);
+    else if(activeTabName==='surge') renderSurgeChart(data);
+    else if(activeTabName==='pressure') renderPressureChart(data);
+    else if(activeTabName==='wind') renderWindChart(data);
+    renderMap(data);
+    // Reset SST tab state and start async fetch
+    const sstTab=document.querySelector('.chart-tab[data-tab="sst"]');
+    sstTab.classList.add('sst-loading');
+    window._sstReady=false;
+    window._sstData=null;
+    fetchAndRenderSST(data);
+}
+
+// ============================================================
+// TABBED CHART SWITCHING
+// ============================================================
+// Track which charts have been rendered for current data to avoid
+// destroying and recreating them on tab switch.
+const _renderedChartData = {ike:null, surge:null, pressure:null, wind:null, sst:null};
+
+function switchChartTab(tabName){
+    // Update tab button active state
+    document.querySelectorAll('.chart-tab').forEach(t=>t.classList.remove('active'));
+    document.querySelector(`.chart-tab[data-tab="${tabName}"]`).classList.add('active');
+
+    // Update pane visibility
+    document.querySelectorAll('.chart-tab-pane').forEach(p=>p.classList.remove('active'));
+    const paneMap={ike:'tabIKE',surge:'tabSurge',pressure:'tabPressure',wind:'tabWind',sst:'tabSST'};
+    document.getElementById(paneMap[tabName]).classList.add('active');
+
+    // Only re-render if chart hasn't been rendered with current data yet
+    // (Chart.js needs visible canvas, but we skip if data hasn't changed)
+    const currentData = window.stormData;
+    if(tabName==='ike' && currentData && _renderedChartData.ike!==currentData) { renderChart(currentData); _renderedChartData.ike=currentData; }
+    if(tabName==='surge' && currentData && _renderedChartData.surge!==currentData) { renderSurgeChart(currentData); _renderedChartData.surge=currentData; }
+    if(tabName==='pressure' && currentData && _renderedChartData.pressure!==currentData) { renderPressureChart(currentData); _renderedChartData.pressure=currentData; }
+    if(tabName==='wind' && currentData && _renderedChartData.wind!==currentData) { renderWindChart(currentData); _renderedChartData.wind=currentData; }
+    if(tabName==='sst' && window._sstReady && window._sstData && _renderedChartData.sst!==currentData) { renderSSTChart(currentData, window._sstData); _renderedChartData.sst=currentData; }
+
+    // Trigger resize so Chart.js redraws for the now-visible canvas
+    window.dispatchEvent(new Event('resize'));
+}
+
+// Clear chart data tracking when new storm is loaded (forces re-render)
+function resetChartTracking() {
+    _renderedChartData.ike=null; _renderedChartData.surge=null;
+    _renderedChartData.pressure=null; _renderedChartData.wind=null;
+    _renderedChartData.sst=null;
+}
+
+function toggleDpsContext(){
+    const box=document.getElementById('dpsContextBox');
+    const btn=document.getElementById('dpsContextToggle');
+    if(box.style.display==='none'){
+        box.style.display='flex';
+        btn.textContent='\u2715';
+        btn.title='Back to chart';
+    } else {
+        box.style.display='none';
+        btn.textContent='?';
+        btn.title='Storm context';
+    }
+}
+
+function updateStormContext(data){
+    const bullets=generateStormContext(data);
+    const container=document.getElementById('dpsContextBullets');
+    const toggle=document.getElementById('dpsContextToggle');
+    const box=document.getElementById('dpsContextBox');
+    if(!bullets.length){
+        toggle.style.display='none';
+        box.style.display='none';
+        return;
+    }
+    container.innerHTML=bullets.map(b=>`<div class="ctx-bullet"><span>${b}</span></div>`).join('');
+    toggle.style.display='block';
+    toggle.textContent='?';
+    box.style.display='none'; // start hidden, user clicks to reveal
+}
+
+function renderDPSChart(data){
+    const ctx=document.getElementById('dpiChart').getContext('2d');
+    if(currentDPSChart)currentDPSChart.destroy();
+    const labels=data.map(d=>{const t=new Date(d.timestamp);return`${t.getMonth()+1}/${t.getDate()} ${String(t.getHours()).padStart(2,'0')}Z`});
+    const dpsScores=data.map(d=>d.dps?d.dps.score:0);
+
+    // Build per-point colors matching the DPS threat level
+    const pointColors=data.map(d=>{
+        if(!d.dps)return'#94a3b8';
+        const s=d.dps.score;
+        if(s>=80)return'#ef4444';if(s>=60)return'#f97316';if(s>=40)return'#fbbf24';
+        if(s>=20)return'#34d399';if(s>=10)return'#60a5fa';return'#94a3b8';
+    });
+
+    // Gradient fill under the line
+    const gradient=ctx.createLinearGradient(0,0,0,ctx.canvas.clientHeight||300);
+    gradient.addColorStop(0,'rgba(239,68,68,0.18)');
+    gradient.addColorStop(0.4,'rgba(249,115,22,0.10)');
+    gradient.addColorStop(1,'rgba(99,102,241,0.02)');
+
+    currentDPSChart=new Chart(ctx,{type:'line',data:{labels,datasets:[
+        {label:'Destructive Potential (DPS)',data:dpsScores,borderColor:'#f43f5e',backgroundColor:gradient,borderWidth:3,fill:true,tension:.35,pointRadius:0,pointHitRadius:10,
+         segment:{borderColor:c=>{
+            const v=c.p1.parsed.y;
+            if(v>=80)return'#ef4444';if(v>=60)return'#f97316';if(v>=40)return'#fbbf24';
+            if(v>=20)return'#34d399';if(v>=10)return'#60a5fa';return'#94a3b8';
+         }}
+        }
+    ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+        onHover:(evt,els)=>{if(els&&els.length){if(window.animationFrameId)stopAnimation();const i=els[0].index;window.currentAnimIndex=i;document.getElementById('scrubSlider').value=i;syncVisualization(i,true)}},
+        plugins:{zoneBands:{zones:DPS_ZONES},legend:{position:'top',labels:{color:'#e2e8f0',font:{size:12,weight:600},boxWidth:12,padding:14}},tooltip:{backgroundColor:'rgba(10,14,26,.95)',titleColor:'#f1f5f9',bodyColor:'#94a3b8',borderColor:'#1e293b',borderWidth:1,padding:10,cornerRadius:8,displayColors:true,titleFont:{weight:600},bodyFont:{size:12},callbacks:{label:c=>{
+            const score=Math.round(c.parsed.y);
+            const d=data[c.dataIndex];
+            const lbl=d&&d.dps?d.dps.label:'—';
+            return`DPS: ${score} / 100  —  ${lbl} Threat`;
+        }}}},
+        scales:{x:{grid:{color:'rgba(30,41,59,.5)',drawBorder:false},ticks:{maxTicksLimit:10,font:{size:10}}},y:{beginAtZero:true,max:100,grid:{color:'rgba(30,41,59,.5)',drawBorder:false},title:{display:true,text:'Destructive Potential Score (0-100)',color:'#64748b',font:{size:10,weight:600}},ticks:{font:{size:10},stepSize:20}}}}});
+}
+
+function renderChart(data){
+    const ctx=document.getElementById('ikeChart').getContext('2d');if(currentChart)currentChart.destroy();
+    Chart.defaults.color='#64748b';Chart.defaults.font.family='Inter';
+    const labels=data.map(d=>{const t=new Date(d.timestamp);return`${t.getMonth()+1}/${t.getDate()} ${String(t.getHours()).padStart(2,'0')}Z`});
+    currentChart=new Chart(ctx,{type:'line',data:{labels,datasets:[
+        {label:'Total IKE',data:data.map(d=>d.ike_total_tj),borderColor:'#8b5cf6',backgroundColor:'rgba(139,92,246,.08)',borderWidth:2.5,fill:true,tension:.35,pointRadius:0,pointHitRadius:10},
+        {label:'Hurricane IKE',data:data.map(d=>d.ike_hurricane_tj),borderColor:'#ef4444',borderWidth:2,borderDash:[6,3],fill:false,tension:.35,pointRadius:0,pointHitRadius:10},
+        {label:'TS IKE',data:data.map(d=>d.ike_tropical_storm_tj),borderColor:'#3b82f6',borderWidth:1.5,fill:false,tension:.35,pointRadius:0,pointHitRadius:10}
+    ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+        onHover:(evt,els)=>{if(els&&els.length){if(window.animationFrameId)stopAnimation();const i=els[0].index;window.currentAnimIndex=i;document.getElementById('scrubSlider').value=i;syncVisualization(i,true)}},
+        plugins:{zoneBands:{zones:IKE_ZONES},legend:{position:'top',labels:{color:'#e2e8f0',font:{size:11,weight:500},boxWidth:12,padding:14}},tooltip:{backgroundColor:'rgba(10,14,26,.92)',titleColor:'#f1f5f9',bodyColor:'#94a3b8',borderColor:'#1e293b',borderWidth:1,padding:8,cornerRadius:8,displayColors:true,titleFont:{weight:600},callbacks:{label:c=>`${c.dataset.label}: ${c.parsed.y.toFixed(1)} TJ (Terajoules)`}}},
+        scales:{x:{grid:{color:'rgba(30,41,59,.5)',drawBorder:false},ticks:{maxTicksLimit:10,font:{size:10}}},y:{beginAtZero:true,grid:{color:'rgba(30,41,59,.5)',drawBorder:false},title:{display:true,text:'Wind Energy (Terajoules)',color:'#64748b',font:{size:10,weight:500}},ticks:{font:{size:10}}}}}});
+}
+
+function renderSurgeChart(data){
+    const ctx=document.getElementById('surgeChart').getContext('2d');
+    if(currentSurgeChart)currentSurgeChart.destroy();
+    const labels=data.map(d=>{const t=new Date(d.timestamp);return`${t.getMonth()+1}/${t.getDate()} ${String(t.getHours()).padStart(2,'0')}Z`});
+    const surgeData=data.map(d=>calculateSurgeParametric(d));
+    currentSurgeChart=new Chart(ctx,{type:'line',data:{labels,datasets:[
+        {label:'Storm Surge (ft)',data:surgeData,borderColor:'#10b981',backgroundColor:'rgba(16,185,129,.08)',borderWidth:2.5,fill:true,tension:.35,pointRadius:0,pointHitRadius:10}
+    ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+        onHover:(evt,els)=>{if(els&&els.length){if(window.animationFrameId)stopAnimation();const i=els[0].index;window.currentAnimIndex=i;document.getElementById('scrubSlider').value=i;syncVisualization(i,true)}},
+        plugins:{zoneBands:{zones:SURGE_ZONES},legend:{position:'top',labels:{color:'#e2e8f0',font:{size:11,weight:500},boxWidth:12,padding:14}},tooltip:{backgroundColor:'rgba(10,14,26,.92)',titleColor:'#f1f5f9',bodyColor:'#94a3b8',borderColor:'#1e293b',borderWidth:1,padding:8,cornerRadius:8,displayColors:true,titleFont:{weight:600},callbacks:{label:c=>`Surge Potential: ${c.parsed.y.toFixed(1)} ft`}}},
+        scales:{x:{grid:{color:'rgba(30,41,59,.5)',drawBorder:false},ticks:{maxTicksLimit:10,font:{size:10}}},y:{beginAtZero:true,grid:{color:'rgba(30,41,59,.5)',drawBorder:false},title:{display:true,text:'Storm Surge (feet)',color:'#64748b',font:{size:10,weight:500}},ticks:{font:{size:10}}}}}});
+}
+
+function renderPressureChart(data){
+    const ctx=document.getElementById('pressureChart').getContext('2d');
+    if(currentPressureChart)currentPressureChart.destroy();
+    const labels=data.map(d=>{const t=new Date(d.timestamp);return`${t.getMonth()+1}/${t.getDate()} ${String(t.getHours()).padStart(2,'0')}Z`});
+    const pressureData=data.map(d=>d.min_pressure_hpa||1013);
+    currentPressureChart=new Chart(ctx,{type:'line',data:{labels,datasets:[
+        {label:'Min Pressure (mb)',data:pressureData,borderColor:'#f59e0b',backgroundColor:'rgba(245,158,11,.08)',borderWidth:2.5,fill:true,tension:.35,pointRadius:0,pointHitRadius:10}
+    ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+        onHover:(evt,els)=>{if(els&&els.length){if(window.animationFrameId)stopAnimation();const i=els[0].index;window.currentAnimIndex=i;document.getElementById('scrubSlider').value=i;syncVisualization(i,true)}},
+        plugins:{zoneBands:{zones:PRESSURE_ZONES},legend:{position:'top',labels:{color:'#e2e8f0',font:{size:11,weight:500},boxWidth:12,padding:14}},tooltip:{backgroundColor:'rgba(10,14,26,.92)',titleColor:'#f1f5f9',bodyColor:'#94a3b8',borderColor:'#1e293b',borderWidth:1,padding:8,cornerRadius:8,displayColors:true,titleFont:{weight:600},callbacks:{label:c=>`Pressure: ${c.parsed.y.toFixed(1)} mb`}}},
+        scales:{x:{grid:{color:'rgba(30,41,59,.5)',drawBorder:false},ticks:{maxTicksLimit:10,font:{size:10}}},y:{beginAtZero:false,min:860,grid:{color:'rgba(30,41,59,.5)',drawBorder:false},title:{display:true,text:'Barometric Pressure (mb)',color:'#64748b',font:{size:10,weight:500}},ticks:{font:{size:10}}}}}});
+}
+
+// ============================================================
+// WIND SPEED chart — Saffir-Simpson scale background
+// ============================================================
+
+// Saffir-Simpson zone bands (wind speed in mph)
+// TD < 39, TS 39-73, Cat1 74-95, Cat2 96-110, Cat3 111-129, Cat4 130-156, Cat5 157+
+const WIND_ZONES=[
+    {min:0,   max:39,  label:'Tropical Depression', color:'rgba(148,163,184,0.08)'},
+    {min:39,  max:74,  label:'Tropical Storm',      color:'rgba(59,130,246,0.10)'},
+    {min:74,  max:96,  label:'Category 1',           color:'rgba(234,179,8,0.10)'},
+    {min:96,  max:111, label:'Category 2',           color:'rgba(249,115,22,0.10)'},
+    {min:111, max:130, label:'Category 3',           color:'rgba(239,68,68,0.10)'},
+    {min:130, max:157, label:'Category 4',           color:'rgba(190,24,93,0.12)'},
+    {min:157, max:220, label:'Category 5',           color:'rgba(126,34,206,0.14)'}
+];
+
+function renderWindChart(data){
+    const ctx=document.getElementById('windChart').getContext('2d');
+    if(currentWindChart)currentWindChart.destroy();
+    const labels=data.map(d=>{const t=new Date(d.timestamp);return`${t.getMonth()+1}/${t.getDate()} ${String(t.getHours()).padStart(2,'0')}Z`});
+    // max_wind_ms is in m/s — convert to mph (1 m/s = 2.23694 mph)
+    const windMph=data.map(d=>(d.max_wind_ms||0)*2.23694);
+    // Also show knots as secondary dataset
+    const windKt=data.map(d=>(d.max_wind_ms||0)*1.94384);
+
+    currentWindChart=new Chart(ctx,{type:'line',data:{labels,datasets:[
+        {label:'Max Wind (mph)',data:windMph,borderColor:'#f43f5e',backgroundColor:'rgba(244,63,94,.08)',borderWidth:2.5,fill:true,tension:.35,pointRadius:0,pointHitRadius:10,yAxisID:'y'},
+        {label:'Max Wind (kt)',data:windKt,borderColor:'#a78bfa',backgroundColor:'transparent',borderWidth:1.5,borderDash:[5,3],fill:false,tension:.35,pointRadius:0,pointHitRadius:10,yAxisID:'y2'}
+    ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+        onHover:(evt,els)=>{if(els&&els.length){if(window.animationFrameId)stopAnimation();const i=els[0].index;window.currentAnimIndex=i;document.getElementById('scrubSlider').value=i;syncVisualization(i,true)}},
+        plugins:{zoneBands:{zones:WIND_ZONES},legend:{position:'top',labels:{color:'#e2e8f0',font:{size:11,weight:500},boxWidth:12,padding:14}},tooltip:{backgroundColor:'rgba(10,14,26,.92)',titleColor:'#f1f5f9',bodyColor:'#94a3b8',borderColor:'#1e293b',borderWidth:1,padding:8,cornerRadius:8,displayColors:true,titleFont:{weight:600},callbacks:{label:c=>{
+            if(c.datasetIndex===0)return`Wind: ${c.parsed.y.toFixed(0)} mph (${ssLabel(c.parsed.y)})`;
+            return`Wind: ${c.parsed.y.toFixed(0)} kt`;
+        }}}},
+        scales:{
+            x:{grid:{color:'rgba(30,41,59,.5)',drawBorder:false},ticks:{maxTicksLimit:10,font:{size:10}}},
+            y:{beginAtZero:true,max:220,position:'left',grid:{color:'rgba(30,41,59,.5)',drawBorder:false},title:{display:true,text:'Wind Speed (mph)',color:'#64748b',font:{size:10,weight:500}},ticks:{font:{size:10}}},
+            y2:{beginAtZero:true,max:191,position:'right',grid:{drawOnChartArea:false},title:{display:true,text:'Wind Speed (kt)',color:'#a78bfa',font:{size:10,weight:500}},ticks:{color:'#a78bfa',font:{size:10}}}
+        }}});
+}
+
+// Helper: Saffir-Simpson label from mph
+function ssLabel(mph){
+    if(mph>=157)return'Cat 5';if(mph>=130)return'Cat 4';if(mph>=111)return'Cat 3';
+    if(mph>=96)return'Cat 2';if(mph>=74)return'Cat 1';if(mph>=39)return'Tropical Storm';
+    return'Tropical Depression';
+}
+
+// ============================================================
+// SST (Sea Surface Temperature) chart — ERDDAP griddap
+// ============================================================
+
+// SST zone bands: 26.5°C is the critical threshold for hurricane intensification
+const SST_ZONES=[
+    {min:10,max:26.5,label:'Below threshold',color:'rgba(59,130,246,0.06)'},
+    {min:26.5,max:28.5,label:'Favorable',color:'rgba(234,179,8,0.07)'},
+    {min:28.5,max:30,label:'Very favorable',color:'rgba(249,115,22,0.07)'},
+    {min:30,max:35,label:'Rapid intensification',color:'rgba(239,68,68,0.07)'}
+];
+
+async function fetchAndRenderSST(data){
+    const sstTab=document.querySelector('.chart-tab[data-tab="sst"]');
+
+    // Build track points for the API
+    const points=data.map(d=>({lat:d.lat,lon:d.lon,timestamp:d.timestamp}));
+
+    try{
+        console.log(`SST: Requesting SST for ${points.length} track points...`);
+        const r=await fetch(`${API_BASE}/sst/track`,{
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify(points)
+        });
+        if(!r.ok){
+            const detail=await r.text();
+            console.error(`SST: HTTP ${r.status} — ${detail}`);
+            throw new Error(`HTTP ${r.status}`);
+        }
+        const sstData=await r.json();
+        console.log(`SST: Received ${sstData.length} points, ${sstData.filter(s=>s.sst_c!==null).length} with valid data`);
+
+        const validSST=sstData.filter(s=>s.sst_c!==null);
+        if(validSST.length===0){
+            console.warn('SST: No valid SST values returned');
+            sstTab.classList.remove('sst-loading');
+            return;
+        }
+
+        // Store SST data and mark as ready
+        window._sstReady=true;
+        window._sstData=sstData;
+        sstTab.classList.remove('sst-loading');
+
+        // If SST tab is currently active, render immediately
+        if(document.getElementById('tabSST').classList.contains('active')){
+            renderSSTChart(data,sstData);
+        }
+    }catch(e){
+        console.error('SST fetch failed:',e);
+        sstTab.classList.remove('sst-loading');
+    }
+}
+
+function renderSSTChart(data,sstData){
+    const ctx=document.getElementById('sstChart').getContext('2d');
+    if(currentSSTChart)currentSSTChart.destroy();
+    const labels=data.map(d=>{const t=new Date(d.timestamp);return`${t.getMonth()+1}/${t.getDate()} ${String(t.getHours()).padStart(2,'0')}Z`});
+    const sstValues=sstData.map(s=>s.sst_c);
+
+    currentSSTChart=new Chart(ctx,{type:'line',data:{labels,datasets:[
+        {label:'Sea Surface Temp (°C)',data:sstValues,borderColor:'#ef4444',backgroundColor:'rgba(239,68,68,.08)',borderWidth:2.5,fill:true,tension:.35,pointRadius:0,pointHitRadius:10,spanGaps:true},
+        {label:'26.5°C Threshold',data:Array(labels.length).fill(26.5),borderColor:'rgba(251,191,36,.5)',borderWidth:1.5,borderDash:[6,4],fill:false,pointRadius:0,pointHitRadius:0}
+    ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+        onHover:(evt,els)=>{if(els&&els.length){if(window.animationFrameId)stopAnimation();const i=els[0].index;window.currentAnimIndex=i;document.getElementById('scrubSlider').value=i;syncVisualization(i,true)}},
+        plugins:{zoneBands:{zones:SST_ZONES},legend:{position:'top',labels:{color:'#e2e8f0',font:{size:11,weight:500},boxWidth:12,padding:14}},tooltip:{backgroundColor:'rgba(10,14,26,.92)',titleColor:'#f1f5f9',bodyColor:'#94a3b8',borderColor:'#1e293b',borderWidth:1,padding:8,cornerRadius:8,displayColors:true,titleFont:{weight:600},callbacks:{label:c=>{
+            if(c.datasetIndex===1)return'Intensification threshold: 26.5°C';
+            return c.parsed.y!==null?`SST: ${c.parsed.y.toFixed(1)}°C`:'SST: No data';
+        }}}},
+        scales:{x:{grid:{color:'rgba(30,41,59,.5)',drawBorder:false},ticks:{maxTicksLimit:10,font:{size:10}}},y:{min:15,max:35,grid:{color:'rgba(30,41,59,.5)',drawBorder:false},title:{display:true,text:'Sea Surface Temp (°C)',color:'#64748b',font:{size:10,weight:500}},ticks:{font:{size:10}}}}}});
+}
+
+function renderMap(data){
+
+    const mapDiv=document.getElementById('map'),parent=mapDiv.parentNode;
+    parent.removeChild(mapDiv);
+    const nd=document.createElement('div');nd.id='map';
+    parent.insertBefore(nd,parent.querySelector('.map-legend'));
+    currentMap=L.map('map',{zoomControl:false}).setView([data[0].lat,data[0].lon],4);
+    L.control.zoom({position:'topright'}).addTo(currentMap);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
+        attribution:'&copy; OSM &copy; CARTO',subdomains:'abcd',maxZoom:19
+    }).addTo(currentMap);
+
+    // Draw track lines colored by DPS
+    for(let i=0;i<data.length-1;i++){
+        L.polyline([[data[i].lat,data[i].lon],[data[i+1].lat,data[i+1].lon]],{
+            color:dpsColor(data[i].dps?data[i].dps.score:0),weight:3.5,opacity:.7
+        }).addTo(currentMap);
+    }
+
+    // Small dot markers at each observation
+    window.mapMarkers=[];
+    data.forEach((d,i)=>{
+        const c=dpsColor(d.dps?d.dps.score:0);
+        const ts=new Date(d.timestamp);
+        const tStr=ts.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' '+String(ts.getHours()).padStart(2,'0')+'Z';
+        
+        const estSurge = calculateSurgeParametric(d);
+        const surgeTxt = estSurge > 0 ? `${estSurge.toFixed(1)} ft` : 'N/A';
+
+        const fwdMph = d.forward_speed_knots ? (d.forward_speed_knots * 1.15078).toFixed(0) : null;
+        const popup=`<div style="font-family:Inter,sans-serif;font-size:11px;line-height:1.6;width:165px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                <div style="font-weight:700;font-size:12px;">${tStr}</div>
+                <div style="background:${d.dps.color};color:#fff;padding:1px 6px;border-radius:4px;font-weight:bold;font-size:10px;">DPS ${d.dps.score}</div>
+            </div>
+            <div style="color:#a78bfa">Wind Energy: <b style="float:right">${d.ike_total_tj.toFixed(1)} TJ</b></div>
+            <div style="color:#60a5fa">Surge Potential: <b style="float:right">${surgeTxt}</b></div>
+            <div style="color:#fca5a5">Max Wind: <b style="float:right">${d.max_wind_ms ? (d.max_wind_ms*2.237).toFixed(0)+' mph' : '?'}</b></div>
+            <div style="color:#94a3b8;margin-top:4px;font-size:10px;border-top:1px solid #334155;padding-top:2px;">Pressure: ${d.min_pressure_hpa ? d.min_pressure_hpa+' mb' : '?'} | Moving: ${fwdMph ? fwdMph+' mph' : '?'}</div>
+        </div>`;
+        const m=L.circleMarker([d.lat,d.lon],{radius:4,fillColor:c,color:'rgba(255,255,255,.3)',weight:1,fillOpacity:.8}).addTo(currentMap);
+        m.bindPopup(popup,{closeButton:false,offset:L.point(0,-4)});
+        m.on('mouseover',function(){this.openPopup();syncVisualization(i,true)});
+        m.on('mouseout',function(){this.closePopup()});
+        window.mapMarkers.push(m);
+    });
+
+    currentMap.fitBounds(data.map(d=>[d.lat,d.lon]),{padding:[40,40]});
+
+    // Forecast track overlay for active storms
+    if(window._isActiveStorm){
+        const sid=data[0]&&window.stormData?document.getElementById('stormId').value.trim().toUpperCase():'';
+        if(sid){
+            fetch(`${API_BASE}/storms/${sid}/forecast`).then(r=>r.ok?r.json():null).then(fc=>{
+                if(!fc||!currentMap)return;
+                // Draw forecast cone
+                if(fc.cone_polygon&&fc.cone_polygon.length>2){
+                    L.polygon(fc.cone_polygon,{
+                        color:'rgba(255,255,255,.25)',weight:1,fillColor:'rgba(255,255,255,.06)',fillOpacity:1,
+                        dashArray:'4 4',interactive:false
+                    }).addTo(currentMap);
+                }
+                // Draw forecast track line
+                if(fc.forecast_track&&fc.forecast_track.length>1){
+                    const pts=fc.forecast_track.map(p=>[p.lat,p.lon]);
+                    L.polyline(pts,{color:'#fff',weight:2,opacity:.5,dashArray:'8 4',interactive:false}).addTo(currentMap);
+                    // Forecast position markers
+                    fc.forecast_track.forEach(p=>{
+                        if(p.hour===0)return; // skip current position
+                        const col=intensityColor(p.max_wind_kt);
+                        const m=L.circleMarker([p.lat,p.lon],{
+                            radius:5,fillColor:col,color:'rgba(255,255,255,.5)',weight:1.5,fillOpacity:.6
+                        }).addTo(currentMap);
+                        const label=`${p.time||('+'+(p.hour||0)+'h')}`;
+                        m.bindTooltip(label,{permanent:true,direction:'right',offset:L.point(8,0),
+                            className:'forecast-label'});
+                    });
+                    // Extend map bounds to include forecast
+                    const allPts=data.map(d=>[d.lat,d.lon]).concat(pts);
+                    currentMap.fitBounds(allPts,{padding:[40,40]});
+                }
+            }).catch(()=>{});
+        }
+        window._isActiveStorm=false;
+    }
+
+    // Pre-compute all wind field images for smooth animation
+    window.windFieldCache = [];
+    window.windOverlay = null;
+    console.log(`Pre-computing wind fields for ${data.length} observations...`);
+    for (let i = 0; i < data.length; i++) {
+        window.windFieldCache.push(computeWindFieldImage(data[i], currentMap));
+    }
+    console.log(`Wind field cache ready: ${window.windFieldCache.filter(w=>w).length}/${data.length} computed`);
+
+    // Show initial wind field
+    updateWindField(0);
+}
+
+// ============================================================
+// WIND FIELD OVERLAY
+// ============================================================
+function updateWindField(index) {
+    const data = window.stormData;
+    if (!data || !data[index] || !currentMap) return;
+
+    // Remove previous overlay
+    if (window.windOverlay) {
+        currentMap.removeLayer(window.windOverlay);
+        window.windOverlay = null;
+    }
+
+    // Use pre-cached wind field image
+    const result = window.windFieldCache ? window.windFieldCache[index] : computeWindFieldImage(data[index], currentMap);
+    if (!result) return;
+
+    window.windOverlay = L.imageOverlay(result.url, result.bounds, {
+        opacity: 0.85,
+        interactive: false,
+        zIndex: 200
+    }).addTo(currentMap);
+}
+
+// ============================================================
+// SCRUBBER & ANIMATION
+// ============================================================
+function onScrub(v){
+    if(window.animationFrameId)stopAnimation();
+    const i=parseInt(v);
+    window.currentAnimIndex=i;
+    syncVisualization(i,true);
+}
+
+function updateScrubDisplay(i){
+    const d=window.stormData;if(!d||!d[i])return;
+    const ts=new Date(d[i].timestamp);
+    document.getElementById('scrubTime').textContent=ts.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' '+String(ts.getHours()).padStart(2,'0')+':00Z';
+    document.getElementById('scrubIke').textContent=d[i].ike_total_tj.toFixed(1)+' TJ';
+}
+
+window.animationFrameId=null;window.animStartTime=null;window.animDurationMs=1000;window.currentAnimIndex=0;window.lastSyncIndex=-1;
+
+function setSpeed(ms){window.animDurationMs=parseInt(ms)}
+
+function toggleAnimation(){
+    if(window.animationFrameId){stopAnimation()}
+    else{
+        if(!window.stormData || !window.stormData.length){
+            console.error('No storm data available for animation');
+            return;
+        }
+        if(window.currentAnimIndex>=window.stormData.length-1)window.currentAnimIndex=0;
+        window.animStartTime=performance.now()-(window.currentAnimIndex*window.animDurationMs);
+        window.animationFrameId=requestAnimationFrame(animationLoop);
+        setPlayState(true);
+    }
+}
+
+function stopAnimation(){
+    if(window.animationFrameId)cancelAnimationFrame(window.animationFrameId);
+    window.animationFrameId=null;setPlayState(false);
+}
+
+function setPlayState(p){
+    document.getElementById('scrubPlayLabel').textContent=p?'Pause':'Play animation';
+    document.getElementById('scrubPlayIcon').innerHTML=p
+        ?'<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>'
+        :'<path d="M8 5v14l11-7z"/>';
+}
+
+function animationLoop(ts){
+    if(!window.animStartTime)window.animStartTime=ts;
+    const fi=(ts-window.animStartTime)/window.animDurationMs;
+    if(fi>=window.stormData.length-1){
+        window.currentAnimIndex=window.stormData.length-1;
+        syncVisualization(window.currentAnimIndex,true);
+        stopAnimation();return;
+    }
+    window.currentAnimIndex=fi;
+    document.getElementById('scrubSlider').value=Math.floor(fi);
+    syncVisualization(fi,false);
+    window.animationFrameId=requestAnimationFrame(animationLoop);
+}
+
+function syncVisualization(fi,snap){
+    const data=window.stormData;if(!data||!data.length)return;
+    const bi=Math.min(Math.floor(fi),data.length-1);
+    const ni=Math.min(bi+1,data.length-1);
+    const fr=fi-bi;
+    const d1=data[bi],d2=data[ni];
+    const lat=d1.lat+(d2.lat-d1.lat)*fr;
+    const lon=d1.lon+(d2.lon-d1.lon)*fr;
+
+    if(bi!==window.lastSyncIndex||snap){
+        window.lastSyncIndex=bi;
+        updateScrubDisplay(bi);
+
+        // Update wind field overlay
+        updateWindField(bi);
+
+        // Update chart highlights
+        if(currentChart&&!snap){
+            currentChart.setActiveElements([{datasetIndex:0,index:bi}]);
+            currentChart.tooltip.setActiveElements([{datasetIndex:0,index:bi}]);
+            currentChart.update('none');
+        }
+        if(currentSurgeChart&&!snap){
+            currentSurgeChart.setActiveElements([{datasetIndex:0,index:bi}]);
+            currentSurgeChart.tooltip.setActiveElements([{datasetIndex:0,index:bi}]);
+            currentSurgeChart.update('none');
+        }
+        if(currentPressureChart&&!snap){
+            currentPressureChart.setActiveElements([{datasetIndex:0,index:bi}]);
+            currentPressureChart.tooltip.setActiveElements([{datasetIndex:0,index:bi}]);
+            currentPressureChart.update('none');
+        }
+    }
+
+    // Animated center marker
+    if(currentMap){
+        currentMap.panTo([lat,lon],{animate:false});
+        if(!window.animatedMarker){
+            window.animatedMarker=L.circleMarker([lat,lon],{
+                radius:8,fillColor:'#ffffff',color:'#6366f1',weight:3,fillOpacity:1,zIndex:1000
+            }).addTo(currentMap);
+        } else {
+            window.animatedMarker.setLatLng([lat,lon]);
+            window.animatedMarker.setStyle({fillColor:dpsColor(d1.dps?d1.dps.score:0)});
+        }
+    }
+}
+</script>
+</body>
+</html>
