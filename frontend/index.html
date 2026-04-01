@@ -2705,20 +2705,26 @@ async function fetchHistory(){
         let data=null;
         let usedId=rawId;
         const t0=performance.now();
+        let cacheHit=false;
 
         // ---- CHECK PRELOAD CACHE FIRST ----
-        // Wait for preload to finish if it's still loading (max 5s)
+        // Wait for preload to finish if it's still loading (max 8s on mobile)
         if (!preloadReady && preloadPromise) {
-            await Promise.race([preloadPromise, new Promise(r => setTimeout(r, 5000))]);
+            const waitMs = window.innerWidth<=900 ? 8000 : 5000;
+            await Promise.race([preloadPromise, new Promise(r => setTimeout(r, waitMs))]);
         }
 
         if (PRELOAD_CACHE[rawId] && PRELOAD_CACHE[rawId].length > 0) {
             data = PRELOAD_CACHE[rawId];
+            cacheHit = true;
             console.log(`[PRELOAD] Cache hit for ${rawId} — ${data.length} snapshots loaded instantly`);
+            // Skip loading skeleton for cache hits — render immediately
+            hideLoadingSkeleton();
         }
 
         // ---- FALL BACK TO API IF NOT IN CACHE ----
         if (!data || !data.length) {
+            setLoadingStep('stepFetch');
             // Try unified track endpoint (handles ATCF IDs, IBTrACS SIDs, and auto-detection)
             // skip_points=1 means compute every other point (2x faster), skip_points=0 means all points
             const r=await fetch(`${API_BASE}/storms/${rawId}/track?grid_resolution_km=15&skip_points=1`);
@@ -2752,15 +2758,14 @@ async function fetchHistory(){
 
         if(!data || !data.length) throw new Error(`No results for "${rawId}". Try a storm name with year (e.g. "Katrina" + 2005), or pick one from Historic Storms in the sidebar.`);
 
-        setLoadingStep('stepIKE');
+        if(!cacheHit) setLoadingStep('stepIKE');
         const fetchMs=Math.round(performance.now()-t0);
         window.stormData=data.sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp));
         window._lastFetchMs=fetchMs;
-        setLoadingStep('stepDPS');
+        if(!cacheHit) setLoadingStep('stepDPS');
         // Allow UI to repaint before heavy render
         await new Promise(r => setTimeout(r, 0));
-        setLoadingStep('stepRender');
-        hideLoadingSkeleton();
+        if(!cacheHit){ setLoadingStep('stepRender'); hideLoadingSkeleton(); }
         renderAll(usedId,window.stormData);
         // Update URL hash for shareability
         history.replaceState(null, '', '#storm=' + encodeURIComponent(usedId));
