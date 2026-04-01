@@ -1342,6 +1342,40 @@ class NOAAClient:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._search_ibtracs_csv, csv_text, name.upper(), year, basin)
 
+    async def get_ibtracs_by_name(
+        self,
+        name: str,
+        basin: Optional[str] = None,
+    ) -> list[HurricaneSnapshot]:
+        """
+        Search IBTrACS by storm name only (no year). Returns snapshots for the
+        most recent storm matching the name. Searches recent file first, then
+        falls back to the full archive.
+
+        Args:
+            name: storm name (e.g., "KATRINA")
+            basin: optional basin filter (NA, EP, WP, NI, SI, SP, SA)
+        """
+        # Search recent first (faster, smaller file)
+        csv_text = await self._fetch_ibtracs(use_recent=True)
+        if not csv_text:
+            csv_text = await self._fetch_ibtracs(use_recent=False)
+
+        loop = asyncio.get_event_loop()
+        snapshots = await loop.run_in_executor(
+            None, self._search_ibtracs_name_only, csv_text, name.upper(), basin
+        )
+
+        # If nothing in recent, try full archive
+        if not snapshots:
+            csv_text = await self._fetch_ibtracs(use_recent=False)
+            if csv_text:
+                snapshots = await loop.run_in_executor(
+                    None, self._search_ibtracs_name_only, csv_text, name.upper(), basin
+                )
+
+        return snapshots
+
     async def _fetch_ibtracs(self, use_recent: bool = True) -> str:
         """Download IBTrACS CSV (cached).
 
@@ -1502,6 +1536,52 @@ class NOAAClient:
             if basin and row_basin != basin:
                 continue
 
+            snap = self._ibtracs_row_to_snapshot(row)
+            if snap is not None:
+                snapshots.append(snap)
+
+        return snapshots
+
+    def _search_ibtracs_name_only(
+        self, csv_text: str, name: str, basin: Optional[str]
+    ) -> list[HurricaneSnapshot]:
+        """Search IBTrACS CSV by name only, return snapshots for the most recent year match."""
+        # First pass: find all years that have this storm name
+        years_found: set[int] = set()
+        reader = csv.DictReader(io.StringIO(csv_text))
+        for row in reader:
+            row_name = row.get("NAME", "").strip().upper()
+            row_season = row.get("SEASON", "").strip()
+            row_basin = row.get("BASIN", "").strip()
+            if row_name != name:
+                continue
+            if basin and row_basin != basin:
+                continue
+            if row_season:
+                try:
+                    years_found.add(int(row_season))
+                except ValueError:
+                    pass
+
+        if not years_found:
+            return []
+
+        # Pick the most recent year
+        most_recent_year = max(years_found)
+
+        # Second pass: collect snapshots for that year
+        snapshots = []
+        reader2 = csv.DictReader(io.StringIO(csv_text))
+        for row in reader2:
+            row_name = row.get("NAME", "").strip().upper()
+            row_season = row.get("SEASON", "").strip()
+            row_basin = row.get("BASIN", "").strip()
+            if row_name != name:
+                continue
+            if not row_season or int(row_season) != most_recent_year:
+                continue
+            if basin and row_basin != basin:
+                continue
             snap = self._ibtracs_row_to_snapshot(row)
             if snap is not None:
                 snapshots.append(snap)

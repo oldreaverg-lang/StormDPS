@@ -2740,18 +2740,60 @@ async function fetchHistory(){
 
         // Last resort: IBTrACS name search (if input looks like a name, not an ID)
         if((!data || !data.length) && /^[A-Z]{2,}$/.test(rawId)){
-            const yr=yearInput||'';
-            if(!yr)throw new Error(`"${rawId}" looks like a storm name. Please enter the year in the "Year" field that appeared below, then click Visualize again.`);
-            const r2=await fetch(`${API_BASE}/ibtracs/search`,{
-                method:'POST',
-                headers:{'Content-Type':'application/json'},
-                body:JSON.stringify({name:rawId,year:parseInt(yr)})
-            });
-            if(r2.ok) {
-                data=await r2.json();
-                // Cache IBTrACS results too
-                if (data && data.length > 0) {
-                    PRELOAD_CACHE[rawId] = data;
+            let yr=yearInput||'';
+
+            // AUTO-RESOLVE: If no year provided, search the loaded catalog for matching names
+            // and pick the most recent match (since data only goes back to ~2015)
+            if(!yr && window.stormCatalog && window.stormCatalog.length > 0){
+                const matches = window.stormCatalog
+                    .filter(s => (s.name||'').toUpperCase() === rawId)
+                    .sort((a,b) => b.year - a.year);  // most recent first
+                if(matches.length > 0){
+                    const best = matches[0];
+                    console.log(`[NAME-RESOLVE] "${rawId}" auto-resolved to ${best.name} ${best.year} (${best.id}) — ${matches.length} match(es)`);
+                    // Try loading by the catalog ID directly (faster, uses cache/preload)
+                    const resolvedId = best.id;
+                    if(PRELOAD_CACHE[resolvedId] && PRELOAD_CACHE[resolvedId].length > 0){
+                        data = PRELOAD_CACHE[resolvedId];
+                        console.log(`[NAME-RESOLVE] Cache hit for ${resolvedId}`);
+                    } else {
+                        const r3 = await fetch(`${API_BASE}/storms/${resolvedId}/track?grid_resolution_km=15&skip_points=1`);
+                        if(r3.ok){
+                            data = await r3.json();
+                            if(data && data.length > 0){
+                                PRELOAD_CACHE[resolvedId] = data;
+                                PRELOAD_CACHE[rawId] = data;  // also cache under the name
+                                usedId = resolvedId;
+                            }
+                        }
+                    }
+                    // If direct ID worked, skip the name+year IBTrACS search
+                    if(data && data.length > 0){
+                        yr = ''; // clear so we don't double-search below
+                    } else {
+                        yr = String(best.year);  // fall through to IBTrACS name+year search
+                    }
+                }
+            }
+
+            // If still no data and no year, show a helpful error
+            if((!data || !data.length) && !yr){
+                throw new Error(`"${rawId}" looks like a storm name but no matching storms were found in the catalog. Please enter the year in the "Year" field below, then click Visualize again.`);
+            }
+
+            // IBTrACS name+year search (explicit year or auto-resolved year)
+            if((!data || !data.length) && yr){
+                const r2=await fetch(`${API_BASE}/ibtracs/search`,{
+                    method:'POST',
+                    headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({name:rawId,year:parseInt(yr)})
+                });
+                if(r2.ok) {
+                    data=await r2.json();
+                    // Cache IBTrACS results too
+                    if (data && data.length > 0) {
+                        PRELOAD_CACHE[rawId] = data;
+                    }
                 }
             }
         }

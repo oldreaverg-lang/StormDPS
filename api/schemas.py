@@ -91,7 +91,7 @@ class SnapshotInput(BaseModel):
 
 
 class IBTrACSSearchInput(BaseModel):
-    """Search IBTrACS by storm name and year."""
+    """Search IBTrACS by storm name and optional year. If year is omitted, returns the most recent match."""
     name: str = Field(description="Storm name (e.g., 'KATRINA')")
-    year: int = Field(description="Season year")
+    year: Optional[int] = Field(None, description="Season year (if omitted, most recent match is used)")
     basin: Optional[str] = Field(None, description="Basin code: NA, EP, WP, NI, SI, SP, SA")

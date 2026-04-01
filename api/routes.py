@@ -1579,22 +1579,34 @@ async def search_ibtracs(
     grid_resolution_km: float = Query(10.0, ge=1.0, le=50.0),
 ):
     """
-    Search IBTrACS by storm name and year, compute IKE for each observation.
+    Search IBTrACS by storm name and optional year, compute IKE for each observation.
 
-    Useful for finding storms by name when the IBTrACS SID isn't known.
+    If year is omitted, searches for all storms with the given name and returns
+    the most recent match (useful when users only know the storm name).
     """
     async with NOAAClient() as client:
-        try:
-            snapshots = await client.get_ibtracs_by_name_year(
-                search.name, search.year, search.basin
-            )
-        except (NOAAClientError, Exception) as e:
-            raise HTTPException(status_code=404, detail=str(e))
+        if search.year:
+            # Exact name+year search (original behavior)
+            try:
+                snapshots = await client.get_ibtracs_by_name_year(
+                    search.name, search.year, search.basin
+                )
+            except (NOAAClientError, Exception) as e:
+                raise HTTPException(status_code=404, detail=str(e))
+        else:
+            # Name-only search: scan IBTrACS for all matches, pick most recent
+            try:
+                snapshots = await client.get_ibtracs_by_name(
+                    search.name, search.basin
+                )
+            except (NOAAClientError, Exception) as e:
+                raise HTTPException(status_code=404, detail=str(e))
 
     if not snapshots:
+        year_str = f" ({search.year})" if search.year else ""
         raise HTTPException(
             status_code=404,
-            detail=f"No IBTrACS data for {search.name} ({search.year})"
+            detail=f"No IBTrACS data for {search.name}{year_str}"
         )
 
     # Compute IKE in parallel (not serial)
