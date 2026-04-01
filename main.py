@@ -61,6 +61,8 @@ async def lifespan(app: FastAPI):
         app.state.weather_service = None
 
     # --- STARTUP: warm the preload cache in the background ---
+    # IKE cache files are shipped with the Docker image, so this should
+    # find everything "already cached" and skip heavy NOAA recomputation.
     async def warm_preload():
         try:
             result = await generate_preload_bundle(grid_resolution_km=15.0, skip_points=1)
@@ -71,7 +73,7 @@ async def lifespan(app: FastAPI):
                 f"{result['failed']} failed"
             )
         except Exception as e:
-            logger.warning(f"[PRELOAD] Warm-up failed: {e}")
+            logger.warning(f"[PRELOAD] Warm-up failed (non-fatal): {e}")
 
     # Run in background so the server starts accepting requests immediately
     asyncio.create_task(warm_preload())

@@ -10,11 +10,12 @@ dist/
 build/
 .env
 
-# Cache data (large files, regenerated at runtime)
+# Cache data (large IBTrACS CSVs regenerated at runtime)
 data/cache/ibtracs_all.csv
 data/cache/ibtracs_recent.csv
 data/cache/ibtracs_catalog.json
-data/cache/ike/
+# NOTE: data/cache/ike/ is committed so pre-computed IKE files ship with
+# the Docker image and Railway deploys don't recompute from scratch.
 
 # Debug/analysis scripts (one-off)
 analyze_*.py
