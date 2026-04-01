@@ -3216,7 +3216,7 @@ function renderMap(data){
     parent.removeChild(mapDiv);
     const nd=document.createElement('div');nd.id='map';
     parent.insertBefore(nd,parent.querySelector('.map-legend'));
-    currentMap=L.map('map',{zoomControl:false}).setView([data[0].lat,data[0].lon],4);
+    currentMap=L.map('map',{zoomControl:false}).setView([data[0].lat,data[0].lon],5);
     L.control.zoom({position:'topright'}).addTo(currentMap);
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
         attribution:'&copy; OSM &copy; CARTO',subdomains:'abcd',maxZoom:19
@@ -3263,7 +3263,13 @@ function renderMap(data){
         window.mapMarkers.push(m);
     });
 
-    currentMap.fitBounds(data.map(d=>[d.lat,d.lon]),{padding:[40,40]});
+    // Auto-zoom to fit storm track — small delay ensures mobile container is sized
+    setTimeout(()=>{
+        currentMap.invalidateSize();
+        const bounds=L.latLngBounds(data.map(d=>[d.lat,d.lon]));
+        const isMobile=window.innerWidth<=900;
+        currentMap.fitBounds(bounds,{padding:isMobile?[20,20]:[40,40],maxZoom:8});
+    },150);
 
     // Forecast track overlay for active storms
     if(window._isActiveStorm){
