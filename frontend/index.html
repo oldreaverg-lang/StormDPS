@@ -608,7 +608,8 @@ async function loadPreloadBundle() {
         // Try compiled bundle first — includes pre-computed DPS scores for instant display
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 30000);
-        const r = await fetch('/frontend/compiled_bundle.json', { signal: controller.signal });
+        const bundleBase = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1);
+        const r = await fetch(bundleBase + 'compiled_bundle.json', { signal: controller.signal });
         clearTimeout(timeout);
         if (!r.ok) throw new Error(`Compiled bundle HTTP ${r.status}`);
         const bundle = await r.json();
@@ -631,6 +632,27 @@ async function loadPreloadBundle() {
         }
         preloadReady = true;
         console.log(`[PRELOAD] Compiled bundle loaded: ${bundle.storm_count || 0} storms with pre-computed DPS (${Object.keys(PRELOAD_CACHE).length} in cache)`);
+        // Build stormCatalog from compiled scores as fallback when API catalogs aren't available
+        // This enables name-only search on static deployments (e.g. GitHub Pages)
+        if (!window.stormCatalog || window.stormCatalog.length === 0) {
+            const catalogFromBundle = [];
+            Object.keys(COMPILED_SCORES).forEach(sid => {
+                const sc = COMPILED_SCORES[sid];
+                if (sc.name) {
+                    catalogFromBundle.push({
+                        id: sid,
+                        name: sc.name,
+                        year: sc.year,
+                        basin: sc.basin || (sid.startsWith('EP') ? 'EP' : 'NA'),
+                        source: 'compiled'
+                    });
+                }
+            });
+            if (catalogFromBundle.length > 0) {
+                window.stormCatalog = catalogFromBundle;
+                console.log(`[PRELOAD] Built stormCatalog from compiled bundle: ${catalogFromBundle.length} storms`);
+            }
+        }
         refreshPresetDPSFromCompiled();
         // Re-render year accordion chips now that compiled scores are available
         refreshAccordionChipsDPS();
@@ -638,7 +660,7 @@ async function loadPreloadBundle() {
         // Fallback: raw preload_bundle.json (requires client-side DPS computation)
         console.warn('[PRELOAD] Compiled bundle unavailable, falling back to raw:', e.message);
         try {
-            const r = await fetch('/frontend/preload_bundle.json');
+            const r = await fetch(bundleBase + 'preload_bundle.json');
             if (!r.ok) throw new Error(`Raw bundle HTTP ${r.status}`);
             const bundle = await r.json();
             if (bundle.storms) {
@@ -1494,7 +1516,8 @@ const ECON_ZONES = [
 let NRI_ZONES = null; // Loaded async from nri_zones.json
 
 function loadNRIZones() {
-    fetch('/frontend/nri_zones.json')
+    const nriBase = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1);
+    fetch(nriBase + 'nri_zones.json')
         .then(r => r.ok ? r.json() : Promise.reject('NRI zones not found'))
         .then(data => { NRI_ZONES = data; console.log('NRI zones loaded:', Object.keys(data).length, 'zones'); })
         .catch(e => console.warn('NRI zones not available:', e));
