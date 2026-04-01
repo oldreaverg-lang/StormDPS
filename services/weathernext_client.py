@@ -243,7 +243,7 @@ class WeatherNextClient:
             logger.debug("WeatherNext: API key loaded from environment")
 
         if not self.is_configured():
-            logger.warning(
+            logger.debug(
                 "WeatherNext not configured: set GOOGLE_CLOUD_PROJECT and "
                 "WEATHERNEXT_API_KEY (or GOOGLE_APPLICATION_CREDENTIALS) "
                 "environment variables"
