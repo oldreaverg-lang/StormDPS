@@ -2939,6 +2939,37 @@ function renderAll(stormId,data){
     window._sstReady=false;
     window._sstData=null;
     fetchAndRenderSST(data);
+
+    // Mobile fix: charts below the fold may render with zero dimensions.
+    // Re-render after layout settles, and again when charts scroll into view.
+    if(window.innerWidth<=900){
+        setTimeout(()=>{
+            window.dispatchEvent(new Event('resize'));
+            if(currentDPSChart) currentDPSChart.resize();
+        },300);
+        // IntersectionObserver: re-render charts when they scroll into view
+        const chartsEl=document.getElementById('chartsStack');
+        if(chartsEl && typeof IntersectionObserver!=='undefined'){
+            const obs=new IntersectionObserver((entries)=>{
+                entries.forEach(e=>{
+                    if(e.isIntersecting){
+                        window.dispatchEvent(new Event('resize'));
+                        const activeTab=document.querySelector('#chartTabbed .chart-tab.active');
+                        const tabName=activeTab?activeTab.dataset.tab:'ike';
+                        const cd=window.stormData;
+                        if(cd){
+                            if(tabName==='ike') renderChart(cd);
+                            else if(tabName==='surge') renderSurgeChart(cd);
+                            else if(tabName==='pressure') renderPressureChart(cd);
+                            else if(tabName==='wind') renderWindChart(cd);
+                        }
+                        obs.disconnect();
+                    }
+                });
+            },{threshold:0.1});
+            obs.observe(chartsEl);
+        }
+    }
 }
 
 // ============================================================
@@ -2949,12 +2980,12 @@ function renderAll(stormId,data){
 const _renderedChartData = {ike:null, surge:null, pressure:null, wind:null, sst:null};
 
 function switchChartTab(tabName){
-    // Update tab button active state
-    document.querySelectorAll('.chart-tab').forEach(t=>t.classList.remove('active'));
-    document.querySelector(`.chart-tab[data-tab="${tabName}"]`).classList.add('active');
+    // Update tab button active state — scoped to #chartTabbed only
+    document.querySelectorAll('#chartTabbed .chart-tab').forEach(t=>t.classList.remove('active'));
+    document.querySelector(`#chartTabbed .chart-tab[data-tab="${tabName}"]`).classList.add('active');
 
-    // Update pane visibility
-    document.querySelectorAll('.chart-tab-pane').forEach(p=>p.classList.remove('active'));
+    // Update pane visibility — scoped to #chartTabbed only (don't touch score chart panes)
+    document.querySelectorAll('#chartTabbed .chart-tab-pane').forEach(p=>p.classList.remove('active'));
     const paneMap={ike:'tabIKE',surge:'tabSurge',pressure:'tabPressure',wind:'tabWind',sst:'tabSST'};
     document.getElementById(paneMap[tabName]).classList.add('active');
 
