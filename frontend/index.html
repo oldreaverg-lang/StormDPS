@@ -85,6 +85,8 @@
 
         /* Mobile label abbreviations */
         .label-short{display:none}
+        /* Loading logo: only shown on mobile */
+        .loading-logo{display:none}
         /* Mobile hamburger menu */
         .mobile-menu-btn{display:none;background:none;border:1px solid var(--border);color:var(--text-main);width:36px;height:36px;border-radius:var(--radius);align-items:center;justify-content:center;cursor:pointer;font-size:1.2rem;transition:all .15s;flex-shrink:0;-webkit-tap-highlight-color:transparent}
         .mobile-menu-btn:hover{background:var(--bg-card-hover);border-color:var(--border-hover)}
@@ -109,10 +111,12 @@
             .dps-trend-wrap{display:flex;align-items:baseline;gap:.3rem}
             .label-full{display:none}
             .label-short{display:inline}
-            /* Loading state: hide skeletons, clean up loading screen */
+            /* Loading state: clean branded loading screen */
             .skeleton-row{display:none!important}
             .skeleton-viz{display:none!important}
-            .loading-steps{border:none;background:transparent;padding:.6rem .3rem}
+            .loading-steps{border:none;background:transparent;padding:1.5rem .5rem;align-items:center;text-align:center}
+            .loading-steps.visible{display:flex;flex-direction:column;justify-content:center;min-height:50vh}
+            .loading-logo{margin-bottom:1.2rem}
             .loading-step{font-size:.85rem}
             /* Welcome splash: tighter on mobile */
             .welcome-state{padding:1rem .5rem}
@@ -393,6 +397,7 @@
         <div id="errorBox" class="error-bar"></div>
         <div id="loadingBar" class="loading-bar"><div class="spinner"></div><span id="loadingText">Computing Destructive Power Score...</span></div>
         <div id="loadingSteps" class="loading-steps">
+            <div class="loading-logo" id="loadingLogo"><img src="/frontend/logo-128.png" alt="StormDPS" style="width:80px;height:80px;border-radius:18px;box-shadow:0 6px 30px rgba(99,102,241,.3)"></div>
             <div class="loading-step" id="stepFetch"><span class="step-icon">&#9675;</span>Fetching storm track data</div>
             <div class="loading-step" id="stepIKE"><span class="step-icon">&#9675;</span>Computing wind energy (IKE)</div>
             <div class="loading-step" id="stepDPS"><span class="step-icon">&#9675;</span>Calculating DPS, IAS, ERS scores</div>
