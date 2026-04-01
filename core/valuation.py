@@ -10,8 +10,11 @@ Assigns a composite "destructive value" to a hurricane based on:
 The result is a normalized 0-100 score with sub-components.
 """
 
+import logging
 import numpy as np
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from models.hurricane import (
     HurricaneSnapshot,

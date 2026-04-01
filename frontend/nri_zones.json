@@ -1,0 +1,166 @@
+{
+  "NYC Metro / Long Island": {
+    "exposure": 0.418,
+    "vuln": 1.0
+  },
+  "Northern NJ / Newark": {
+    "exposure": 0.238,
+    "vuln": 1.11
+  },
+  "Connecticut Coast": {
+    "exposure": 0.171,
+    "vuln": 0.83
+  },
+  "Boston Metro": {
+    "exposure": 0.093,
+    "vuln": 0.73
+  },
+  "Rhode Island / Cape Cod": {
+    "exposure": 0.087,
+    "vuln": 0.78
+  },
+  "Delaware Bay / Philly": {
+    "exposure": 0.093,
+    "vuln": 0.89
+  },
+  "Chesapeake Bay / Norfolk": {
+    "exposure": 0.143,
+    "vuln": 0.83
+  },
+  "Outer Banks NC": {
+    "exposure": 0.099,
+    "vuln": 1.13
+  },
+  "Wilmington NC Metro": {
+    "exposure": 0.204,
+    "vuln": 0.84
+  },
+  "Myrtle Beach SC": {
+    "exposure": 0.047,
+    "vuln": 1.03
+  },
+  "Charleston SC Metro": {
+    "exposure": 0.257,
+    "vuln": 0.82
+  },
+  "Savannah GA / Hilton Head": {
+    "exposure": 0.271,
+    "vuln": 0.88
+  },
+  "Jacksonville FL Metro": {
+    "exposure": 0.081,
+    "vuln": 0.96
+  },
+  "Palm Beach / Treasure Coast": {
+    "exposure": 0.497,
+    "vuln": 1.32
+  },
+  "Fort Lauderdale / Broward": {
+    "exposure": 0.5,
+    "vuln": 1.14
+  },
+  "Florida Keys": {
+    "exposure": 0.08,
+    "vuln": 1.15
+  },
+  "Naples / Collier Co": {
+    "exposure": 0.164,
+    "vuln": 1.33
+  },
+  "Fort Myers / Lee Co": {
+    "exposure": 0.284,
+    "vuln": 1.42
+  },
+  "Sarasota / Manatee": {
+    "exposure": 0.322,
+    "vuln": 1.34
+  },
+  "Tampa Bay Metro": {
+    "exposure": 0.585,
+    "vuln": 1.31
+  },
+  "Clearwater / Pinellas": {
+    "exposure": 0.16,
+    "vuln": 1.4
+  },
+  "Big Bend FL (rural)": {
+    "exposure": 0.021,
+    "vuln": 1.33
+  },
+  "Panama City FL": {
+    "exposure": 0.082,
+    "vuln": 1.1
+  },
+  "Destin / Fort Walton": {
+    "exposure": 0.127,
+    "vuln": 1.11
+  },
+  "Pensacola Metro": {
+    "exposure": 0.137,
+    "vuln": 1.11
+  },
+  "Mobile AL Metro": {
+    "exposure": 0.237,
+    "vuln": 0.86
+  },
+  "Biloxi / Gulfport MS": {
+    "exposure": 0.126,
+    "vuln": 0.94
+  },
+  "New Orleans Metro": {
+    "exposure": 0.294,
+    "vuln": 0.84
+  },
+  "Houma / Terrebonne LA": {
+    "exposure": 0.056,
+    "vuln": 0.74
+  },
+  "Lafayette / Vermilion LA": {
+    "exposure": 0.088,
+    "vuln": 0.91
+  },
+  "Lake Charles LA (refinery)": {
+    "exposure": 0.087,
+    "vuln": 1.03
+  },
+  "Beaumont / Port Arthur TX": {
+    "exposure": 0.08,
+    "vuln": 0.96
+  },
+  "Houston / Galveston Metro": {
+    "exposure": 0.95,
+    "vuln": 1.26
+  },
+  "Matagorda / Victoria TX": {
+    "exposure": 0.05,
+    "vuln": 1.11
+  },
+  "Corpus Christi TX": {
+    "exposure": 0.131,
+    "vuln": 1.16
+  },
+  "South Padre / Brownsville": {
+    "exposure": 0.02,
+    "vuln": 1.3
+  },
+  "San Juan PR Metro": {
+    "exposure": 0.831,
+    "vuln": 1.5
+  },
+  "Miami-Dade Metro": {
+    "exposure": 0.49,
+    "vuln": 1.17
+  },
+  "Atlantic City / Shore": {
+    "exposure": 0.04,
+    "vuln": 0.90
+  },
+  "Nature Coast FL (rural)": {
+    "exposure": 0.02,
+    "vuln": 1.19
+  },
+  "Freeport / Brazoria TX": {
+    "exposure": 0.12,
+    "vuln": 1.10
+  }
+}

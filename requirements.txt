@@ -1,5 +1,34 @@
-fastapi>=0.110.0
-uvicorn[standard]>=0.27.0
-httpx>=0.27.0
-numpy>=1.26.0
-pydantic>=2.6.0
+# Requires Python >= 3.10
+#
+# Hurricane DPI API — Python Dependencies
+# Pinned to compatible ranges for stability across deployment targets.
+# The API backend runs on any OS (Linux/macOS/Windows) and serves
+# the React Native (Expo) frontend via REST.
+
+# --- Core Framework ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+starlette==0.41.3
+
+# --- HTTP Client (async, used by all weather API clients) ---
+httpx==0.28.1
+
+# --- Data & Computation ---
+numpy==2.2.3
+pydantic==2.10.6
+pydantic-settings==2.7.1
+
+# --- CORS / Security ---
+python-dotenv==1.0.1
+python-multipart==0.0.20
+
+# --- Optional: Google Cloud / WeatherNext 2 integration ---
+# Uncomment when deploying with Google Cloud credentials:
+# google-auth==2.38.0
+# google-cloud-aiplatform==1.78.0
+
+# --- Optional: Enhanced data processing ---
+# scipy==1.15.2
+
+# --- Production deployment ---
+gunicorn==23.0.0

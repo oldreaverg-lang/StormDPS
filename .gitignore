@@ -2,6 +2,13 @@
 __pycache__/
 *.pyc
 *.pyo
+venv/
+.venv/
+env/
+*.egg-info/
+dist/
+build/
+.env
 
 # Cache data (large files, regenerated at runtime)
 data/cache/ibtracs_all.csv

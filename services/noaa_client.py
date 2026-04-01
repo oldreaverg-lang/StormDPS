@@ -11,6 +11,7 @@ This service fetches raw data and transforms it into our internal
 HurricaneSnapshot model for IKE computation.
 """
 
+import asyncio
 import csv
 import io
 import json
@@ -77,22 +78,33 @@ class NOAAClient:
             track = await client.get_ibtracs_track("2005236N23285")
     """
 
-    def __init__(self, timeout: float = 30.0, cache_dir: Optional[str] = None):
+    def __init__(self, timeout: float = 30.0, cache_dir: Optional[str] = None, http_client: Optional[httpx.AsyncClient] = None):
         self.timeout = timeout
         self.cache_dir = Path(cache_dir) if cache_dir else None
-        self._http_client: Optional[httpx.AsyncClient] = None
+        self._http_client: Optional[httpx.AsyncClient] = http_client
+        self._external_http_client = http_client is not None  # Track if client was provided externally
 
     async def __aenter__(self):
-        self._http_client = httpx.AsyncClient(
-            timeout=self.timeout,
-            headers={"User-Agent": "HurricaneIKE-App/1.0 (research)"},
-            follow_redirects=True,
-        )
+        if self._http_client is None:
+            # Create a new client if none was provided
+            self._http_client = httpx.AsyncClient(
+                timeout=self.timeout,
+                headers={"User-Agent": "HurricaneIKE-App/1.0 (research)"},
+                follow_redirects=True,
+            )
         return self
 
     async def __aexit__(self, *args):
-        if self._http_client:
+        # Only close the client if we created it (not if it was provided externally)
+        if self._http_client and not self._external_http_client:
             await self._http_client.aclose()
+
+    # Retry configuration
+    RETRY_ATTEMPTS = 3
+    RETRY_BACKOFF_BASE = 1.0  # exponential: 1s, 2s, 4s
+
+    # HTTP status codes that warrant retry
+    RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
     # NHC reachability cache: avoid repeated 30s timeouts when NHC is down.
     # Stores the timestamp of the last connection failure. If a failure happened
@@ -111,7 +123,7 @@ class NOAAClient:
     def mark_nhc_down(cls):
         """Record that NHC is unreachable."""
         cls._nhc_last_failure = datetime.utcnow()
-        print(f"[NHC] Marked as down — skipping for {cls._nhc_failure_ttl.total_seconds():.0f}s")
+        logger.warning(f"[NHC] Marked as down — skipping for {cls._nhc_failure_ttl.total_seconds():.0f}s")
 
     @classmethod
     def mark_nhc_up(cls):
@@ -123,6 +135,84 @@ class NOAAClient:
         if self._http_client is None:
             raise RuntimeError("NOAAClient must be used as async context manager")
         return self._http_client
+
+    async def _request_with_retry(
+        self,
+        method: str,
+        url: str,
+        **kwargs,
+    ) -> httpx.Response:
+        """
+        Make HTTP request with exponential backoff retry logic.
+
+        Retries on: connection errors, timeouts, or specific status codes (429, 5xx).
+        On 429 (rate limit), respects Retry-After header or uses 10s backoff.
+        On 4xx errors (except 429), fails immediately without retry.
+
+        Args:
+            method: HTTP method (GET, POST, etc.)
+            url: Full URL to request
+            **kwargs: Additional arguments for httpx.request()
+
+        Returns:
+            Response object on success
+
+        Raises:
+            NOAAClientError: If all retry attempts fail
+        """
+        last_error: Optional[Exception] = None
+
+        for attempt in range(self.RETRY_ATTEMPTS):
+            try:
+                resp = await self.http.request(method, url, **kwargs)
+
+                # Immediate return on success or non-retryable client error (4xx)
+                if resp.status_code < 400 or (400 <= resp.status_code < 429) or (429 < resp.status_code < 500):
+                    return resp
+
+                # Handle 429 (rate limit) with Retry-After header
+                if resp.status_code == 429 and attempt < self.RETRY_ATTEMPTS - 1:
+                    retry_after = resp.headers.get("Retry-After", "10")
+                    try:
+                        backoff = float(retry_after)
+                    except (ValueError, TypeError):
+                        backoff = 10.0
+                    logger.warning(
+                        f"NOAA API rate limited (429) for {url}; "
+                        f"retrying in {backoff:.1f}s (attempt {attempt + 1}/{self.RETRY_ATTEMPTS})"
+                    )
+                    await asyncio.sleep(backoff)
+                    continue
+
+                # Retry on 5xx server errors
+                if resp.status_code >= 500 and attempt < self.RETRY_ATTEMPTS - 1:
+                    backoff = self.RETRY_BACKOFF_BASE ** attempt
+                    logger.warning(
+                        f"NOAA API returned {resp.status_code} for {url}; "
+                        f"retrying in {backoff:.1f}s (attempt {attempt + 1}/{self.RETRY_ATTEMPTS})"
+                    )
+                    await asyncio.sleep(backoff)
+                    continue
+
+                # Return non-retryable response
+                return resp
+
+            except (httpx.ConnectError, httpx.TimeoutException) as e:
+                last_error = e
+                if attempt < self.RETRY_ATTEMPTS - 1:
+                    backoff = self.RETRY_BACKOFF_BASE ** attempt
+                    logger.warning(
+                        f"NOAA API connection error: {type(e).__name__}; "
+                        f"retrying in {backoff:.1f}s (attempt {attempt + 1}/{self.RETRY_ATTEMPTS})"
+                    )
+                    await asyncio.sleep(backoff)
+                    continue
+                # Fall through to raise error below
+
+        # All retries exhausted
+        if last_error:
+            raise NOAAClientError(f"NOAA API request failed after {self.RETRY_ATTEMPTS} attempts: {last_error}") from last_error
+        raise NOAAClientError(f"NOAA API request to {url} failed after {self.RETRY_ATTEMPTS} attempts")
 
     # ==================================================================
     #  SEA SURFACE TEMPERATURE (ERDDAP griddap)
@@ -144,6 +234,13 @@ class NOAAClient:
     # Which SST source index is currently working (start with primary)
     _sst_source_idx = 0
 
+    # In-memory SST cache: {(round(lat,1), round(lon,1)): (sst_c, datetime)}
+    # Used as stale fallback when all ERDDAP sources are down. Values expire
+    # after 24h but are returned as stale data if no live source is available.
+    _sst_cache: dict[tuple, tuple] = {}
+    _SST_CACHE_TTL = timedelta(hours=24)
+    _SST_CACHE_MAX = 2000  # max entries — evict oldest when exceeded
+
     @staticmethod
     def _convert_lon(lon: float, use_360: bool) -> float:
         """Convert longitude to 0-360 range if the dataset requires it."""
@@ -159,11 +256,11 @@ class NOAAClient:
         try:
             resp = await self.http.get(url, timeout=6.0)
             if resp.status_code == 200:
-                print(f"[SST] Probe OK: {label} is responding")
+                logger.debug(f"[SST] Probe OK: {label} is responding")
                 return True
-            print(f"[SST] Probe failed: {label} returned HTTP {resp.status_code}")
+            logger.warning(f"[SST] Probe failed: {label} returned HTTP {resp.status_code}")
         except Exception as e:
-            print(f"[SST] Probe failed: {label} — {type(e).__name__}")
+            logger.warning(f"[SST] Probe failed: {label} — {type(e).__name__}")
         return False
 
     async def get_sst_along_track(self, points: list[dict]) -> list[dict]:
@@ -193,8 +290,9 @@ class NOAAClient:
             else:
                 sample_dt = sample_ts
             sample_date = sample_dt.strftime("%Y-%m-%dT12:00:00Z")
-        except Exception:
-            sample_date = "2020-01-01T12:00:00Z"
+        except Exception as e:
+            logger.warning(f"[SST] Failed to parse sample timestamp '{sample_ts}': {e}; using today's date")
+            sample_date = datetime.utcnow().strftime("%Y-%m-%dT12:00:00Z")
 
         # Find a working SST source (probe starting from current preferred)
         working_idx = None
@@ -208,21 +306,35 @@ class NOAAClient:
                 break
 
         if working_idx is None:
-            print("[SST] All ERDDAP sources are down — returning empty SST data")
-            return [
-                {"timestamp": pt.get("timestamp", ""), "lat": pt.get("lat"), "lon": pt.get("lon"), "sst_c": None}
-                for pt in points
-            ]
+            # All ERDDAP sources failed — try returning stale cached SST
+            now = datetime.utcnow()
+            stale_results = []
+            stale_hits = 0
+            for pt in points:
+                lat, lon = pt.get("lat"), pt.get("lon")
+                ts = pt.get("timestamp", "")
+                cache_key = (round(lat, 1), round(lon, 1)) if lat and lon else None
+                cached = self._sst_cache.get(cache_key) if cache_key else None
+                if cached:
+                    stale_results.append({"timestamp": ts, "lat": lat, "lon": lon, "sst_c": cached[0]})
+                    stale_hits += 1
+                else:
+                    stale_results.append({"timestamp": ts, "lat": lat, "lon": lon, "sst_c": None})
+            if stale_hits > 0:
+                logger.warning(f"[SST] All ERDDAP down — returning {stale_hits}/{len(points)} stale cached SST values")
+            else:
+                logger.warning("[SST] All ERDDAP sources down, no cached SST available")
+            return stale_results
 
         # Update preferred source for future calls
         if working_idx != self._sst_source_idx:
             old_label = self.ERDDAP_SST_SOURCES[self._sst_source_idx][2]  # label is index 2
             new_label = self.ERDDAP_SST_SOURCES[working_idx][2]
-            print(f"[SST] Switching from {old_label} to {new_label}")
+            logger.info(f"[SST] Switching from {old_label} to {new_label}")
             NOAAClient._sst_source_idx = working_idx
 
         base_url, var_name, label, lon_360 = self.ERDDAP_SST_SOURCES[working_idx]
-        print(f"[SST] Using source: {label} ({base_url})")
+        logger.debug(f"[SST] Using source: {label} ({base_url})")
 
         async def fetch_single_sst(pt):
             lat = pt.get("lat")
@@ -256,7 +368,15 @@ class NOAAClient:
                     sst_val = rows[0][3]  # 4th column is the SST value
                     # ERDDAP returns SST in Celsius; filter out fill values
                     if sst_val is not None and -5 < sst_val < 45:
-                        return {"timestamp": ts, "lat": lat, "lon": lon, "sst_c": round(sst_val, 2)}
+                        sst_rounded = round(sst_val, 2)
+                        # Cache for stale fallback when ERDDAP goes down
+                        cache_key = (round(lat, 1), round(lon, 1))
+                        NOAAClient._sst_cache[cache_key] = (sst_rounded, datetime.utcnow())
+                        # Evict oldest if cache is full
+                        if len(NOAAClient._sst_cache) > NOAAClient._SST_CACHE_MAX:
+                            oldest = min(NOAAClient._sst_cache, key=lambda k: NOAAClient._sst_cache[k][1])
+                            del NOAAClient._sst_cache[oldest]
+                        return {"timestamp": ts, "lat": lat, "lon": lon, "sst_c": sst_rounded}
             except Exception as e:
                 logger.debug(f"SST fetch error for ({lat},{lon}): {type(e).__name__}")
 
@@ -273,7 +393,7 @@ class NOAAClient:
         results = await asyncio.gather(*tasks)
 
         valid = sum(1 for r in results if r.get("sst_c") is not None)
-        print(f"[SST] Done: {valid}/{len(results)} points with valid SST from {label}")
+        logger.debug(f"[SST] Done: {valid}/{len(results)} points with valid SST from {label}")
 
         return list(results)
 
@@ -289,7 +409,7 @@ class NOAAClient:
         wind radii by quadrant when available.
         """
         try:
-            resp = await self.http.get(NHC_ACTIVE_STORMS_URL)
+            resp = await self._request_with_retry("GET", NHC_ACTIVE_STORMS_URL)
             resp.raise_for_status()
             data = resp.json()
             storms = []
@@ -307,7 +427,7 @@ class NOAAClient:
                     "movement_direction_deg": feature.get("movementDir"),
                 })
             return storms
-        except httpx.HTTPError as e:
+        except (httpx.HTTPError, NOAAClientError) as e:
             raise NOAAClientError(f"Failed to fetch active storms: {e}") from e
 
     # ==================================================================
@@ -331,7 +451,7 @@ class NOAAClient:
         # Fetch forecast track points from NHC GIS
         track_url = f"{NHC_GIS_BASE_URL}/forecast/archive/{basin}{number}{year}_5day_latest.json"
         try:
-            resp = await self.http.get(track_url, timeout=10.0)
+            resp = await self._request_with_retry("GET", track_url, timeout=10.0)
             resp.raise_for_status()
             data = resp.json()
 
@@ -350,13 +470,13 @@ class NOAAClient:
                         "gust_kt": props.get("GUST", props.get("gust")),
                         "time": props.get("FLDATELBL", props.get("dateLabel", "")),
                     })
-        except httpx.HTTPError as e:
+        except (httpx.HTTPError, NOAAClientError) as e:
             logger.warning(f"Forecast track fetch failed for {storm_id}: {e}")
 
         # Fetch forecast cone polygon
         cone_url = f"{NHC_GIS_BASE_URL}/forecast/archive/{basin}{number}{year}_5day_pgn_latest.json"
         try:
-            resp = await self.http.get(cone_url, timeout=10.0)
+            resp = await self._request_with_retry("GET", cone_url, timeout=10.0)
             resp.raise_for_status()
             data = resp.json()
 
@@ -372,7 +492,7 @@ class NOAAClient:
                         biggest = max(coords, key=lambda p: len(p[0]) if p else 0)
                         result["cone_polygon"] = [[c[1], c[0]] for c in biggest[0]]
                     break
-        except httpx.HTTPError as e:
+        except (httpx.HTTPError, NOAAClientError) as e:
             logger.warning(f"Forecast cone fetch failed for {storm_id}: {e}")
 
         return result
@@ -400,10 +520,10 @@ class NOAAClient:
         url = f"{NHC_GIS_BASE_URL}/forecast/archive/{basin}{number}{year}_fcst_latest.json"
 
         try:
-            resp = await self.http.get(url)
+            resp = await self._request_with_retry("GET", url)
             resp.raise_for_status()
             data = resp.json()
-        except httpx.HTTPError:
+        except (httpx.HTTPError, NOAAClientError):
             storms = await self.get_active_storms()
             match = next((s for s in storms if s["id"] == storm_id), None)
             if match is None:
@@ -517,16 +637,28 @@ class NOAAClient:
         # Fall back to HURDAT2
         logger.debug(f"Using HURDAT2 for {storm_id} (EBTRK unavailable)")
         hurdat_text = await self._fetch_hurdat2()
-        return self._parse_hurdat2(hurdat_text, storm_id)
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._parse_hurdat2, hurdat_text, storm_id)
 
     async def _fetch_hurdat2(self) -> str:
-        """Download HURDAT2 text file (cached if cache_dir set)."""
+        """Download HURDAT2 text file (cached if cache_dir set).
+
+        File I/O is offloaded to avoid blocking the event loop.
+        """
         if self.cache_dir:
             cached = self.cache_dir / "hurdat2.txt"
             if cached.exists():
-                return cached.read_text()
+                loop = asyncio.get_event_loop()
+                return await loop.run_in_executor(None, cached.read_text)
 
         if NOAAClient.nhc_is_down():
+            # NHC is down — try stale cache before giving up
+            if self.cache_dir:
+                stale = self.cache_dir / "hurdat2.txt"
+                if stale.exists():
+                    logger.warning("[HURDAT2] NHC down, returning stale cached data")
+                    loop = asyncio.get_event_loop()
+                    return await loop.run_in_executor(None, stale.read_text)
             raise NOAAClientError("NHC recently unreachable — skipping HURDAT2")
 
         try:
@@ -534,14 +666,24 @@ class NOAAClient:
             resp.raise_for_status()
         except (httpx.ConnectError, httpx.TimeoutException) as e:
             NOAAClient.mark_nhc_down()
+            # Try stale cache before raising
+            if self.cache_dir:
+                stale = self.cache_dir / "hurdat2.txt"
+                if stale.exists():
+                    logger.warning(f"[HURDAT2] NHC unreachable ({e}), returning stale cached data")
+                    loop = asyncio.get_event_loop()
+                    return await loop.run_in_executor(None, stale.read_text)
             raise NOAAClientError(f"NHC unreachable: {e}") from e
 
         NOAAClient.mark_nhc_up()
         text = resp.text
 
         if self.cache_dir:
-            self.cache_dir.mkdir(parents=True, exist_ok=True)
-            (self.cache_dir / "hurdat2.txt").write_text(text)
+            def _write():
+                self.cache_dir.mkdir(parents=True, exist_ok=True)
+                (self.cache_dir / "hurdat2.txt").write_text(text)
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, _write)
 
         return text
 
@@ -988,82 +1130,22 @@ class NOAAClient:
                 logger.warning(f"IBTrACS fetch returned empty: use_recent={use_recent}")
                 continue
 
-            reader = csv.DictReader(io.StringIO(csv_text))
-            storm_count = 0
-            for row in reader:
-                sid = row.get("SID", "").strip()
-                if not sid:
-                    continue
-
-                season_str = row.get("SEASON", "").strip()
-                try:
-                    year = int(season_str)
-                except (ValueError, TypeError):
-                    continue
-
-                if year < min_year or year > max_year:
-                    continue
-
-                name = row.get("NAME", "").strip()
-                if not name or name in ("NOT_NAMED", "UNNAMED", ""):
-                    continue
-
-                basin = row.get("BASIN", "").strip()
-                wind_kt = _safe_float(row.get("USA_WIND")) or _safe_float(row.get("WMO_WIND")) or 0
-
-                # Grab extra fields for DPS calculation
-                pres = _safe_float(row.get("USA_PRES")) or _safe_float(row.get("WMO_PRES"))
-                lat_val = _safe_float(row.get("LAT"))
-                lon_val = _safe_float(row.get("LON"))
-                storm_speed = _safe_float(row.get("STORM_SPEED"))
-                r34_ne = _safe_float(row.get("USA_R34_NE"))
-                r34_se = _safe_float(row.get("USA_R34_SE"))
-                r34_sw = _safe_float(row.get("USA_R34_SW"))
-                r34_nw = _safe_float(row.get("USA_R34_NW"))
-                r34_max_nm = max(filter(None, [r34_ne, r34_se, r34_sw, r34_nw]), default=None)
-                r64_ne = _safe_float(row.get("USA_R64_NE"))
-                r64_se = _safe_float(row.get("USA_R64_SE"))
-                r64_sw = _safe_float(row.get("USA_R64_SW"))
-                r64_nw = _safe_float(row.get("USA_R64_NW"))
-                r64_max_nm = max(filter(None, [r64_ne, r64_se, r64_sw, r64_nw]), default=None)
-
-                storm_count += 1
+            # Parse CSV off the event loop — IBTrACS files can be 100MB+
+            loop = asyncio.get_event_loop()
+            partial_catalog = await loop.run_in_executor(
+                None, self._parse_ibtracs_catalog_chunk, csv_text, min_year, max_year
+            )
+            for sid, entry in partial_catalog.items():
                 if sid not in catalog:
-                    catalog[sid] = {
-                        "id": sid,
-                        "name": name.title(),
-                        "year": year,
-                        "basin": basin,
-                        "peak_wind_kt": wind_kt,
-                        # DPS tracking: store best observation for DPS calc
-                        "_dps_wind_kt": wind_kt,
-                        "_dps_pressure": pres,
-                        "_dps_r34_nm": r34_max_nm,
-                        "_dps_r64_nm": r64_max_nm,
-                        "_dps_fwd_kt": storm_speed,
-                        "_dps_lat": lat_val,
-                        "_dps_lon": lon_val,
-                    }
+                    catalog[sid] = entry
                 else:
-                    if wind_kt > catalog[sid]["peak_wind_kt"]:
-                        catalog[sid]["peak_wind_kt"] = wind_kt
-                    # Update DPS fields if this row has stronger wind (peak intensity snapshot)
-                    if wind_kt >= catalog[sid].get("_dps_wind_kt", 0):
-                        catalog[sid]["_dps_wind_kt"] = wind_kt
-                        if pres:
-                            catalog[sid]["_dps_pressure"] = pres
-                        if r34_max_nm:
-                            catalog[sid]["_dps_r34_nm"] = r34_max_nm
-                        if r64_max_nm:
-                            catalog[sid]["_dps_r64_nm"] = r64_max_nm
-                        if storm_speed:
-                            catalog[sid]["_dps_fwd_kt"] = storm_speed
-                        if lat_val is not None:
-                            catalog[sid]["_dps_lat"] = lat_val
-                        if lon_val is not None:
-                            catalog[sid]["_dps_lon"] = lon_val
-
-            logger.info(f"IBTrACS parse (use_recent={use_recent}): {storm_count} rows processed, {len(catalog)} storms in catalog")
+                    if entry["peak_wind_kt"] > catalog[sid]["peak_wind_kt"]:
+                        catalog[sid]["peak_wind_kt"] = entry["peak_wind_kt"]
+                    if entry.get("_dps_wind_kt", 0) >= catalog[sid].get("_dps_wind_kt", 0):
+                        for k in ("_dps_wind_kt", "_dps_pressure", "_dps_r34_nm",
+                                  "_dps_r64_nm", "_dps_fwd_kt", "_dps_lat", "_dps_lon"):
+                            if entry.get(k) is not None:
+                                catalog[sid][k] = entry[k]
 
         # Filter to named tropical storms (>= 34 kt), compute DPS, add category
         result = []
@@ -1159,7 +1241,7 @@ class NOAAClient:
         }
 
         try:
-            resp = await self.http.get(NOAA_NOMADS_BASE, params=params)
+            resp = await self.http.get(NOAA_NOMADS_BASE, params=params, timeout=45.0)
             resp.raise_for_status()
             grib_data = resp.content
 
@@ -1228,12 +1310,13 @@ class NOAAClient:
             List of HurricaneSnapshot from IBTrACS data
         """
         csv_text = await self._fetch_ibtracs(use_recent=use_recent)
-        snapshots = self._parse_ibtracs_csv(csv_text, sid)
+        loop = asyncio.get_event_loop()
+        snapshots = await loop.run_in_executor(None, self._parse_ibtracs_csv, csv_text, sid)
 
         # If not found in recent, try the full archive
         if not snapshots and use_recent:
             csv_text = await self._fetch_ibtracs(use_recent=False)
-            snapshots = self._parse_ibtracs_csv(csv_text, sid)
+            snapshots = await loop.run_in_executor(None, self._parse_ibtracs_csv, csv_text, sid)
 
         return snapshots
 
@@ -1256,27 +1339,132 @@ class NOAAClient:
         if not csv_text and use_recent:
             csv_text = await self._fetch_ibtracs(use_recent=False)
 
-        return self._search_ibtracs_csv(csv_text, name.upper(), year, basin)
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._search_ibtracs_csv, csv_text, name.upper(), year, basin)
 
     async def _fetch_ibtracs(self, use_recent: bool = True) -> str:
-        """Download IBTrACS CSV (cached)."""
+        """Download IBTrACS CSV (cached).
+
+        File I/O is offloaded to avoid blocking the event loop.
+        IBTrACS files can be 50-100MB+ for the full archive.
+
+        Network resilience: if the download fails and a stale cached copy
+        exists on disk, return the stale data rather than failing outright.
+        """
         cache_name = "ibtracs_recent.csv" if use_recent else "ibtracs_all.csv"
         url = IBTRACS_LAST3_URL if use_recent else IBTRACS_CSV_URL
+        loop = asyncio.get_event_loop()
 
         if self.cache_dir:
             cached = self.cache_dir / cache_name
             if cached.exists():
-                return cached.read_text()
+                return await loop.run_in_executor(None, cached.read_text)
 
-        resp = await self.http.get(url, timeout=120.0)
-        resp.raise_for_status()
-        text = resp.text
+        try:
+            resp = await self.http.get(url, timeout=120.0)
+            resp.raise_for_status()
+            text = resp.text
+        except (httpx.HTTPError, httpx.TimeoutException) as e:
+            # Network failed — try to return stale cache rather than crashing
+            if self.cache_dir:
+                stale = self.cache_dir / cache_name
+                if stale.exists():
+                    logger.warning(
+                        f"[IBTrACS] Download failed ({type(e).__name__}), "
+                        f"returning stale cached data from {stale}"
+                    )
+                    return await loop.run_in_executor(None, stale.read_text)
+            raise  # No cache at all — propagate error
 
         if self.cache_dir:
-            self.cache_dir.mkdir(parents=True, exist_ok=True)
-            (self.cache_dir / cache_name).write_text(text)
+            def _write():
+                self.cache_dir.mkdir(parents=True, exist_ok=True)
+                (self.cache_dir / cache_name).write_text(text)
+            await loop.run_in_executor(None, _write)
 
         return text
+
+    def _parse_ibtracs_catalog_chunk(
+        self, csv_text: str, min_year: int, max_year: int
+    ) -> dict:
+        """
+        Parse one IBTrACS CSV file into a storm catalog dict (sync, runs in executor).
+
+        Returns {SID: entry_dict} for merging into the main catalog.
+        """
+        catalog = {}
+        reader = csv.DictReader(io.StringIO(csv_text))
+        storm_count = 0
+
+        for row in reader:
+            sid = row.get("SID", "").strip()
+            if not sid:
+                continue
+            season_str = row.get("SEASON", "").strip()
+            try:
+                year = int(season_str)
+            except (ValueError, TypeError):
+                continue
+            if year < min_year or year > max_year:
+                continue
+
+            name = row.get("NAME", "").strip()
+            if not name or name in ("NOT_NAMED", "UNNAMED", ""):
+                continue
+
+            basin = row.get("BASIN", "").strip()
+            wind_kt = _safe_float(row.get("USA_WIND")) or _safe_float(row.get("WMO_WIND")) or 0
+            pres = _safe_float(row.get("USA_PRES")) or _safe_float(row.get("WMO_PRES"))
+            lat_val = _safe_float(row.get("LAT"))
+            lon_val = _safe_float(row.get("LON"))
+            storm_speed = _safe_float(row.get("STORM_SPEED"))
+            r34_ne = _safe_float(row.get("USA_R34_NE"))
+            r34_se = _safe_float(row.get("USA_R34_SE"))
+            r34_sw = _safe_float(row.get("USA_R34_SW"))
+            r34_nw = _safe_float(row.get("USA_R34_NW"))
+            r34_max_nm = max(filter(None, [r34_ne, r34_se, r34_sw, r34_nw]), default=None)
+            r64_ne = _safe_float(row.get("USA_R64_NE"))
+            r64_se = _safe_float(row.get("USA_R64_SE"))
+            r64_sw = _safe_float(row.get("USA_R64_SW"))
+            r64_nw = _safe_float(row.get("USA_R64_NW"))
+            r64_max_nm = max(filter(None, [r64_ne, r64_se, r64_sw, r64_nw]), default=None)
+
+            storm_count += 1
+            if sid not in catalog:
+                catalog[sid] = {
+                    "id": sid,
+                    "name": name.title(),
+                    "year": year,
+                    "basin": basin,
+                    "peak_wind_kt": wind_kt,
+                    "_dps_wind_kt": wind_kt,
+                    "_dps_pressure": pres,
+                    "_dps_r34_nm": r34_max_nm,
+                    "_dps_r64_nm": r64_max_nm,
+                    "_dps_fwd_kt": storm_speed,
+                    "_dps_lat": lat_val,
+                    "_dps_lon": lon_val,
+                }
+            else:
+                if wind_kt > catalog[sid]["peak_wind_kt"]:
+                    catalog[sid]["peak_wind_kt"] = wind_kt
+                if wind_kt >= catalog[sid].get("_dps_wind_kt", 0):
+                    catalog[sid]["_dps_wind_kt"] = wind_kt
+                    if pres:
+                        catalog[sid]["_dps_pressure"] = pres
+                    if r34_max_nm:
+                        catalog[sid]["_dps_r34_nm"] = r34_max_nm
+                    if r64_max_nm:
+                        catalog[sid]["_dps_r64_nm"] = r64_max_nm
+                    if storm_speed:
+                        catalog[sid]["_dps_fwd_kt"] = storm_speed
+                    if lat_val is not None:
+                        catalog[sid]["_dps_lat"] = lat_val
+                    if lon_val is not None:
+                        catalog[sid]["_dps_lon"] = lon_val
+
+        logger.info(f"IBTrACS chunk parse: {storm_count} rows -> {len(catalog)} storms")
+        return catalog
 
     def _parse_ibtracs_csv(
         self, csv_text: str, target_sid: str

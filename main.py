@@ -1,31 +1,65 @@
 """
-Hurricane IKE Valuation API — main FastAPI application.
+Hurricane DPI API — main FastAPI application.
 
-Run with:
+Serves the REST API consumed by:
+  - React Native / Expo app (iOS, Android, Web)
+  - Legacy web frontend (frontend/index.html)
+
+Run locally:
     uvicorn main:app --reload --port 8000
 
-API docs available at:
+API docs:
     http://localhost:8000/docs
 """
 
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 
-from fastapi import FastAPI
+import httpx
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from api.routes import router, generate_preload_bundle
+from api.weather_routes import router as weather_router
+from services.weather_data_service import WeatherDataService
 
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup/shutdown lifecycle. Pre-computes IKE data for preset storms."""
+    """Startup/shutdown lifecycle. Initializes services and pre-computes IKE data."""
+    # --- STARTUP: Create shared httpx.AsyncClient ---
+    # FIX 2: Tune connection pool for viral load (50K+ concurrent users)
+    # - max_connections=200 (NOAA can handle this)
+    # - pool=10.0 timeout provides backpressure (requests fail fast instead of queueing forever)
+    # - connect=5.0 timeout for TCP handshake
+    app.state.http_client = httpx.AsyncClient(
+        timeout=httpx.Timeout(30.0, connect=5.0, pool=10.0),
+        limits=httpx.Limits(max_connections=200, max_keepalive_connections=100),
+        headers={"User-Agent": "HurricaneIKE-App/1.0 (research)"},
+        follow_redirects=True,
+    )
+    logger.info("[STARTUP] Shared httpx.AsyncClient created (max_connections=200, pool_timeout=10s)")
+
+    # --- STARTUP: Initialize WeatherDataService ---
+    try:
+        weather_service = WeatherDataService()
+        await weather_service.__aenter__()
+        app.state.weather_service = weather_service
+        logger.info("[STARTUP] WeatherDataService initialized")
+    except Exception as e:
+        logger.error(f"[STARTUP] Failed to initialize WeatherDataService: {e}")
+        app.state.weather_service = None
+
     # --- STARTUP: warm the preload cache in the background ---
     async def warm_preload():
         try:
@@ -42,39 +76,103 @@ async def lifespan(app: FastAPI):
     # Run in background so the server starts accepting requests immediately
     asyncio.create_task(warm_preload())
     yield
-    # --- SHUTDOWN: nothing to clean up ---
+    # --- SHUTDOWN: close shared httpx.AsyncClient ---
+    try:
+        await app.state.http_client.aclose()
+        logger.info("[SHUTDOWN] Shared httpx.AsyncClient closed")
+    except Exception as e:
+        logger.error(f"[SHUTDOWN] Error closing httpx.AsyncClient: {e}")
+
+    # --- SHUTDOWN: close WeatherDataService ---
+    if hasattr(app.state, "weather_service") and app.state.weather_service:
+        try:
+            await app.state.weather_service.__aexit__(None, None, None)
+            logger.info("[SHUTDOWN] WeatherDataService closed")
+        except Exception as e:
+            logger.error(f"[SHUTDOWN] Error closing WeatherDataService: {e}")
+
 
 app = FastAPI(
-    title="Hurricane IKE Valuation API",
+    title="Hurricane DPI API",
     description=(
-        "Compute Integrated Kinetic Energy (IKE) and destructive value scores "
-        "for tropical cyclones using NOAA/NHC data. IKE integrates wind speed "
-        "over the entire storm area, providing a more complete measure of "
-        "destructive potential than max wind speed alone."
+        "Compute the Destructive Potential Index (DPI) for tropical cyclones "
+        "using NOAA/NHC data, Integrated Kinetic Energy (IKE), storm surge "
+        "modeling, and regional economic vulnerability analysis. "
+        "Serves iOS, Android, and Web clients via REST."
     ),
-    version="0.1.0",
+    version="1.0.0",
     lifespan=lifespan,
 )
 
-# Allow cross-origin requests for frontend app
+# ---------------------------------------------------------------------------
+# Middleware
+# ---------------------------------------------------------------------------
+
+# CORS — allow all origins for development.
+# In production, set ALLOWED_ORIGINS env var to a comma-separated list.
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Tighten in production
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["X-Request-Id", "X-Response-Time"],
+    max_age=600,  # Cache preflight for 10 min (reduces OPTIONS roundtrips on mobile)
 )
 
+# GZip — compress API responses for mobile bandwidth efficiency
+app.add_middleware(GZipMiddleware, minimum_size=500)
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+
 app.include_router(router, prefix="/api/v1")
+app.include_router(weather_router, prefix="/api/v1")
 
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok", "service": "hurricane-ike-api"}
+    """Health check endpoint used by mobile app to verify connectivity."""
+    return {
+        "status": "ok",
+        "service": "hurricane-dpi-api",
+        "version": "1.0.0",
+    }
 
 
-# Serve the frontend at root
+# ---------------------------------------------------------------------------
+# Legacy web frontend (still served for backward compatibility)
+# ---------------------------------------------------------------------------
+
 FRONTEND_DIR = Path(__file__).parent / "frontend"
+
+# ---------------------------------------------------------------------------
+# Error handling — return JSON for all errors (mobile clients expect JSON)
+# ---------------------------------------------------------------------------
+
+@app.exception_handler(404)
+async def not_found_handler(request: Request, exc):
+    if request.url.path.startswith("/api/"):
+        return JSONResponse(
+            status_code=404,
+            content={"detail": "Endpoint not found"},
+        )
+    # For non-API paths, try to serve the legacy frontend
+    frontend_file = FRONTEND_DIR / "index.html"
+    if frontend_file.exists():
+        return FileResponse(frontend_file)
+    return JSONResponse(status_code=404, content={"detail": "Not found"})
+
+
+@app.exception_handler(500)
+async def internal_error_handler(request: Request, exc):
+    logger.error(f"Internal error on {request.url.path}: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+    )
 
 
 @app.get("/")

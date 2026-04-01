@@ -52,6 +52,11 @@ class IKEResponse(BaseModel):
     r34_quadrants: Optional[QuadrantRadii] = Field(None, description="34-kt wind radii per quadrant (nm)")
     forward_speed_knots: Optional[float] = Field(None, description="Storm forward speed (knots)")
     forward_direction_deg: Optional[float] = Field(None, description="Storm heading (degrees, 0=N)")
+    radii_confidence: Optional[float] = Field(
+        None,
+        description="Wind radii data confidence (0.0-1.0) from cross-source audit. "
+                    "None if audit has not run for this advisory cycle.",
+    )
 
 
 class ValuationResponse(BaseModel):

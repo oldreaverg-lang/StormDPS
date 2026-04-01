@@ -1,0 +1,56 @@
+# Version control
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+venv/
+.venv/
+env/
+*.egg-info/
+
+# Virtual environment
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Development/debug scripts
+analyze_*.py
+compare_*.py
+debug_*.py
+final_check.py
+get_preset_updates.py
+search_catalog.py
+show_*.py
+check_*.py
+test_*.py
+rank_*.py
+validate_*.py
+tournament_formula.py
+batch_*.py
+compile_cache.py
+build_preload.py
+
+# Docs (not needed at runtime)
+*.md
+*.docx
+*.webp
+
+# Cache data (rebuilt at runtime)
+data/cache/
+data/validation/
+
+# Mobile app source (separate deployment)
+mobile/
+
+# Environment files
+.env
+.env.example

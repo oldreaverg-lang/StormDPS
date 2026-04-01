@@ -3,7 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hurricane IKE Visualizer</title>
+    <title>StormDPS — Destructive Power Score</title>
+    <link rel="icon" type="image/x-icon" href="/frontend/favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="/frontend/logo-32.png">
+    <link rel="manifest" href="/frontend/manifest.json">
+    <meta name="theme-color" content="#0a0e1a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="/frontend/logo-180.png">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
@@ -11,24 +18,25 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         :root{--primary:#6366f1;--primary-hover:#4f46e5;--bg-dark:#0a0e1a;--bg-card:#111827;--bg-card-hover:#1a2234;--bg-input:#0d1221;--text-main:#f1f5f9;--text-muted:#64748b;--text-dim:#475569;--border:#1e293b;--border-hover:#334155;--success:#10b981;--danger:#ef4444;--cat1:#60a5fa;--cat2:#34d399;--cat3:#fbbf24;--cat4:#f97316;--cat5:#ef4444;--ts:#818cf8;--td:#94a3b8;--radius:10px;--radius-lg:14px}
-        *{box-sizing:border-box;margin:0;padding:0}body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg-dark);color:var(--text-main);min-height:100vh;overflow-x:hidden}
+        *{box-sizing:border-box;margin:0;padding:0}body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg-dark);color:var(--text-main);height:100vh;overflow:hidden}
         header{background:linear-gradient(180deg,rgba(17,24,39,.97),rgba(10,14,26,.97));backdrop-filter:blur(12px);padding:.5rem 1.2rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
-        .logo{display:flex;align-items:center;gap:.6rem}.logo-icon{width:32px;height:32px;background:linear-gradient(135deg,var(--primary),#a78bfa);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1.05rem}h1{font-size:1.1rem;font-weight:700;letter-spacing:-.03em}
+        .logo{display:flex;align-items:center;gap:.6rem}.logo-icon{width:32px;height:32px;border-radius:8px;overflow:hidden;flex-shrink:0}.logo-icon img{width:100%;height:100%;object-fit:cover;border-radius:8px}h1{font-size:1.1rem;font-weight:700;letter-spacing:-.03em}
         .header-status{display:flex;align-items:center;gap:.4rem;font-size:.75rem;color:var(--text-muted)}.status-dot{width:6px;height:6px;border-radius:50%;background:var(--success);box-shadow:0 0 6px rgba(16,185,129,.5)}
-        .app-layout{display:grid;grid-template-columns:260px 1fr;min-height:calc(100vh - 49px)}
-        .sidebar{background:var(--bg-card);border-right:1px solid var(--border);padding:1rem;display:flex;flex-direction:column;gap:1rem;overflow-y:auto}.sidebar-section{display:flex;flex-direction:column;gap:.5rem}
+        .app-layout{display:grid;grid-template-columns:260px 1fr;height:calc(100vh - 49px);overflow:hidden}
+        .sidebar{background:var(--bg-card);border-right:1px solid var(--border);padding:1rem;display:flex;flex-direction:column;gap:1rem;overflow-y:auto;height:calc(100vh - 49px)}.sidebar-section{display:flex;flex-direction:column;gap:.5rem}
         .sidebar-title{font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-dim);padding-bottom:.2rem;border-bottom:1px solid var(--border)}
         .input-group{display:flex;flex-direction:column;gap:.3rem}.input-group label{font-size:.9rem;font-weight:500;color:var(--text-muted)}
         input,select{background:var(--bg-input);border:1px solid var(--border);color:var(--text-main);padding:.5rem .65rem;border-radius:var(--radius);font-size:.95rem;font-family:inherit;outline:none;transition:border-color .2s;width:100%}input:focus,select:focus{border-color:var(--primary)}input::placeholder{color:var(--text-dim)}
         .btn{display:flex;align-items:center;justify-content:center;gap:.4rem;padding:.5rem .85rem;border-radius:var(--radius);border:none;font-size:.95rem;font-weight:600;font-family:inherit;cursor:pointer;transition:all .15s}.btn-primary{background:var(--primary);color:#fff}.btn-primary:hover{background:var(--primary-hover)}.btn-secondary{background:transparent;color:var(--text-muted);border:1px solid var(--border)}.btn-secondary:hover{border-color:var(--border-hover);color:var(--text-main)}.btn:disabled{opacity:.4;cursor:not-allowed}.btn:active:not(:disabled){transform:scale(.97)}.btn-block{width:100%}
         .preset-grid{display:flex;flex-direction:column;gap:.3rem}.preset-chip{display:flex;align-items:center;gap:.5rem;padding:.4rem .55rem;border-radius:var(--radius);background:var(--bg-input);border:1px solid var(--border);cursor:pointer;transition:all .2s;font-size:.9rem}.preset-chip:hover{border-color:var(--primary);background:var(--bg-card-hover)}.preset-chip.selected{border-color:var(--primary);background:rgba(99,102,241,.12);transform:scale(1.03);box-shadow:0 0 12px rgba(99,102,241,.25)}.preset-chip.selected .chip-name{color:#fff}.preset-chip.selected .chip-meta{color:var(--text-muted)}.cat-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}.chip-name{font-weight:600;color:var(--text-main)}.chip-meta{color:var(--text-dim);font-size:.67rem;margin-left:auto}
         .accordion{display:flex;flex-direction:column;gap:.35rem}.accordion-section{border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;background:var(--bg-input)}.accordion-header{display:flex;align-items:center;justify-content:space-between;padding:.45rem .6rem;cursor:pointer;user-select:none;transition:background .15s;font-size:.9rem;font-weight:600;color:var(--text-muted)}.accordion-header:hover{background:var(--bg-card-hover)}.accordion-arrow{transition:transform .2s;font-size:.6rem;color:var(--text-dim)}.accordion-section.open .accordion-arrow{transform:rotate(90deg)}.accordion-body{display:none;padding:.35rem .5rem .5rem}.accordion-section.open .accordion-body{display:block}.accordion-header .acc-count{font-weight:400;font-size:.62rem;color:var(--text-dim);margin-left:auto;margin-right:.4rem}
-        .main-content{padding:.5rem .65rem;display:flex;flex-direction:column;gap:.4rem;overflow:hidden;height:calc(100vh - 49px)}
+        .main-content{padding:.5rem .65rem;display:flex;flex-direction:column;gap:.4rem;overflow-y:auto;overflow-x:hidden;height:calc(100vh - 49px)}
         .error-bar{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);color:#fca5a5;padding:.65rem .85rem;border-radius:var(--radius);font-size:.95rem;display:none}.error-bar.visible{display:block;animation:fadeIn .3s}
         .loading-bar{display:none;align-items:center;gap:.5rem;color:var(--primary);font-size:.95rem;font-weight:500}.loading-bar.visible{display:flex;animation:fadeIn .3s}.spinner{width:16px;height:16px;border:2px solid rgba(99,102,241,.2);border-radius:50%;border-top-color:var(--primary);animation:spin .8s linear infinite}
-        .stats-row{display:none;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:.5rem;flex-shrink:0}.stats-row.visible{display:grid;animation:fadeIn .4s}.stat-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:.4rem .7rem}.stat-label{font-size:.7rem;font-weight:500;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em}.stat-value{font-size:1.2rem;font-weight:800;margin-top:.05rem;letter-spacing:-.03em}.stat-sub{font-size:.75rem;color:var(--text-muted);margin-top:.05rem}
-        .viz-area{display:none;flex:1;gap:.5rem;min-height:0;overflow:hidden}.viz-area.visible{display:flex;animation:fadeIn .4s}.map-panel{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;position:relative;flex:1.2;min-height:0}#map{width:100%;height:100%}.charts-stack{display:flex;flex-direction:column;gap:.4rem;flex:1;min-height:0;overflow:hidden}.chart-panel{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;position:relative;flex:1;padding:.5rem;display:flex;flex-direction:column;min-height:0}.chart-panel canvas{flex:1;min-height:0}
-        .chart-tabbed{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;position:relative;flex:1;display:flex;flex-direction:column;min-height:0}
+        .stats-row{display:none;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:.5rem;flex-shrink:0}.stats-row.visible{display:grid;animation:fadeIn .4s}.stat-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:.4rem .7rem;position:relative;overflow:visible}.stat-label{font-size:.7rem;font-weight:500;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em}.stat-value{font-size:1.2rem;font-weight:800;margin-top:.05rem;letter-spacing:-.03em}.stat-sub{font-size:.75rem;color:var(--text-muted);margin-top:.05rem}
+        .snapshot-tabs{display:flex;gap:2px;margin:2px 0 1px;flex-wrap:wrap}.snapshot-tab{font-size:.55rem;padding:1px 5px;border-radius:3px;cursor:pointer;background:rgba(99,102,241,.1);color:var(--text-dim);border:1px solid transparent;transition:all .15s;white-space:nowrap;text-transform:uppercase;letter-spacing:.03em;font-weight:600}.snapshot-tab:hover{background:rgba(99,102,241,.2);color:var(--text-main)}.snapshot-tab.active{background:rgba(99,102,241,.25);color:var(--primary);border-color:var(--primary)}
+        .viz-area{display:none;flex:1;gap:.5rem;min-height:0;overflow:hidden}.viz-area.visible{display:flex;animation:fadeIn .4s}.map-panel{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;position:relative;flex:1.2;min-height:0}#map{width:100%;height:100%}.charts-stack{display:flex;flex-direction:column;gap:.4rem;flex:1;min-height:0;overflow:auto}.chart-panel{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;position:relative;flex:1;padding:.5rem;display:flex;flex-direction:column;min-height:0}.chart-panel canvas{flex:1;min-height:0}
+        .chart-tabbed{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;position:relative;flex:1;display:flex;flex-direction:column;min-height:220px}
         .chart-tabs{display:flex;border-bottom:1px solid var(--border);padding:0 .5rem;gap:0;flex-shrink:0}
         .chart-tab{background:none;border:none;color:var(--text-dim);font-size:.68rem;font-weight:600;padding:.35rem .55rem;cursor:pointer;border-bottom:2px solid transparent;transition:color .2s,border-color .2s;text-transform:uppercase;letter-spacing:.04em}
         .chart-tab:hover{color:var(--text-secondary)}
@@ -44,11 +52,87 @@
         .map-legend{position:absolute;bottom:8px;left:8px;z-index:500;background:rgba(10,14,26,.88);backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:var(--radius);padding:.35rem .5rem;display:flex;flex-direction:column;gap:.15rem;font-size:.65rem;color:var(--text-muted);max-height:50%;overflow-y:auto}.legend-item{display:flex;align-items:center;gap:.25rem}.legend-swatch{width:14px;height:6px;border-radius:2px;flex-shrink:0}
         .leaflet-popup-content-wrapper{background:rgba(17,24,39,.95);color:var(--text-main);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.4)}.leaflet-popup-tip{background:rgba(17,24,39,.95);border:1px solid var(--border)}.leaflet-popup-content{margin:8px 12px;line-height:1.5}
         .welcome-state{flex:1;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--text-dim)}.welcome-state.hidden{display:none}.welcome-icon{font-size:2.5rem;margin-bottom:.75rem;opacity:.5}.welcome-text{font-size:.9rem;font-weight:500;max-width:300px;line-height:1.6}
+        .quick-start{display:flex;flex-direction:column;gap:.5rem;margin-top:1.2rem;align-items:center}
+        .quick-start-label{font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--text-dim);margin-bottom:.2rem}
+        .quick-start-row{display:flex;gap:.5rem;flex-wrap:wrap;justify-content:center}
+        .quick-start-btn{display:inline-flex;align-items:center;gap:.35rem;padding:.45rem .85rem;border-radius:var(--radius);background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.25);color:var(--text-main);font-size:.82rem;font-weight:600;cursor:pointer;transition:all .2s;font-family:inherit}
+        .quick-start-btn:hover{background:rgba(99,102,241,.18);border-color:var(--primary);transform:translateY(-1px);box-shadow:0 4px 12px rgba(99,102,241,.2)}
+        .quick-start-btn .qs-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+        .quick-start-btn .qs-meta{font-size:.68rem;color:var(--text-muted);font-weight:400}
+        .score-context{font-size:.65rem;color:var(--text-dim);margin-top:.15rem;line-height:1.3;font-weight:400;letter-spacing:0;text-transform:none;transition:opacity .3s}
+
+        /* Loading skeleton shimmer */
+        .skeleton{position:relative;overflow:hidden;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius)}
+        .skeleton::after{content:'';position:absolute;top:0;left:-100%;width:100%;height:100%;background:linear-gradient(90deg,transparent,rgba(99,102,241,.06),transparent);animation:shimmer 1.5s infinite}
+        @keyframes shimmer{to{left:100%}}
+        .skeleton-row{display:none;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:.5rem;flex-shrink:0}
+        .skeleton-row.visible{display:grid}
+        .skeleton-card{height:90px;padding:.7rem}
+        .skeleton-bar{height:10px;border-radius:4px;background:rgba(99,102,241,.08);margin-bottom:.5rem}
+        .skeleton-bar.w60{width:60%}.skeleton-bar.w40{width:40%}.skeleton-bar.w80{width:80%}
+        .skeleton-viz{display:none;flex:1;gap:.5rem;min-height:0}.skeleton-viz.visible{display:flex}
+        .skeleton-map{flex:1.2;min-height:200px}.skeleton-charts{flex:1;display:flex;flex-direction:column;gap:.4rem}
+        .skeleton-chart{flex:1;min-height:120px}
+
+        /* Loading progress steps */
+        .loading-steps{display:none;flex-direction:column;gap:.3rem;padding:.4rem .6rem;border-radius:var(--radius);background:var(--bg-card);border:1px solid var(--border);flex-shrink:0}
+        .loading-steps.visible{display:flex;animation:fadeIn .3s}
+        .loading-step{display:flex;align-items:center;gap:.4rem;font-size:.78rem;color:var(--text-dim);transition:color .3s}
+        .loading-step.active{color:var(--primary);font-weight:600}
+        .loading-step.done{color:var(--success)}
+        .loading-step .step-icon{width:14px;height:14px;display:flex;align-items:center;justify-content:center;font-size:.7rem}
+        .loading-step.active .step-icon{animation:spin .8s linear infinite}
+
+        /* Mobile hamburger menu */
+        .mobile-menu-btn{display:none;background:none;border:1px solid var(--border);color:var(--text-main);width:36px;height:36px;border-radius:var(--radius);align-items:center;justify-content:center;cursor:pointer;font-size:1.2rem;transition:all .15s;flex-shrink:0;-webkit-tap-highlight-color:transparent}
+        .mobile-menu-btn:hover{background:var(--bg-card-hover);border-color:var(--border-hover)}
+        .mobile-menu-btn.active{background:rgba(99,102,241,.15);border-color:var(--primary);color:var(--primary)}
+        @media(max-width:900px){
+            .mobile-menu-btn{display:flex}
+            .sidebar{display:none;position:fixed;top:49px;left:0;right:0;bottom:0;z-index:90;max-height:none;border-right:none;border-bottom:none;background:var(--bg-dark);overflow-y:auto;padding:1rem}
+            .sidebar.mobile-open{display:flex}
+            .main-content{height:calc(100vh - 49px)}
+        }
+
+        /* Sidebar collapsible sections */
+        .sidebar-section-header{display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent}
+        .sidebar-section-body{display:flex;flex-direction:column;gap:.5rem}
+        .sidebar-section-header .collapse-arrow{font-size:.65rem;color:var(--text-muted);transition:transform .2s;margin-left:auto;opacity:.7;padding:0 2px}
+        .sidebar-section.collapsed .sidebar-section-body{display:none}
+        .sidebar-section.collapsed .collapse-arrow{transform:rotate(-90deg)}
+
+        /* Progressive chart disclosure */
+        .charts-stack-collapsed .chart-tabbed:nth-child(2){display:none}
+        .chart-expand-btn{display:none;align-items:center;justify-content:center;gap:.3rem;padding:.35rem;border-radius:var(--radius);background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.2);color:var(--text-muted);font-size:.72rem;font-weight:600;cursor:pointer;transition:all .15s;font-family:inherit;width:100%;margin-top:.3rem}
+        .chart-expand-btn:hover{background:rgba(99,102,241,.15);color:var(--text-main);border-color:var(--primary)}
+        .charts-stack-collapsed .chart-expand-btn{display:flex}
+
+        /* Storm title banner */
+        .storm-title-bar{display:none;align-items:center;gap:.6rem;padding:.3rem .1rem;flex-shrink:0;min-height:0}
+        .storm-title-bar.visible{display:flex;animation:fadeIn .3s}
+        .storm-title-name{font-size:1.05rem;font-weight:800;letter-spacing:-.03em;color:var(--text-main);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .storm-title-meta{font-size:.75rem;color:var(--text-muted);white-space:nowrap}
+        .storm-title-cat{display:inline-block;padding:1px 6px;border-radius:4px;font-size:.65rem;font-weight:700;color:#fff;letter-spacing:.03em}
+        .storm-title-reset{background:none;border:1px solid var(--border);color:var(--text-dim);width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:.85rem;margin-left:auto;transition:all .15s;flex-shrink:0;font-family:inherit;line-height:1}
+        .storm-title-reset:hover{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.3);color:#fca5a5}
+        .storm-title-rank{font-size:.65rem;font-weight:600;color:var(--text-dim);background:rgba(99,102,241,.1);padding:1px 6px;border-radius:4px;white-space:nowrap}
+
+        /* Collapsible map legend */
+        .map-legend-toggle{position:absolute;bottom:8px;left:8px;z-index:501;background:rgba(10,14,26,.88);backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:var(--radius);padding:.25rem .45rem;cursor:pointer;font-size:.65rem;color:var(--text-muted);font-weight:600;display:none;align-items:center;gap:.25rem;transition:all .15s;font-family:inherit}
+        .map-legend-toggle:hover{background:rgba(10,14,26,.95);color:var(--text-main)}
+        .map-legend.legend-collapsed{display:none!important}
+
+        /* Breakdown bar hint */
+        .breakdown-hint{font-size:.55rem;color:var(--text-dim);text-align:center;margin-top:2px;opacity:0;transition:opacity .3s;letter-spacing:.02em}
+        .stat-card:hover .breakdown-hint{opacity:1}
+
         @keyframes spin{to{transform:rotate(360deg)}}@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 
         /* Help tooltips */
-        .tip{display:inline-block;width:15px;height:15px;background:rgba(99,102,241,.35);border-radius:50%;text-align:center;line-height:15px;font-size:10px;font-weight:700;color:var(--text-main);cursor:help;margin-left:4px;position:relative;user-select:none;vertical-align:middle}
-        .tip:hover::after{content:attr(data-tip);position:absolute;top:calc(100% + 6px);left:50%;transform:translateX(-50%);background:rgba(10,14,26,.96);border:1px solid var(--border);color:var(--text-main);padding:8px 12px;border-radius:8px;font-size:12px;font-weight:400;white-space:normal;width:220px;z-index:9999;pointer-events:none;line-height:1.5;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+        .tip{display:inline-block;width:15px;height:15px;background:rgba(99,102,241,.35);border-radius:50%;text-align:center;line-height:15px;font-size:10px;font-weight:700;color:var(--text-main);cursor:help;margin-left:4px;position:relative;user-select:none;vertical-align:middle;-webkit-tap-highlight-color:transparent}
+        .tip:hover::after,.tip.tip-active::after{content:attr(data-tip);position:absolute;top:calc(100% + 6px);left:50%;transform:translateX(-50%);background:rgba(10,14,26,.96);border:1px solid var(--border);color:var(--text-main);padding:8px 12px;border-radius:8px;font-size:12px;font-weight:400;white-space:normal;width:220px;z-index:9999;pointer-events:none;line-height:1.5;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+        /* Left-align tooltips in chart tabs to prevent cutoff */
+        .chart-tabs .tip:hover::after,.chart-tabs .tip.tip-active::after{left:0;transform:none}
 
         /* Help button in header */
         .btn-help{background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);color:var(--primary);width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:1rem;font-weight:700;transition:all .15s}.btn-help:hover{background:rgba(99,102,241,.3);border-color:var(--primary)}
@@ -60,6 +144,15 @@
         .modal-box h2{font-size:1.15rem;margin-bottom:1rem;color:var(--text-main)}
         .modal-box h3{font-size:.9rem;margin-top:1.2rem;margin-bottom:.5rem;color:var(--primary);text-transform:uppercase;letter-spacing:.05em;font-weight:600}
         .modal-box p,.modal-box li{font-size:.88rem;color:var(--text-muted);line-height:1.7}
+        .modal-box details{margin-top:.5rem;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+        .modal-box details summary{padding:.5rem .7rem;cursor:pointer;font-size:.82rem;font-weight:600;color:var(--text-muted);background:var(--bg-input);user-select:none;list-style:none}
+        .modal-box details summary::-webkit-details-marker{display:none}
+        .modal-box details summary::before{content:'\25B6';display:inline-block;margin-right:.4rem;font-size:.6rem;transition:transform .2s;vertical-align:middle}
+        .modal-box details[open] summary::before{transform:rotate(90deg)}
+        .modal-box details .detail-body{padding:.5rem .7rem}
+        .score-scale{display:flex;flex-direction:column;gap:.3rem;margin:.5rem 0}
+        .score-scale-row{display:flex;align-items:center;gap:.5rem;font-size:.82rem;line-height:1.4}
+        .scale-badge{display:inline-block;width:42px;text-align:center;padding:2px 0;border-radius:4px;font-weight:700;font-size:.72rem;flex-shrink:0;color:#fff}
         .modal-box ul{list-style:none;padding:0}.modal-box ul li{padding:.25rem 0;border-bottom:1px solid var(--border)}
         .modal-box ul li b{color:var(--text-main)}
         .modal-close{position:absolute;top:.75rem;right:1rem;font-size:1.4rem;cursor:pointer;color:var(--text-dim);background:none;border:none;line-height:1}.modal-close:hover{color:var(--text-main)}
@@ -91,19 +184,103 @@
         .forecast-line{stroke-dasharray:8 4;stroke-opacity:.7}
         .forecast-label{background:rgba(10,14,26,.8)!important;border:1px solid rgba(255,255,255,.15)!important;color:var(--text-muted)!important;font-size:9px!important;font-family:Inter,sans-serif!important;padding:1px 5px!important;border-radius:4px!important;box-shadow:none!important}
         .forecast-label::before{display:none!important}
+        .stall-risk-badge{display:inline-flex;align-items:center;gap:3px;padding:1px 6px;border-radius:4px;font-size:.6rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase;white-space:nowrap}
+        .stall-risk-none{background:rgba(100,116,139,.15);color:#94a3b8}
+        .stall-risk-low{background:rgba(96,165,250,.15);color:#60a5fa}
+        .stall-risk-moderate{background:rgba(251,191,36,.15);color:#fbbf24}
+        .stall-risk-high{background:rgba(249,115,22,.2);color:#f97316}
+        .stall-risk-extreme{background:rgba(239,68,68,.2);color:#ef4444;animation:stallPulse 2s ease-in-out infinite}
+        @keyframes stallPulse{0%,100%{opacity:1}50%{opacity:.7}}
+        .stall-bar{display:none;align-items:center;gap:.5rem;padding:.35rem .6rem;border-radius:var(--radius);font-size:.75rem;margin-top:.15rem;flex-shrink:0;border:1px solid}
+        .stall-bar.visible{display:flex}
+        .stall-bar-icon{font-size:.9rem}
+        .stall-bar-text{flex:1;line-height:1.4}
+        .stall-bar-score{font-weight:800;font-size:.9rem;font-variant-numeric:tabular-nums}
 
+        .dps-toggle-controls{display:flex;gap:.75rem;font-size:.82rem;color:#cbd5e1;margin-bottom:.4rem}
+        .dps-toggle-controls label{display:flex;align-items:center;gap:.33rem;cursor:pointer}
+        .dps-toggle-controls input{width:13px;height:13px;cursor:pointer}
         .dps-context-toggle{position:absolute;top:4px;right:4px;width:18px;height:18px;border-radius:50%;background:rgba(99,102,241,.35);border:none;color:var(--text-main);font-size:10px;font-weight:700;cursor:pointer;z-index:10;line-height:18px;padding:0;transition:background .15s}.dps-context-toggle:hover{background:rgba(99,102,241,.6)}
         .dps-context-box{position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(10,14,26,.95);backdrop-filter:blur(8px);z-index:5;padding:.5rem .6rem;overflow-y:auto;border-radius:var(--radius);display:flex;flex-direction:column;justify-content:center}
         .dps-context-bullets{font-size:.7rem;color:var(--text-muted);line-height:1.6}.dps-context-bullets .ctx-bullet{padding:2px 0;border-bottom:1px solid rgba(255,255,255,.05);display:flex;align-items:baseline;gap:4px}.dps-context-bullets .ctx-bullet::before{content:'\2022';color:var(--primary);font-weight:700;flex-shrink:0}
+        /* ===== HERO DPS — dopamine-inducing visual treatment ===== */
+        .dps-hero-card{position:relative;overflow:hidden;transition:all .4s cubic-bezier(.4,0,.2,1)}
+        .dps-hero-card::before{content:'';position:absolute;inset:-2px;border-radius:var(--radius);opacity:0;transition:opacity .5s;z-index:0;pointer-events:none}
+        .dps-hero-card>*{position:relative;z-index:1}
+        .stat-label:has(.tip:hover){z-index:9999}
+        .dps-hero-card.severity-catastrophic{border-color:rgba(239,68,68,.5)!important;background:linear-gradient(135deg,rgba(239,68,68,.1),rgba(168,85,247,.06))!important}
+        .dps-hero-card.severity-catastrophic::before{background:conic-gradient(from 0deg,rgba(239,68,68,.3),rgba(168,85,247,.2),rgba(239,68,68,.3));opacity:1;animation:heroGlowSpin 4s linear infinite}
+        .dps-hero-card.severity-extreme{background:linear-gradient(135deg,rgba(249,115,22,.08),rgba(239,68,68,.04))!important}
+        .dps-hero-card.severity-severe{background:linear-gradient(135deg,rgba(251,191,36,.06),rgba(249,115,22,.03))!important}
+        .dps-hero-card.severity-moderate{background:linear-gradient(135deg,rgba(52,211,153,.05),rgba(96,165,250,.03))!important}
+        .dps-hero-card.severity-minor{background:linear-gradient(135deg,rgba(96,165,250,.04),rgba(99,102,241,.03))!important}
+
+        #statHeroDPS{transition:color .4s,text-shadow .4s,transform .3s;font-variant-numeric:tabular-nums}
+        .dps-hero-card.severity-catastrophic #statHeroDPS{text-shadow:0 0 30px rgba(239,68,68,.5),0 0 60px rgba(239,68,68,.2);animation:heroPulse 2s ease-in-out infinite}
+        .dps-hero-card.severity-extreme #statHeroDPS{text-shadow:none}
+        .dps-hero-card.severity-severe #statHeroDPS{text-shadow:none}
+
+        @keyframes heroGlowSpin{from{filter:hue-rotate(0deg)}to{filter:hue-rotate(360deg)}}
+        @keyframes heroPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.92;transform:scale(1.02)}}
+        @keyframes heroCountUp{from{opacity:0;transform:translateY(8px) scale(.9)}to{opacity:1;transform:translateY(0) scale(1)}}
+        .dps-count-up{animation:heroCountUp .5s cubic-bezier(.4,0,.2,1) forwards}
+
+        /* DPS Trend Indicator */
+        .dps-trend-wrap{display:flex;align-items:center;justify-content:center;gap:.35rem}
+        .dps-trend{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:0;line-height:1;font-size:1.4rem;font-weight:900;transition:opacity .3s,color .3s;opacity:0;min-width:22px}
+        .dps-trend.visible{opacity:1}
+        .dps-trend.trend-up{color:#f97316}
+        .dps-trend.trend-down{color:#34d399}
+        .dps-trend.trend-ri{color:#ef4444}
+        .dps-trend .trend-arrow{display:block;line-height:.65;font-size:1.3rem}
+        .dps-trend.trend-ri .trend-arrow{font-size:1rem;line-height:.55}
+        @keyframes riPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.15)}}
+        .dps-trend.trend-ri{animation:riPulse .8s ease-in-out infinite}
+        .dps-trend-label{font-size:.55rem;letter-spacing:.05em;text-transform:uppercase;opacity:.85;margin-top:1px}
+
+        /* Rainfall text marquee ticker (CNN/ESPN style) */
+        .rainfall-text-scroll{flex:1;overflow:hidden;position:relative;display:flex;align-items:center}
+        .stall-bar-text{display:inline-block;white-space:nowrap;animation:marquee 20s linear infinite}
+        @keyframes marquee{
+            0%{transform:translateX(100%)}
+            100%{transform:translateX(-100%)}
+        }
+        /* Pause animation on hover */
+        .rainfall-text-scroll:hover .stall-bar-text{animation-play-state:paused}
+
+        /* Rainfall red bar glow for extreme warnings */
+        #rainfallBar.rain-extreme{border-color:rgba(239,68,68,.5)!important;background:rgba(239,68,68,.1)!important;animation:rainBarPulse 3s ease-in-out infinite}
+        @keyframes rainBarPulse{0%,100%{box-shadow:0 0 0 rgba(239,68,68,0)}50%{box-shadow:0 0 12px rgba(239,68,68,.2)}}
+
+        /* ── Breakdown Bars ── */
+        .breakdown-bar{display:flex;width:100%;height:6px;border-radius:3px;overflow:hidden;margin-top:6px;cursor:pointer;position:relative;transition:height .2s}
+        .breakdown-bar:hover{height:10px}
+        .breakdown-seg{height:100%;min-width:2px;transition:opacity .2s,filter .2s}
+        .breakdown-empty{height:100%;background:rgba(255,255,255,.04);border-radius:0 3px 3px 0}
+        .breakdown-bar:hover .breakdown-seg{opacity:.6;filter:brightness(.8)}
+        .breakdown-bar:hover .breakdown-seg:hover{opacity:1!important;filter:brightness(1.2)!important}
+        .breakdown-wrap{position:static}
+        .breakdown-panel{position:absolute;inset:0;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;z-index:10;opacity:0;transition:opacity .15s;box-shadow:0 4px 16px rgba(0,0,0,.5);font-size:.72rem;pointer-events:none;display:flex;flex-direction:column;justify-content:center}
+        .breakdown-wrap:hover .breakdown-panel{opacity:1;pointer-events:auto}
+        .dps-hero-card{overflow:visible!important}
+        .breakdown-panel-row{display:flex;align-items:center;gap:6px;padding:2px 0;white-space:nowrap}
+        .breakdown-panel-swatch{width:8px;height:8px;border-radius:2px;flex-shrink:0}
+        .breakdown-panel-label{color:var(--text-dim);flex:1}
+        .breakdown-panel-val{font-weight:700;font-variant-numeric:tabular-nums}
+        .breakdown-panel-pct{color:var(--text-dim);font-size:.65rem;margin-left:2px}
         @media(max-width:600px){.stat-value{font-size:1.2rem!important}.chart-panel{min-height:250px!important}.scrubber-bar{flex-wrap:wrap;gap:.4rem}.modal-box{padding:1rem}}
+        .site-footer{background:var(--bg-card);border-top:1px solid var(--border);padding:.2rem .8rem;font-size:.5rem;color:var(--text-dim);line-height:1.3;text-transform:none;letter-spacing:normal;text-align:center;flex-shrink:0}
+        .site-footer a{color:var(--text-muted);text-decoration:underline;text-decoration-color:var(--border)}
+        .site-footer a:hover{color:var(--primary)}
     </style>
 </head>
 <body>
 <header>
-    <div class="logo"><div class="logo-icon">&#127744;</div><h1>Hurricane IKE Visualizer</h1></div>
+    <div class="logo"><div class="logo-icon"><img src="/frontend/logo-32.png" alt="StormDPS"></div><h1>StormDPS</h1></div>
     <div style="display:flex;align-items:center;gap:.75rem">
         <div class="header-status"><div class="status-dot"></div>API connected</div>
         <button class="btn-help" onclick="document.getElementById('helpModal').classList.add('visible')" title="Help &amp; Glossary">?</button>
+        <button class="mobile-menu-btn" id="mobileMenuBtn" onclick="toggleMobileMenu()" title="Menu">&#9776;</button>
     </div>
 </header>
 <div class="app-layout">
@@ -118,10 +295,15 @@
                 <div class="offseason-msg" id="offseasonMsg">Checking for active storms...</div>
             </div>
         </div>
-        <div class="sidebar-section">
-            <div class="sidebar-title">Storm Lookup</div>
-            <div class="input-group"><label for="stormId">Storm ID or Name</label><input type="text" id="stormId" placeholder="e.g. AL092008, IKE" value=""></div>
-            <div class="input-group"><label for="basinSelect">Filter by Basin</label>
+        <div class="sidebar-section" id="sectionLookup">
+            <div class="sidebar-title sidebar-section-header" onclick="toggleSidebarSection('sectionLookup')">Storm Lookup<span class="collapse-arrow">&#9660;</span></div>
+            <div class="sidebar-section-body">
+            <div class="input-group"><label for="stormId">Storm Name</label><input type="text" id="stormId" placeholder="e.g. Katrina, Harvey, Ike" value=""></div>
+            <div class="input-group" id="nameSearchGroup" style="display:none;">
+                <label for="searchYear">Year</label>
+                <input type="number" id="searchYear" placeholder="e.g. 2005" min="1851" max="2099">
+            </div>
+            <div class="input-group"><label for="basinSelect">Basin</label>
                 <select id="basinSelect">
                     <option value="">All Basins</option>
                     <option value="NA" selected>Atlantic</option>
@@ -133,14 +315,13 @@
                     <option value="SA">South Atlantic</option>
                 </select>
             </div>
-            <div class="input-group" id="nameSearchGroup" style="display:none;">
-                <label for="searchYear">Year (for name search)</label>
-                <input type="number" id="searchYear" placeholder="e.g. 2008" min="1851" max="2099">
-            </div>
             <button class="btn btn-primary btn-block" id="fetchBtn" onclick="fetchHistory()"><svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>Visualize</button>
+            <div style="font-size:.68rem;color:var(--text-dim);text-align:center;margin-top:-.1rem;line-height:1.4">Also accepts ATCF IDs (e.g. AL092008) and IBTrACS SIDs</div>
+            </div><!-- /sidebar-section-body -->
         </div>
-        <div class="sidebar-section">
-            <div class="sidebar-title">Storm Browser</div>
+        <div class="sidebar-section" id="sectionBrowser">
+            <div class="sidebar-title sidebar-section-header" onclick="toggleSidebarSection('sectionBrowser')">Storm Browser<span class="collapse-arrow">&#9660;</span></div>
+            <div class="sidebar-section-body">
             <div class="accordion" id="stormAccordion">
                 <div class="accordion-section" id="accFamous">
                     <div class="accordion-header" onclick="toggleAccordion('accFamous')"><span>Historic Storms</span><span class="acc-count">15</span><span class="accordion-arrow">&#9654;</span></div>
@@ -148,25 +329,70 @@
                 </div>
                 <!-- Year tabs will be inserted here dynamically -->
             </div>
+            </div><!-- /sidebar-section-body -->
         </div>
     </aside>
     <div class="main-content">
         <div id="errorBox" class="error-bar"></div>
-        <div id="loadingBar" class="loading-bar"><div class="spinner"></div><span>Fetching storm data (HURDAT2, IBTrACS, Custom) and computing IKE...</span></div>
+        <div id="loadingBar" class="loading-bar"><div class="spinner"></div><span id="loadingText">Computing Destructive Power Score...</span></div>
+        <div id="loadingSteps" class="loading-steps">
+            <div class="loading-step" id="stepFetch"><span class="step-icon">&#9675;</span>Fetching storm track data</div>
+            <div class="loading-step" id="stepIKE"><span class="step-icon">&#9675;</span>Computing wind energy (IKE)</div>
+            <div class="loading-step" id="stepDPS"><span class="step-icon">&#9675;</span>Calculating DPS, IAS, ERS scores</div>
+            <div class="loading-step" id="stepRender"><span class="step-icon">&#9675;</span>Rendering map and charts</div>
+        </div>
+        <div id="skeletonRow" class="skeleton-row">
+            <div class="skeleton skeleton-card"><div class="skeleton-bar w60"></div><div class="skeleton-bar w40"></div></div>
+            <div class="skeleton skeleton-card"><div class="skeleton-bar w60"></div><div class="skeleton-bar w40"></div></div>
+            <div class="skeleton skeleton-card"><div class="skeleton-bar w60"></div><div class="skeleton-bar w40"></div></div>
+        </div>
+        <div id="skeletonViz" class="skeleton-viz">
+            <div class="skeleton skeleton-map"></div>
+            <div class="skeleton-charts"><div class="skeleton skeleton-chart"></div><div class="skeleton skeleton-chart"></div></div>
+        </div>
+        <div class="storm-title-bar" id="stormTitleBar">
+            <span class="storm-title-name" id="stormTitleName"></span>
+            <span class="storm-title-meta" id="stormTitleMeta"></span>
+            <span class="storm-title-cat" id="stormTitleCat"></span>
+            <span class="storm-title-rank" id="stormTitleRank"></span>
+            <button class="storm-title-reset" onclick="resetToWelcome()" title="New search">&#10005;</button>
+        </div>
         <div id="statsRow" class="stats-row">
-            <div class="stat-card" style="border-color:var(--primary);background:rgba(99,102,241,.03)"><div class="stat-label">Damage Potential<span class="tip" data-tip="DPS: A 0-100 score combining storm surge, wind field size, wind speed, and forward speed. Higher = more destructive. Unlike the Category scale, DPS captures storm SIZE and surge threat.">?</span></div><div class="stat-value" id="statPeakDPS" style="color:var(--text-main);">-</div><div class="stat-sub" id="statDPSLabel">-</div></div>
-            <div class="stat-card"><div class="stat-label">Peak Wind Energy<span class="tip" data-tip="IKE (Integrated Kinetic Energy) measures total wind energy in Terajoules. A large Cat 1 can have MORE energy than a compact Cat 5.">?</span></div><div class="stat-value" id="statPeakIke" style="color:var(--primary);">-</div><div class="stat-sub" id="statPeakTime">-</div></div>
+            <div class="stat-card dps-hero-card" id="dpsHeroCard" style="border-color:var(--primary);background:linear-gradient(135deg,rgba(99,102,241,.06),rgba(139,92,246,.04))">
+                <div class="stat-label" style="font-size:.65rem;letter-spacing:.1em">DESTRUCTIVE POWER SCORE<span class="tip" data-tip="DPS: The definitive 0-100 hurricane threat score. Combines storm intensity, wind field size, surge potential, duration of coastal exposure, and geographic breadth. Replaces Saffir-Simpson with a single number that captures what actually matters.">?</span></div>
+                <div class="dps-trend-wrap"><div class="stat-value" id="statHeroDPS" style="color:var(--text-main)">-</div><div class="dps-trend" id="dpsTrendIndicator"></div></div>
+                <div class="stat-sub" id="statHeroDPSLabel" style="font-size:.78rem;opacity:.8">-</div>
+                <div class="score-context" id="dpsContext"></div>
+                <div class="breakdown-wrap"><div class="breakdown-bar" id="breakdownDPS"></div><div class="breakdown-panel" id="panelDPS"></div></div><div class="breakdown-hint">Hover bar for details</div>
+            </div>
+            <!-- Peak Snapshot card removed — redundant with DPS hero card -->
+            <div id="snapshotCard" style="display:none"><span id="snapshotLabel"></span><span id="snapshotTip"></span><div id="snapshotTabs"></div><div id="statPeakDPS"></div><div id="statDPSLabel"></div><div id="breakdownSnap"></div><div id="panelSnap"></div></div>
+            <div class="stat-card" style="border-color:#f97316;background:rgba(249,115,22,.03)"><div class="stat-label">Impact Area<span class="tip" data-tip="IAS: A 0-100 score measuring how geography and rainfall amplify actual impact. Combines continental shelf surge amplification (55%) and rainfall/stall threat (45%).">?</span></div><div class="stat-value" id="statPeakIAS" style="color:var(--text-main);">-</div><div class="stat-sub" id="statIASLabel">-</div><div class="score-context" id="iasContext"></div><div class="breakdown-wrap"><div class="breakdown-bar" id="breakdownIAS"></div><div class="breakdown-panel" id="panelIAS"></div></div><div class="breakdown-hint">Hover bar for details</div></div>
+            <div class="stat-card" style="border-color:#10b981;background:rgba(16,185,129,.03)"><div class="stat-label">Economic Risk<span class="tip" data-tip="ERS: A 0-100 score measuring economic exposure along the storm's path. Combines coastal economic value with threat reach (storm size x intensity).">?</span></div><div class="stat-value" id="statPeakERS" style="color:var(--text-main);">-</div><div class="stat-sub" id="statERSLabel">-</div><div class="score-context" id="ersContext"></div><div class="breakdown-wrap"><div class="breakdown-bar" id="breakdownERS"></div><div class="breakdown-panel" id="panelERS"></div></div><div class="breakdown-hint">Hover bar for details</div></div>
+        </div>
+        <div id="rainfallBar" class="stall-bar" style="display:none;border-color:rgba(239,68,68,.3);background:rgba(239,68,68,.06)">
+            <span class="stall-bar-icon" style="font-size:1.1rem">&#127783;&#65039;</span>
+            <div class="rainfall-text-scroll">
+                <span class="stall-bar-text" id="rainfallBarText" style="color:#fca5a5;font-size:.78rem;line-height:1.4"></span>
+            </div>
+            <span class="stall-bar-score" id="rainfallBarScore" style="color:#ef4444"></span>
+        </div>
+        <div id="stallRiskBar" class="stall-bar">
+            <span class="stall-bar-icon" id="stallBarIcon"></span>
+            <span class="stall-bar-text" id="stallBarText"></span>
+            <span class="stall-bar-score" id="stallBarScore"></span>
         </div>
         <div id="scrubberBar" class="scrubber-bar">
-            <button class="btn btn-secondary" onclick="toggleAnimation()" id="scrubPlay" style="padding:.35rem .7rem;gap:.4rem;font-size:.8rem;font-weight:600;"><svg id="scrubPlayIcon" width="14" height="14" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg><span id="scrubPlayLabel">Play</span></button>
+            <span style="font-size:.65rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-dim);white-space:nowrap">Storm Timeline</span>
+            <button class="btn btn-secondary" onclick="toggleAnimation()" id="scrubPlay" style="padding:.35rem .7rem;gap:.4rem;font-size:.8rem;font-weight:600;"><svg id="scrubPlayIcon" width="14" height="14" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg><span id="scrubPlayLabel">Play animation</span></button>
             <span class="speed-label">Speed:</span><select id="speedSelect" style="width:65px;font-size:.75rem;padding:.3rem .4rem;background:var(--bg-input);border:1px solid var(--border);color:var(--text-main);border-radius:var(--radius);cursor:pointer;" onchange="setSpeed(this.value)"><option value="2000">0.5x</option><option value="1000" selected>1x</option><option value="500">2x</option><option value="250">4x</option></select>
             <span class="scrubber-time" id="scrubTime">--</span>
             <input type="range" id="scrubSlider" min="0" max="100" value="0" step="1" oninput="onScrub(this.value)">
-            <span class="scrubber-ike" id="scrubIke" title="Wind Energy (Terajoules)">-- TJ</span>
         </div>
         <div id="vizArea" class="viz-area">
             <div class="map-panel" style="position:relative;">
                 <div id="map"></div>
+                <button class="map-legend-toggle" id="mapLegendToggle" onclick="toggleMapLegend()">Legend &#9660;</button>
                 <div class="map-legend" id="mapLegend" style="display:none;">
                     <div style="font-weight:600;margin-bottom:2px;color:#e2e8f0;">Wind Speed</div>
                     <div class="legend-item"><div class="legend-swatch" style="background:#ff4da6"></div>Cat 5 (&ge;157 mph)</div>
@@ -178,16 +404,25 @@
                     <div class="legend-item"><div class="legend-swatch" style="background:#f97316;width:12px;height:3px;border-radius:1px"></div>High (&gt;120 TJ)</div>
                     <div class="legend-item"><div class="legend-swatch" style="background:#fbbf24;width:12px;height:3px;border-radius:1px"></div>Moderate (&gt;60 TJ)</div>
                     <div class="legend-item"><div class="legend-swatch" style="background:#60a5fa;width:12px;height:3px;border-radius:1px"></div>Low (&le;60 TJ)</div>
-                    <div style="margin-top:3px;font-weight:600;color:#e2e8f0;">Destructive Potential</div>
+                    <div style="margin-top:3px;font-weight:600;color:#e2e8f0;">Score Bands</div>
                     <div class="legend-item"><div class="legend-swatch" style="background:var(--cat5);border-radius:50%;width:10px;height:10px"></div>Catastrophic (80-100)</div>
                     <div class="legend-item"><div class="legend-swatch" style="background:var(--cat4);border-radius:50%;width:10px;height:10px"></div>Extreme (60-79)</div>
                     <div class="legend-item"><div class="legend-swatch" style="background:var(--cat3);border-radius:50%;width:10px;height:10px"></div>Severe (40-59)</div>
                     <div class="legend-item"><div class="legend-swatch" style="background:var(--cat2);border-radius:50%;width:10px;height:10px"></div>Moderate (20-39)</div>
                 </div>
             </div>
-            <div class="charts-stack">
-                <div class="chart-panel" style="position:relative;">
-                    <canvas id="dpiChart"></canvas>
+            <div class="charts-stack" id="chartsStack">
+                <div class="chart-tabbed" id="scoreChartTabbed">
+                    <div class="chart-tabs">
+                        <button class="chart-tab active" data-scoretab="dps" onclick="switchScoreTab('dps')">DPS <span class="tip" data-tip="Destructive Power Score: Combines peak intensity, storm size, surge potential, duration, and geographic breadth. Shows what actually matters for damage—not just wind speed, but how big and how long the threat lasts.">?</span></button>
+                        <button class="chart-tab" data-scoretab="ias" onclick="switchScoreTab('ias')">IAS <span class="tip" data-tip="Impact Area Score: Measures geographic and rainfall amplification. Shows how local geography (continental shelf, terrain, river basins) and stalling storms can magnify actual damage beyond peak intensity alone.">?</span></button>
+                        <button class="chart-tab" data-scoretab="ers" onclick="switchScoreTab('ers')">ERS <span class="tip" data-tip="Economic Risk Score: Combines coastal economic value with storm threat. Shows exposure—where the most valuable infrastructure lies along the projected path relative to storm intensity and size.">?</span></button>
+                    </div>
+                    <div class="chart-tab-body">
+                        <div class="chart-tab-pane active" id="tabDPS"><canvas id="dpsCanvas"></canvas></div>
+                        <div class="chart-tab-pane" id="tabIAS"><canvas id="iasCanvas"></canvas></div>
+                        <div class="chart-tab-pane" id="tabERS"><canvas id="ersCanvas"></canvas></div>
+                    </div>
                     <div id="dpsContextBox" class="dps-context-box" style="display:none;">
                         <div class="dps-context-bullets" id="dpsContextBullets"></div>
                     </div>
@@ -195,11 +430,11 @@
                 </div>
                 <div class="chart-tabbed" id="chartTabbed">
                     <div class="chart-tabs">
-                        <button class="chart-tab active" data-tab="ike" onclick="switchChartTab('ike')">Wind Energy (IKE)</button>
-                        <button class="chart-tab" data-tab="surge" onclick="switchChartTab('surge')">Storm Surge <span class="tip" data-tip="This shows estimated open-water surge POTENTIAL based on wind speed, pressure deficit, and storm size. Actual surge at landfall is usually lower — it depends on coastal shape, bathymetry (water depth), angle of approach, and timing with tides. Think of this as a worst-case baseline.">?</span></button>
-                        <button class="chart-tab" data-tab="pressure" onclick="switchChartTab('pressure')">Pressure</button>
-                        <button class="chart-tab" data-tab="wind" onclick="switchChartTab('wind')">Wind Speed</button>
-                        <button class="chart-tab" data-tab="sst" onclick="switchChartTab('sst')">Sea Surface Temp</button>
+                        <button class="chart-tab active" data-tab="ike" onclick="switchChartTab('ike')">Wind Energy (IKE) <span class="tip" data-tip="Integrated Kinetic Energy: Total energy of all winds in the storm (Terajoules). Captures both intensity AND size—a large Cat 1 can have more destructive energy than a compact Cat 3. This is why IKE matters more than peak wind alone.">?</span></button>
+                        <button class="chart-tab" data-tab="surge" onclick="switchChartTab('surge')">Storm Surge <span class="tip" data-tip="Open-water surge POTENTIAL based on wind, pressure, and storm size. Actual surge at landfall is lower—it depends on coastal shape, water depth, approach angle, and tides. Use this as a worst-case baseline for inundation risk.">?</span></button>
+                        <button class="chart-tab" data-tab="pressure" onclick="switchChartTab('pressure')">Pressure <span class="tip" data-tip="Central pressure: Lower = stronger storm. Pressure deficit (1013 - central pressure) drives wind speeds and surge. A rapid pressure drop means rapid intensification and increasing threat. Watch for sudden drops.">?</span></button>
+                        <button class="chart-tab" data-tab="wind" onclick="switchChartTab('wind')">Wind Speed <span class="tip" data-tip="Maximum sustained wind speed: The basis of Saffir-Simpson categories (Cat 1-5). Critical for structural damage, but alone it ignores storm size and duration. Combined with IKE and size, it tells the full picture.">?</span></button>
+                        <button class="chart-tab" data-tab="sst" onclick="switchChartTab('sst')">Sea Surface Temp <span class="tip" data-tip="Sea surface temperature: Ocean heat fuel. SST >26.5°C supports hurricane formation and intensification. Warm loops and eddies can cause rapid strengthening over warm-core rings. Essential for tracking intensification potential.">?</span></button>
                     </div>
                     <div class="chart-tab-body">
                         <div class="chart-tab-pane active" id="tabIKE"><canvas id="ikeChart"></canvas></div>
@@ -209,46 +444,77 @@
                         <div class="chart-tab-pane" id="tabSST"><canvas id="sstChart"></canvas></div>
                     </div>
                 </div>
+                <!-- expand button removed: both chart panels now show naturally -->
             </div>
         </div>
-        <div class="welcome-state" id="welcomeState"><div><div class="welcome-icon">&#127744;</div><div class="welcome-text">Select a storm from the sidebar or type a name to see its full wind energy and damage potential over time.<br><span style="font-size:.8rem;color:var(--text-dim);margin-top:.5rem;display:inline-block">Tip: Click the <b>?</b> button in the top-right to learn what the metrics mean.</span></div></div></div>
+        <div class="welcome-state" id="welcomeState"><div><div class="welcome-icon" style="margin-bottom:1rem"><img src="/frontend/logo-180.png" alt="StormDPS" style="width:180px;height:180px;border-radius:30px;box-shadow:0 8px 40px rgba(99,102,241,.35)"></div><div style="font-size:1.6rem;font-weight:800;letter-spacing:-.04em;color:var(--text-main);margin-bottom:.4rem">One number. Total threat.</div><div class="welcome-text" style="font-size:.85rem;color:var(--text-muted);max-width:400px;line-height:1.7">See any hurricane's <b style="color:var(--primary)">Destructive Power Score</b> — a 0-100 number that captures what the Category scale misses: size, surge, duration, and geographic reach.</div><div class="quick-start"><div class="quick-start-label">Try a famous storm</div><div class="quick-start-row"><button class="quick-start-btn" onclick="loadPreset('AL122005')"><span class="qs-dot" style="background:var(--cat5)"></span>Katrina <span class="qs-meta">2005</span></button><button class="quick-start-btn" onclick="loadPreset('AL092008')"><span class="qs-dot" style="background:var(--cat2)"></span>Ike <span class="qs-meta">2008</span></button><button class="quick-start-btn" onclick="loadPreset('AL182012')"><span class="qs-dot" style="background:var(--cat1)"></span>Sandy <span class="qs-meta">2012</span></button><button class="quick-start-btn" onclick="loadPreset('AL142018')"><span class="qs-dot" style="background:var(--cat5)"></span>Michael <span class="qs-meta">2018</span></button></div><div class="quick-start-row"><button class="quick-start-btn" onclick="loadPreset('AL092017')"><span class="qs-dot" style="background:var(--cat4)"></span>Harvey <span class="qs-meta">2017</span></button><button class="quick-start-btn" onclick="loadPreset('AL052019')"><span class="qs-dot" style="background:var(--cat5)"></span>Dorian <span class="qs-meta">2019</span></button></div><div style="font-size:.72rem;color:var(--text-dim);margin-top:.5rem;line-height:1.5;max-width:340px">Or type any storm name in the search bar. During hurricane season, active storms appear automatically in the sidebar.</div></div></div></div>
+        <div class="site-footer" id="siteFooter">&copy; 2025&ndash;2026 StormDPS. Data is aggregated from public sources (NOAA, NHC). <b>Experimental &amp; Educational Only:</b> This platform provides AI-enhanced visualizations for informational purposes; it does not produce official forecasts. StormDPS is not liable for any actions taken based on this data. <b>Life-Safety Decisions:</b> Always defer to the <a href="https://www.hurricanes.gov" target="_blank" rel="noopener">National Hurricane Center</a> and local emergency management for official warnings and evacuation orders. All content is provided &ldquo;as-is&rdquo; and &ldquo;where-is&rdquo; without warranty.</div>
     </div>
 </div>
 <!-- Help Modal -->
 <div class="modal-overlay" id="helpModal" onclick="if(event.target===this)this.classList.remove('visible')">
     <div class="modal-box">
         <button class="modal-close" onclick="document.getElementById('helpModal').classList.remove('visible')">&times;</button>
-        <h2>&#127744; How to Use This App</h2>
-        <p>This tool visualizes the <b>true destructive potential</b> of hurricanes &mdash; going beyond the simple Category 1-5 scale to show how much total wind energy a storm carries and the damage it can cause.</p>
-
-        <h3>Key Metrics</h3>
-        <ul>
-            <li><b>Damage Potential (DPS)</b> &mdash; A 0-100 score combining storm surge, wind field size, wind speed, and forward speed. A large Cat 1 like Sandy can score as high as a compact Cat 5 — reflecting equal real-world danger.</li>
-            <li><b>Wind Energy (IKE)</b> &mdash; Total kinetic energy of all winds in Terajoules (TJ). Captures both wind speed AND storm size in one number.</li>
-            <li><b>Storm Surge</b> &mdash; Estimated open-water surge potential in feet, driven by pressure and wind.</li>
-        </ul>
-
-        <h3>Why Not Just Use Categories?</h3>
-        <p>The Saffir-Simpson scale only measures <b>peak wind speed</b> at the center. It ignores the storm's <b>size</b>, which is often the biggest factor in damage. Hurricane Ike (2008) made landfall as "only" a Cat 2, but its enormous wind field caused $40 billion in damage across the entire Texas coast.</p>
-
-        <h3>Quick Reference</h3>
-        <ul>
-            <li><b>TJ (Terajoules)</b> &mdash; A unit of energy. 1 TJ = 1 trillion joules.</li>
-            <li><b>mph</b> &mdash; Miles per hour (wind speed).</li>
-            <li><b>mb / hPa</b> &mdash; Millibars, a pressure unit. Lower = stronger storm. Normal sea-level is ~1013 mb.</li>
-            <li><b>kt</b> &mdash; Knots (1 kt = 1.15 mph). Used for storm movement speed.</li>
-        </ul>
+        <h2><img src="/frontend/logo-32.png" alt="" style="width:24px;height:24px;border-radius:5px;vertical-align:middle;margin-right:6px">How to Use StormDPS</h2>
 
         <h3>Getting Started</h3>
-        <p>Pick any storm from <b>Historic Storms</b> in the sidebar, or type a name like "Harvey" and its year. Use the timeline slider to step through the storm's life cycle and watch the wind field change on the map.</p>
+        <p>Pick any storm from the sidebar, or type a name (like "Katrina") and its year. Click <b>Visualize</b> to see its full analysis. Use the timeline slider to step through the storm's life and watch the wind field change on the map.</p>
+
+        <h3>What the Scores Mean</h3>
+        <p>Every storm gets three scores from 0 to 100. Here's how to read them:</p>
+
+        <p style="font-weight:600;color:var(--text-main);margin-top:.8rem;margin-bottom:.3rem">Destructive Power Score (DPS)</p>
+        <div class="score-scale">
+            <div class="score-scale-row"><span class="scale-badge" style="background:#ef4444">80-100</span><span style="color:#fca5a5"><b>Catastrophic</b> &mdash; Evacuate if in path</span></div>
+            <div class="score-scale-row"><span class="scale-badge" style="background:#f97316">60-79</span><span style="color:#fdba74"><b>Extreme</b> &mdash; Major damage likely</span></div>
+            <div class="score-scale-row"><span class="scale-badge" style="background:#fbbf24">40-59</span><span style="color:#fde68a"><b>Severe</b> &mdash; Significant threat</span></div>
+            <div class="score-scale-row"><span class="scale-badge" style="background:#34d399">20-39</span><span style="color:#6ee7b7"><b>Moderate</b> &mdash; Prepare if in forecast cone</span></div>
+            <div class="score-scale-row"><span class="scale-badge" style="background:#60a5fa">10-19</span><span style="color:#93c5fd"><b>Minor</b> &mdash; Stay informed</span></div>
+            <div class="score-scale-row"><span class="scale-badge" style="background:#94a3b8">0-9</span><span><b>Minimal</b> &mdash; Low concern</span></div>
+        </div>
+
+        <p style="font-weight:600;color:var(--text-main);margin-top:.8rem;margin-bottom:.2rem">Impact Area Score (IAS)</p>
+        <p>Measures how geography and rainfall amplify actual damage beyond wind alone (coastal shelf shape, rainfall, stall risk).</p>
+
+        <p style="font-weight:600;color:var(--text-main);margin-top:.6rem;margin-bottom:.2rem">Economic Risk Score (ERS)</p>
+        <p>Measures economic exposure along the storm path (property values, infrastructure density in the threat zone).</p>
+
+        <details>
+            <summary>Why not just use Categories?</summary>
+            <div class="detail-body">
+                <p>The Saffir-Simpson scale only measures <b>peak wind speed</b> at the center. It ignores the storm's <b>size</b>, which is often the biggest factor in damage. Hurricane Ike (2008) made landfall as "only" a Cat 2, but its enormous wind field caused catastrophic damage across the entire Texas coast.</p>
+                <p style="margin-top:.4rem">DPS captures what the Category scale misses: size, surge, duration of coastal exposure, and geographic breadth.</p>
+            </div>
+        </details>
+
+        <details>
+            <summary>Technical terms glossary</summary>
+            <div class="detail-body">
+                <ul>
+                    <li><b>IKE (TJ)</b> &mdash; Integrated Kinetic Energy in Terajoules. Total wind energy accounting for both speed and storm size.</li>
+                    <li><b>mph</b> &mdash; Miles per hour (wind speed).</li>
+                    <li><b>mb / hPa</b> &mdash; Millibars, a pressure unit. Lower = stronger storm. Normal sea-level is ~1013 mb.</li>
+                    <li><b>kt</b> &mdash; Knots (1 kt = 1.15 mph). Used for storm movement speed.</li>
+                </ul>
+            </div>
+        </details>
     </div>
 </div>
+
+<!-- Basin-Specific DPS Coefficients Module (inlined to avoid 404) -->
+<script>
+const BASIN_COEFFICIENTS={ATLANTIC:{name:"Atlantic Basin",surge_weight:.40,wind_field_weight:.40,wind_speed_weight:.10,forward_speed_weight:.10,ri_bonus:0,description:"Reference baseline - balanced damage distribution"},EASTERN_PACIFIC:{name:"Eastern Pacific",surge_weight:.25,wind_field_weight:.38,wind_speed_weight:.20,forward_speed_weight:.17,ri_bonus:15,ri_threshold_mph_per_24h:80,description:"RI-dominant basin - boost intensity, reduce surge/breadth"},WESTERN_PACIFIC:{name:"Western Pacific (Typhoon Region)",surge_weight:.30,wind_field_weight:.45,wind_speed_weight:.10,forward_speed_weight:.15,ri_bonus:0,description:"Breadth-dominant basin - large R34 areas critical"},NORTH_INDIAN:{name:"North Indian",surge_weight:.50,wind_field_weight:.30,wind_speed_weight:.08,forward_speed_weight:.12,ri_bonus:0,description:"Surge-dominant basin - Bay of Bengal amplifies dramatically"},SOUTH_INDIAN:{name:"South Indian",surge_weight:.42,wind_field_weight:.38,wind_speed_weight:.10,forward_speed_weight:.10,ri_bonus:0,description:"Atlantic-like baseline with slight surge boost"},SOUTH_PACIFIC:{name:"South Pacific",surge_weight:.35,wind_field_weight:.40,wind_speed_weight:.15,forward_speed_weight:.10,ri_bonus:0,description:"Extreme intensity potential but sparse population"}};
+function detectBasin(lat,lon){let n=lon;if(lon>180)n=lon-360;if(lon<-180)n=lon+360;if(n>=-100&&n<=-10&&lat>=0&&lat<=60)return"ATLANTIC";if(n>=-140&&n<=-100&&lat>=0&&lat<=35)return"EASTERN_PACIFIC";if(n>=100&&n<=180&&lat>=0&&lat<=60)return"WESTERN_PACIFIC";if(n>=30&&n<=100&&lat>=0&&lat<=35)return"NORTH_INDIAN";if(n>=20&&n<=120&&lat>=-40&&lat<0)return"SOUTH_INDIAN";if(n>=120&&n<=180&&lat>=-50&&lat<0)return"SOUTH_PACIFIC";if(n>=-180&&n<-120&&lat>=-50&&lat<0)return"SOUTH_PACIFIC";return"ATLANTIC"}
+function applyBasinDPS(S,Wf,V,F,basin,dataPoint){const c=BASIN_COEFFICIENTS[basin]||BASIN_COEFFICIENTS.ATLANTIC;let raw=100*(c.surge_weight*S+c.wind_field_weight*Wf+c.wind_speed_weight*V+c.forward_speed_weight*F);let ri=0;if(c.ri_bonus>0&&dataPoint&&dataPoint.rapid_intensity_24h_mph&&dataPoint.rapid_intensity_24h_mph>c.ri_threshold_mph_per_24h)ri=c.ri_bonus;const fin=Math.min(100,raw+ri);return{rawScore:raw,riBonus:ri,finalScore:fin,basinName:c.name,basinCoefficients:c}}
+function getBasinInfo(basin){const c=BASIN_COEFFICIENTS[basin]||BASIN_COEFFICIENTS.ATLANTIC;return{name:c.name,description:c.description,dominantFactor:basin==="NORTH_INDIAN"?"Storm Surge (Bay of Bengal funnel)":basin==="EASTERN_PACIFIC"?"Rapid Intensification + Intensity":basin==="WESTERN_PACIFIC"?"Wind Field Size":"Balanced (Surge + Wind Field)"}}
+window.BasinDPS={COEFFICIENTS:BASIN_COEFFICIENTS,detectBasin,applyBasinDPS,getBasinInfo};
+</script>
 
 <script>
 // ============================================================
 // CONFIG
 // ============================================================
-const API_BASE='http://127.0.0.1:8000/api/v1';
+const API_BASE=(window.location.hostname==='localhost'||window.location.hostname==='127.0.0.1')?'http://127.0.0.1:8000/api/v1':window.location.origin+'/api/v1';
 let currentDPSChart=null,currentChart=null,currentSurgeChart=null,currentPressureChart=null,currentWindChart=null,currentSSTChart=null,currentMap=null;
 const NM_TO_M=1852.0;
 const DEG_TO_M=111320; // meters per degree at equator (approximate)
@@ -260,43 +526,66 @@ const DEG_TO_M=111320; // meters per degree at equator (approximate)
 // Populated on startup from /api/v1/preload, used by fetchHistory()
 // to skip API calls for cached storms.
 const PRELOAD_CACHE = {};
+const COMPILED_SCORES = {};  // Pre-computed DPS/rainfall from compile_cache.py
+const COMPILED_BY_NAME_YEAR = {};  // Reverse lookup: "NAME_YEAR" → compiled score (for IBTrACS SID mismatches)
 let preloadReady = false;
 let preloadPromise = null;
 
+// Look up compiled DPS by storm ID first, then fallback to name+year
+function getCompiledScore(stormId, stormName, stormYear) {
+    if (COMPILED_SCORES[stormId]) return COMPILED_SCORES[stormId];
+    if (stormName && stormYear) {
+        const key = stormName.toUpperCase() + '_' + stormYear;
+        if (COMPILED_BY_NAME_YEAR[key]) return COMPILED_BY_NAME_YEAR[key];
+    }
+    return null;
+}
+
 async function loadPreloadBundle() {
     try {
-        // Load the static bundle file — no API call, served as a plain file.
-        // ~280 KB uncompressed, gzips to ~40 KB. Loads in <50ms on most connections.
+        // Try compiled bundle first — includes pre-computed DPS scores for instant display
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 8000);
-        const r = await fetch('/frontend/preload_bundle.json', { signal: controller.signal });
+        const timeout = setTimeout(() => controller.abort(), 30000);
+        const r = await fetch('/frontend/compiled_bundle.json', { signal: controller.signal });
         clearTimeout(timeout);
-        if (!r.ok) throw new Error(`Static bundle HTTP ${r.status}`);
+        if (!r.ok) throw new Error(`Compiled bundle HTTP ${r.status}`);
         const bundle = await r.json();
+        // Load pre-computed scores (instant — no client-side computation needed)
         if (bundle.storms) {
             Object.keys(bundle.storms).forEach(sid => {
-                PRELOAD_CACHE[sid] = bundle.storms[sid];
+                COMPILED_SCORES[sid] = bundle.storms[sid];
+                // Build reverse name+year lookup for IBTrACS SID → AL ID mismatches
+                const sc = bundle.storms[sid];
+                if (sc.name && sc.year) {
+                    COMPILED_BY_NAME_YEAR[sc.name.toUpperCase() + '_' + sc.year] = sc;
+                }
+            });
+        }
+        // Load raw snapshots for visualization (map, charts, scrubber)
+        if (bundle.raw_snapshots) {
+            Object.keys(bundle.raw_snapshots).forEach(sid => {
+                PRELOAD_CACHE[sid] = bundle.raw_snapshots[sid];
             });
         }
         preloadReady = true;
-        console.log(`[PRELOAD] Static bundle loaded: ${bundle.storm_count || 0} storms (${Object.keys(PRELOAD_CACHE).length} in cache)`);
-        // Recompute preset DPS from full per-snapshot data (fixes catalog mismatch)
-        refreshPresetDPSFromPreload();
+        console.log(`[PRELOAD] Compiled bundle loaded: ${bundle.storm_count || 0} storms with pre-computed DPS (${Object.keys(PRELOAD_CACHE).length} in cache)`);
+        refreshPresetDPSFromCompiled();
+        // Re-render year accordion chips now that compiled scores are available
+        refreshAccordionChipsDPS();
     } catch (e) {
-        // Fallback: try the API endpoint (works if static file is missing)
-        console.warn('[PRELOAD] Static bundle failed, trying API fallback:', e.message);
+        // Fallback: raw preload_bundle.json (requires client-side DPS computation)
+        console.warn('[PRELOAD] Compiled bundle unavailable, falling back to raw:', e.message);
         try {
-            const r = await fetch(`${API_BASE}/preload`);
-            if (r.ok) {
-                const bundle = await r.json();
-                if (bundle.storms) {
-                    Object.keys(bundle.storms).forEach(sid => {
-                        PRELOAD_CACHE[sid] = bundle.storms[sid];
-                    });
-                }
-                console.log(`[PRELOAD] API fallback loaded: ${Object.keys(PRELOAD_CACHE).length} storms`);
-                refreshPresetDPSFromPreload();
+            const r = await fetch('/frontend/preload_bundle.json');
+            if (!r.ok) throw new Error(`Raw bundle HTTP ${r.status}`);
+            const bundle = await r.json();
+            if (bundle.storms) {
+                Object.keys(bundle.storms).forEach(sid => {
+                    PRELOAD_CACHE[sid] = bundle.storms[sid];
+                });
             }
+            console.log(`[PRELOAD] Raw bundle loaded: ${Object.keys(PRELOAD_CACHE).length} storms (will compute DPS client-side)`);
+            refreshPresetDPSFromPreload();
         } catch (e2) {
             console.warn('[PRELOAD] All preload methods failed (will fetch per-storm):', e2.message);
         }
@@ -304,28 +593,365 @@ async function loadPreloadBundle() {
     }
 }
 
+// Apply pre-computed DPS from compiled cache (instant — no computation)
+function refreshPresetDPSFromCompiled() {
+    let changed = false;
+    PRESETS.forEach(p => {
+        const compiled = COMPILED_SCORES[p.id];
+        if (!compiled) return;
+        const newDps = Math.round(compiled.dps);
+        if (newDps > 0 && newDps !== p.dps) { p.dps = newDps; changed = true; }
+        // Store rainfall data on preset for red bar display
+        p._compiled = compiled;
+    });
+    if (changed) rerenderPresetChips();
+}
+
+// Re-render year accordion chips with compiled DPS (called after compiled bundle loads)
+function refreshAccordionChipsDPS() {
+    if (Object.keys(COMPILED_SCORES).length === 0) return;
+    const accordion = document.getElementById('stormAccordion');
+    if (!accordion) return;
+    const chips = accordion.querySelectorAll('.preset-chip[data-storm-id]');
+    let updated = 0;
+    chips.forEach(chip => {
+        const sid = chip.getAttribute('data-storm-id');
+        // Extract name and year for fallback lookup (IBTrACS SIDs don't match AL-format keys)
+        const nameEl = chip.querySelector('.chip-name');
+        const chipName = nameEl ? nameEl.textContent.trim().replace(/\s+[A-Z]{2}$/, '') : ''; // strip basin tag like " WP"
+        const section = chip.closest('.accordion-section');
+        const yearMatch = section && section.id ? section.id.match(/(\d{4})/) : null;
+        const chipYear = yearMatch ? parseInt(yearMatch[1]) : null;
+        const compiled = getCompiledScore(sid, chipName, chipYear);
+        if (!compiled) return;
+        const newDps = Math.round(compiled.dps);
+        const metaEl = chip.querySelector('.chip-meta');
+        if (!metaEl) return;
+        const currentText = metaEl.textContent;
+        const newText = `DPS ${newDps}`;
+        if (currentText !== newText) {
+            metaEl.textContent = newText;
+            const dotEl = chip.querySelector('.cat-dot');
+            if (dotEl) dotEl.style.background = dpsChipColor(newDps);
+            updated++;
+        }
+    });
+    if (updated > 0) console.log(`[PRELOAD] Updated ${updated} accordion chips with compiled DPS`);
+}
+
+// ============================================================
+// DPS Trend Indicator — shows intensity direction at current scrubber position
+// ============================================================
+// Analyzes DPS scores over a sliding window to detect:
+//   - Strengthening (DPS rising) → orange up arrow
+//   - Weakening (DPS falling) → green down arrow
+//   - Rapid Intensification (DPS surge >10/step) → red triple pulsating arrows
+//   - Stable → hidden
+function computeDpsTrend(data, idx) {
+    if (!data || data.length < 3 || idx < 0) return { type: 'stable', delta: 0 };
+    // Get DPS scores for a 3-snapshot window centered on idx
+    const lookback = Math.max(0, idx - 2);
+    const lookfwd = Math.min(data.length - 1, idx + 1);
+    const scores = [];
+    for (let i = lookback; i <= lookfwd; i++) {
+        const d = data[i];
+        const s = d.dps ? d.dps.score : (d.max_wind_ms ? (d.max_wind_ms / 0.514444) / 1.5 : 0);
+        scores.push(s);
+    }
+    if (scores.length < 2) return { type: 'stable', delta: 0 };
+    // Compute average slope across the window
+    const delta = scores[scores.length - 1] - scores[0];
+    const avgDelta = delta / (scores.length - 1);
+    // Also check raw wind speed change for RI detection (knots per step ≈ 6h)
+    let maxWindGain = 0;
+    for (let i = Math.max(0, idx - 1); i < Math.min(data.length - 1, idx + 1); i++) {
+        const w1 = (data[i].max_wind_ms || 0) / 0.514444;
+        const w2 = (data[i + 1].max_wind_ms || 0) / 0.514444;
+        if (w2 - w1 > maxWindGain) maxWindGain = w2 - w1;
+    }
+    // Rapid intensification: DPS rising fast + wind gain > 15kt per 6h step (≈30kt/12h)
+    if (avgDelta > 4 && maxWindGain > 12) return { type: 'ri', delta: avgDelta };
+    if (avgDelta > 1.5) return { type: 'up', delta: avgDelta };
+    if (avgDelta < -1.5) return { type: 'down', delta: avgDelta };
+    return { type: 'stable', delta: avgDelta };
+}
+
+function updateTrendIndicator(trend) {
+    const el = document.getElementById('dpsTrendIndicator');
+    if (!el) return;
+    el.className = 'dps-trend';
+    if (trend.type === 'ri') {
+        el.innerHTML = '<span class="trend-arrow">&#9650;</span><span class="trend-arrow">&#9650;</span><span class="trend-arrow">&#9650;</span><span class="dps-trend-label">RI</span>';
+        el.classList.add('visible', 'trend-ri');
+    } else if (trend.type === 'up') {
+        el.innerHTML = '<span class="trend-arrow">&#9650;</span><span class="dps-trend-label">Rising</span>';
+        el.classList.add('visible', 'trend-up');
+    } else if (trend.type === 'down') {
+        el.innerHTML = '<span class="trend-arrow">&#9660;</span><span class="dps-trend-label">Weak</span>';
+        el.classList.add('visible', 'trend-down');
+    } else {
+        el.innerHTML = '';
+    }
+}
+
+// ============================================================
+// BREAKDOWN BARS — stacked colored segments showing score composition
+// ============================================================
+const BREAKDOWN_COLORS = {
+    surge: '#3b82f6',     // Blue
+    windField: '#a78bfa', // Purple
+    windSpeed: '#f97316', // Orange
+    duration: '#34d399',  // Green
+    rainfall: '#60a5fa',  // Light blue
+    exposure: '#fbbf24',  // Gold
+    vuln: '#f87171',      // Red
+    reach: '#38bdf8'      // Sky
+};
+
+function renderBreakdownBar(barId, panelId, segments, score) {
+    const bar = document.getElementById(barId);
+    const panel = document.getElementById(panelId);
+    if (!bar || !panel) return;
+    // score (0-100) determines how much of the bar is filled; rest is empty
+    const fillPct = Math.max(2, Math.min(100, score || 100));
+    const total = segments.reduce((s, g) => s + g.value, 0) || 1;
+    bar.innerHTML = segments.map((seg, i) =>
+        `<div class="breakdown-seg" style="width:${Math.max(0.5, seg.value / total * fillPct)}%;background:${seg.color}" data-seg="${i}"></div>`
+    ).join('') + (fillPct < 100 ? `<div class="breakdown-empty" style="width:${100-fillPct}%"></div>` : '');
+    // Build panel rows
+    panel.innerHTML = segments.map(seg =>
+        `<div class="breakdown-panel-row">` +
+        `<div class="breakdown-panel-swatch" style="background:${seg.color}"></div>` +
+        `<div class="breakdown-panel-label">${seg.label}</div>` +
+        `<div class="breakdown-panel-val" style="color:${seg.color}">${seg.display}</div>` +
+        `<div class="breakdown-panel-pct">${seg.pct}</div>` +
+        `</div>`
+    ).join('');
+}
+
+// Snapshot card tab state
+let _snapshotTabData = [];  // Array of {label, dpsObj, type}
+let _snapshotActiveTab = 0;
+let _snapshotBasin = 'ATLANTIC';
+
+function setupSnapshotTabs(data, peakDpsObj, peakDpsIdx, compiled, isActive) {
+    const tabsEl = document.getElementById('snapshotTabs');
+    const labelEl = document.getElementById('snapshotLabel');
+    const tipEl = document.getElementById('snapshotTip');
+    _snapshotTabData = [];
+
+    if (isActive) {
+        // Active storms: Current + Peak tabs
+        const currentIdx = data.length - 1;
+        const currentDps = data[currentIdx].dps;
+        _snapshotTabData.push({ label: 'Current', dpsObj: currentDps, type: 'current', idx: currentIdx });
+        _snapshotTabData.push({ label: 'Peak', dpsObj: peakDpsObj, type: 'peak', idx: peakDpsIdx });
+        labelEl.textContent = 'Live Snapshot';
+        tipEl.setAttribute('data-tip', 'Current: real-time DPS at this moment. Peak: the highest single-snapshot DPS recorded so far.');
+    } else if (compiled && compiled.landfalls && compiled.landfalls.length > 0) {
+        // Historical with landfalls: one tab per landfall + peak tab
+        compiled.landfalls.forEach((lf, i) => {
+            // Find the data snapshot closest to this landfall timestamp
+            let bestIdx = lf.snapshot_idx;
+            if (bestIdx >= 0 && bestIdx < data.length) {
+                _snapshotTabData.push({
+                    label: lf.region,
+                    dpsObj: data[bestIdx].dps,
+                    type: 'landfall',
+                    idx: bestIdx,
+                    wind: lf.max_wind_ms,
+                    pressure: lf.min_pressure_hpa
+                });
+            }
+        });
+        // Always add Peak as last tab
+        _snapshotTabData.push({ label: 'Peak', dpsObj: peakDpsObj, type: 'peak', idx: peakDpsIdx });
+        labelEl.textContent = 'Landfall Snapshot';
+        tipEl.setAttribute('data-tip', 'DPS at the moment of landfall. Select a tab to see conditions at each landfall. Peak shows the highest single-snapshot DPS regardless of location.');
+    } else {
+        // Historical, no landfalls (fish storm): just Peak
+        _snapshotTabData.push({ label: 'Peak', dpsObj: peakDpsObj, type: 'peak', idx: peakDpsIdx });
+        labelEl.textContent = 'Peak Snapshot';
+        tipEl.setAttribute('data-tip', 'Single-snapshot DPS: the storm\'s peak destructive potential at one moment in time. This storm did not make a significant landfall.');
+    }
+
+    // Build tab UI
+    if (_snapshotTabData.length > 1) {
+        tabsEl.style.display = 'flex';
+        tabsEl.innerHTML = _snapshotTabData.map((t, i) =>
+            `<div class="snapshot-tab${i === 0 ? ' active' : ''}" data-tab="${i}">${t.label}</div>`
+        ).join('');
+        tabsEl.onclick = function(e) {
+            const tab = e.target.closest('.snapshot-tab');
+            if (!tab) return;
+            const idx = parseInt(tab.dataset.tab);
+            switchSnapshotTab(idx);
+        };
+    } else {
+        tabsEl.style.display = 'none';
+        tabsEl.innerHTML = '';
+    }
+
+    // Show first tab
+    _snapshotActiveTab = 0;
+    applySnapshotTab(0);
+}
+
+function switchSnapshotTab(idx) {
+    if (idx < 0 || idx >= _snapshotTabData.length) return;
+    _snapshotActiveTab = idx;
+    const tabsEl = document.getElementById('snapshotTabs');
+    tabsEl.querySelectorAll('.snapshot-tab').forEach((el, i) => el.classList.toggle('active', i === idx));
+    applySnapshotTab(idx);
+}
+
+function applySnapshotTab(idx) {
+    const tab = _snapshotTabData[idx];
+    if (!tab) return;
+    const dpsObj = tab.dpsObj;
+    document.getElementById('statPeakDPS').textContent = dpsObj.score;
+    document.getElementById('statPeakDPS').style.color = dpsObj.color;
+
+    let subText = dpsObj.label + ' Threat';
+    if (tab.type === 'landfall' && tab.wind) {
+        const windMph = Math.round(tab.wind * 2.237);
+        subText = dpsObj.label + ' · ' + windMph + ' mph';
+    }
+    document.getElementById('statDPSLabel').textContent = subText;
+
+    // Update breakdown bar for this tab's snapshot
+    renderBreakdownBar('breakdownSnap', 'panelSnap',
+        buildDpsSegments(dpsObj, _snapshotBasin), dpsObj.score);
+}
+
+function buildDpsSegments(dpsObj, basin) {
+    const coeffs = window.BasinDPS ? BASIN_COEFFICIENTS[basin] || BASIN_COEFFICIENTS.ATLANTIC : {surge_weight:.4,wind_field_weight:.4,wind_speed_weight:.1,forward_speed_weight:.1};
+    if (!dpsObj || !dpsObj.components) return [];
+    const c = dpsObj.components;
+    const sW = (coeffs.surge_weight || .4) * c.S * 100;
+    const wfW = (coeffs.wind_field_weight || .4) * c.Wf * 100;
+    const vW = (coeffs.wind_speed_weight || .1) * c.V * 100;
+    const fW = (coeffs.forward_speed_weight || .1) * c.F * 100;
+    const tot = sW + wfW + vW + fW || 1;
+    return [
+        { label:'Storm Surge', value:sW, color:BREAKDOWN_COLORS.surge, display:Math.round(sW), pct:Math.round(sW/tot*100)+'%' },
+        { label:'Wind Field', value:wfW, color:BREAKDOWN_COLORS.windField, display:Math.round(wfW), pct:Math.round(wfW/tot*100)+'%' },
+        { label:'Wind Speed', value:vW, color:BREAKDOWN_COLORS.windSpeed, display:Math.round(vW), pct:Math.round(vW/tot*100)+'%' },
+        { label:'Duration', value:fW, color:BREAKDOWN_COLORS.duration, display:Math.round(fW), pct:Math.round(fW/tot*100)+'%' }
+    ];
+}
+
+function updateBreakdownBars(heroDPS, peakDpsObj, _unused, peakIasObj, peakErsObj, basin) {
+    const coeffs = BASIN_COEFFICIENTS[basin] || BASIN_COEFFICIENTS.ATLANTIC;
+    // DPS Hero card — weighted component contributions
+    if (peakDpsObj && peakDpsObj.components) {
+        const c = peakDpsObj.components;
+        const sW = coeffs.surge_weight * c.S * 100;
+        const wfW = coeffs.wind_field_weight * c.Wf * 100;
+        const vW = coeffs.wind_speed_weight * c.V * 100;
+        const fW = coeffs.forward_speed_weight * c.F * 100;
+        const tot = sW + wfW + vW + fW || 1;
+        renderBreakdownBar('breakdownDPS', 'panelDPS', [
+            { label: 'Storm Surge', value: sW, color: BREAKDOWN_COLORS.surge, display: Math.round(sW), pct: Math.round(sW/tot*100)+'%' },
+            { label: 'Wind Field', value: wfW, color: BREAKDOWN_COLORS.windField, display: Math.round(wfW), pct: Math.round(wfW/tot*100)+'%' },
+            { label: 'Wind Speed', value: vW, color: BREAKDOWN_COLORS.windSpeed, display: Math.round(vW), pct: Math.round(vW/tot*100)+'%' },
+            { label: 'Duration', value: fW, color: BREAKDOWN_COLORS.duration, display: Math.round(fW), pct: Math.round(fW/tot*100)+'%' }
+        ], heroDPS);
+    }
+    // Peak Snapshot bar is now handled by the snapshot tab system (applySnapshotTab)
+    // IAS — surge geography + rainfall
+    if (peakIasObj) {
+        const sg = (peakIasObj.surgeGeo || 0) * 55;
+        const rf = (peakIasObj.rainfallThreat || 0) * 45;
+        const tot = sg + rf || 1;
+        renderBreakdownBar('breakdownIAS', 'panelIAS', [
+            { label: 'Surge Geography', value: sg, color: BREAKDOWN_COLORS.surge, display: Math.round(sg), pct: Math.round(sg/tot*100)+'%' },
+            { label: 'Rainfall Threat', value: rf, color: BREAKDOWN_COLORS.rainfall, display: Math.round(rf), pct: Math.round(rf/tot*100)+'%' }
+        ], peakIasObj.score);
+    }
+    // ERS — exposure × vulnerability × threat reach (show as proportional bars)
+    if (peakErsObj) {
+        const exp = (peakErsObj.exposure || 0) * 100;
+        const vul = (peakErsObj.vuln || 1) * 100;
+        const rch = (peakErsObj.reach || 0) * 100;
+        renderBreakdownBar('breakdownERS', 'panelERS', [
+            { label: 'Exposure', value: exp, color: BREAKDOWN_COLORS.exposure, display: Math.round(peakErsObj.exposure*100)+'%', pct: '' },
+            { label: 'Vulnerability', value: vul, color: BREAKDOWN_COLORS.vuln, display: (peakErsObj.vuln||1).toFixed(2)+'x', pct: '' },
+            { label: 'Threat Reach', value: rch, color: BREAKDOWN_COLORS.reach, display: Math.round(peakErsObj.reach*100)+'%', pct: '' }
+        ], peakErsObj.score);
+    }
+}
+
 // Start preload fetch immediately (non-blocking)
 preloadPromise = loadPreloadBundle();
+
+// ============================================================
+// ANIMATED COUNT-UP for hero DPS number
+// ============================================================
+function animateCountUp(el, target, color) {
+    const duration = 600; // ms
+    const start = performance.now();
+    const from = 0;
+    function tick(now) {
+        const t = Math.min((now - start) / duration, 1);
+        // Ease-out cubic
+        const ease = 1 - Math.pow(1 - t, 3);
+        const val = Math.round(from + (target - from) * ease);
+        el.textContent = val;
+        if (t < 1) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+}
+
+// ---- Score Context Helpers (plain-language guidance for new users) ----
+function getDPSContext(score) {
+    if (score >= 80) return 'Equivalent to a worst-case hurricane. Evacuate if in path.';
+    if (score >= 60) return 'Extremely dangerous. Major damage likely across a wide area.';
+    if (score >= 40) return 'Significant threat. Comparable to a large Cat 2-3 hurricane.';
+    if (score >= 20) return 'Moderate concern. Prepare if within the forecast cone.';
+    if (score >= 10) return 'Low but real threat. Stay informed and monitor updates.';
+    return 'Minimal impact expected at this time.';
+}
+function getIASContext(score) {
+    if (score >= 70) return 'Geography amplifies damage dramatically (shallow coast, heavy rainfall).';
+    if (score >= 40) return 'Terrain and rainfall significantly increase impact beyond wind alone.';
+    if (score >= 20) return 'Some geographic amplification. Surge and rainfall add to wind threat.';
+    return 'Geography provides limited amplification at this level.';
+}
+function getERSContext(score) {
+    if (score >= 70) return 'Enormous economic exposure. Billions in potential damages.';
+    if (score >= 40) return 'Major economic centers in the threat zone. High damage potential.';
+    if (score >= 20) return 'Moderate economic exposure along the storm path.';
+    return 'Limited economic infrastructure in the current threat area.';
+}
+function updateScoreContexts(dps, ias, ers) {
+    const dpsCtx = document.getElementById('dpsContext');
+    const iasCtx = document.getElementById('iasContext');
+    const ersCtx = document.getElementById('ersContext');
+    if (dpsCtx) dpsCtx.textContent = getDPSContext(dps);
+    if (iasCtx) iasCtx.textContent = getIASContext(ias);
+    if (ersCtx) ersCtx.textContent = getERSContext(ers);
+}
 
 // ---- Notable Historic Storms (US Atlantic) ----
 // Sorted by pre-computed DPS (Destructive Potential Score).
 // DPS is computed server-side for catalog storms; these are approximate
 // reference values for the preset list, recalculated when a storm is loaded.
 const PRESETS=[
-    {id:'AL122005',name:'Katrina',year:2005,cat:5,dps:95},
-    {id:'AL112017',name:'Irma',year:2017,cat:5,dps:91},
-    {id:'AL092024',name:'Helene',year:2024,cat:4,dps:87},
-    {id:'AL092008',name:'Ike',year:2008,cat:4,dps:78},
-    {id:'AL092022',name:'Ian',year:2022,cat:4,dps:73},
-    {id:'AL062018',name:'Florence',year:2018,cat:4,dps:69},
-    {id:'AL052019',name:'Dorian',year:2019,cat:5,dps:65},
-    {id:'AL182012',name:'Sandy',year:2012,cat:3,dps:65},
-    {id:'AL142024',name:'Milton',year:2024,cat:5,dps:63},
-    {id:'AL152017',name:'Maria',year:2017,cat:5,dps:61},
-    {id:'AL142018',name:'Michael',year:2018,cat:5,dps:61},
-    {id:'AL092017',name:'Harvey',year:2017,cat:4,dps:55},
-    {id:'AL102023',name:'Idalia',year:2023,cat:3,dps:51},
-    {id:'AL022024',name:'Beryl',year:2024,cat:5,dps:47},
+    {id:'AL122005',name:'Katrina',year:2005,cat:5,dps:95,ias:0,ers:0},
+    {id:'AL112017',name:'Irma',year:2017,cat:5,dps:91,ias:0,ers:0},
+    {id:'AL092024',name:'Helene',year:2024,cat:4,dps:87,ias:0,ers:0},
+    {id:'AL092008',name:'Ike',year:2008,cat:4,dps:78,ias:0,ers:0},
+    {id:'AL092022',name:'Ian',year:2022,cat:4,dps:73,ias:0,ers:0},
+    {id:'AL062018',name:'Florence',year:2018,cat:4,dps:69,ias:0,ers:0},
+    {id:'AL052019',name:'Dorian',year:2019,cat:5,dps:65,ias:0,ers:0},
+    {id:'AL182012',name:'Sandy',year:2012,cat:3,dps:65,ias:0,ers:0},
+    {id:'AL142024',name:'Milton',year:2024,cat:5,dps:63,ias:0,ers:0},
+    {id:'AL152017',name:'Maria',year:2017,cat:5,dps:61,ias:0,ers:0},
+    {id:'AL142018',name:'Michael',year:2018,cat:5,dps:61,ias:0,ers:0},
+    {id:'AL092017',name:'Harvey',year:2017,cat:4,dps:55,ias:0,ers:0},
+    {id:'AL102023',name:'Idalia',year:2023,cat:3,dps:51,ias:0,ers:0},
+    {id:'AL022024',name:'Beryl',year:2024,cat:5,dps:47,ias:0,ers:0},
 ];
 
 function catColor(c){return['var(--td)','var(--cat1)','var(--cat2)','var(--cat3)','var(--cat4)','var(--cat5)'][c]||'var(--td)'}
@@ -342,15 +968,18 @@ function refreshPresetDPSFromPreload(){
     PRESETS.forEach(p=>{
         const data=PRELOAD_CACHE[p.id];
         if(!data||!data.length) return;
-        let maxDps=0;
+        let maxDps=0, maxIas=0, maxErs=0;
         data.forEach(d=>{
             const dps=calculateDPS(d);
+            const ias=calculateIAS(d);
+            const ers=calculateERS(d);
             if(dps.score>maxDps) maxDps=dps.score;
+            if(ias.score>maxIas) maxIas=ias.score;
+            if(ers.score>maxErs) maxErs=ers.score;
         });
-        if(maxDps>0 && maxDps!==p.dps){
-            p.dps=maxDps;
-            changed=true;
-        }
+        if(maxDps>0 && maxDps!==p.dps){ p.dps=maxDps; changed=true; }
+        if(maxIas>0 && maxIas!==p.ias){ p.ias=maxIas; changed=true; }
+        if(maxErs>0 && maxErs!==p.ers){ p.ers=maxErs; changed=true; }
     });
     if(changed) rerenderPresetChips();
 }
@@ -376,11 +1005,12 @@ function rerenderPresetChips(){
     if(grid){
         grid.innerHTML=PRESETS.map(p=>{
             const dotColor=p.dps>0?dpsChipColor(p.dps):catColor(p.cat);
-            const metaText=p.dps>0?`${p.year} \u00b7 DPS ${p.dps}`:`${p.year} \u00b7 Cat ${p.cat}`;
-            return `<div class="preset-chip" data-storm-id="${p.id}" onclick="loadPreset('${p.id}')"><div class="cat-dot" style="background:${dotColor}"></div><span class="chip-name">${p.name}</span><span class="chip-meta">${metaText}</span></div>`;
+            const metaText=p.dps>0?`${p.year} · DPS ${p.dps}`:`${p.year} · Cat ${p.cat}`;
+            const rainBadge = (p._compiled && p._compiled.rainfall_anomalous) ? '<span style="color:#ef4444;font-size:.6rem;margin-left:2px" title="Rainfall anomaly warning">&#9679;</span>' : '';
+            return `<div class="preset-chip" data-storm-id="${p.id}" onclick="loadPreset('${p.id}')"><div class="cat-dot" style="background:${dotColor}"></div><span class="chip-name">${p.name}${rainBadge}</span><span class="chip-meta">${metaText}</span></div>`;
         }).join('');
     }
-    console.log('Preset DPS refreshed:', PRESETS.map(p=>`${p.name}=${p.dps}`).join(', '));
+    console.log('Preset scores refreshed:', PRESETS.map(p=>`${p.name}: DPS=${p.dps}, IAS=${p.ias||'?'}, ERS=${p.ers||'?'}`).join(', '));
 }
 
 // ============================================================
@@ -565,28 +1195,87 @@ function calculateSurgeParametric(dataPoint) {
 }
 
 // ============================================================
-// Continental-shelf factor — geography-aware surge adjustment for DPS
-// Wide, shallow shelves (Gulf of Mexico) amplify surge; narrow shelves
-// (Caribbean islands) dramatically reduce it.  Open ocean = minimal.
-// Regions are tested in order; first match wins.
+// Continental-shelf factor — GRANULAR geography-aware surge adjustment
+//
+// 25+ coastal segments based on actual continental shelf width research.
+// Wide, shallow shelves (Louisiana) amplify surge dramatically;
+// narrow shelves (Mexico Pacific, Caribbean) suppress it.
+// Regions tested in order; MOST SPECIFIC first, then broader fallbacks.
 // ============================================================
 const SHELF_REGIONS = [
-    // Gulf of Mexico — wide, shallow continental shelf (Katrina, Ike territory)
-    { name:'Gulf of Mexico',   factor:1.00, test:(lat,lon)=> lat>=18 && lat<=31 && lon>=-98 && lon<=-81 },
-    // Bay of Bengal — extremely wide shelf, highest surge risk globally
-    { name:'Bay of Bengal',    factor:1.05, test:(lat,lon)=> lat>=10 && lat<=24 && lon>=80  && lon<=95  },
-    // US Southeast Atlantic — moderate shelf (Carolinas, Georgia, NE Florida)
-    { name:'US SE Atlantic',   factor:0.75, test:(lat,lon)=> lat>=25 && lat<=37 && lon>=-82 && lon<=-74 },
-    // US Mid-Atlantic/NE — moderate-to-wide (Sandy territory: NY Bight, Chesapeake)
-    { name:'US Mid-Atlantic',  factor:0.80, test:(lat,lon)=> lat>=37 && lat<=42 && lon>=-76 && lon<=-70 },
-    // Caribbean Islands — narrow shelves, steep drop-offs
-    { name:'Caribbean Islands',factor:0.45, test:(lat,lon)=> lat>=10 && lat<=24 && lon>=-86 && lon<=-59 },
-    // Central America Pacific — variable, mostly narrow
-    { name:'Central America',  factor:0.55, test:(lat,lon)=> lat>=8  && lat<=20 && lon>=-110&& lon<=-77 },
-    // West Africa — narrow shelf
-    { name:'West Africa',      factor:0.50, test:(lat,lon)=> lat>=5  && lat<=20 && lon>=-20 && lon<=0   },
-    // East Asia / Philippines — variable
-    { name:'West Pacific',     factor:0.65, test:(lat,lon)=> lat>=5  && lat<=35 && lon>=115 && lon<=145 },
+    // ── US GULF COAST (most granular — wide shelf, highest surge risk) ──
+    // Louisiana: widest US shelf (~120nm), Katrina territory, maximum amplification
+    { name:'Louisiana Coast',         factor:1.15, test:(lat,lon)=> lat>=28.5 && lat<=30.5 && lon>=-93.5 && lon<=-88.8 },
+    // Mississippi Sound / Alabama: wide shelf, funneling into bays
+    { name:'Mississippi/Alabama',     factor:1.10, test:(lat,lon)=> lat>=29.5 && lat<=31   && lon>=-88.8 && lon<=-87.5 },
+    // Upper Texas (Galveston-Sabine): very wide shelf, Ike territory
+    { name:'Upper Texas Coast',       factor:1.10, test:(lat,lon)=> lat>=29   && lat<=30.5 && lon>=-95.5 && lon<=-93.5 },
+    // Central/South Texas (Corpus Christi-Brownsville): wide shelf
+    { name:'South Texas Coast',       factor:1.00, test:(lat,lon)=> lat>=25.5 && lat<=29   && lon>=-98   && lon<=-96 },
+    // Florida Big Bend (Cedar Key-Apalachee Bay): very wide, shallow — huge surge risk
+    { name:'Florida Big Bend',        factor:1.05, test:(lat,lon)=> lat>=29   && lat<=30.5 && lon>=-84.5 && lon<=-82.5 },
+    // Florida Panhandle (Pensacola-Panama City): moderate-wide shelf, Michael territory
+    { name:'Florida Panhandle',       factor:0.90, test:(lat,lon)=> lat>=29.5 && lat<=31   && lon>=-87.5 && lon<=-84.5 },
+    // West Florida (Tampa Bay-Naples-Keys): moderate shelf, Ian/Milton territory
+    { name:'West Florida',            factor:0.85, test:(lat,lon)=> lat>=24.5 && lat<=29   && lon>=-84   && lon<=-81.5 },
+    // Gulf of Mexico general fallback (open Gulf waters, Mexico Gulf side)
+    { name:'Gulf of Mexico',          factor:0.95, test:(lat,lon)=> lat>=18 && lat<=31 && lon>=-98 && lon<=-81 },
+
+    // ── US ATLANTIC COAST ──
+    // South Florida / Keys: very narrow shelf, steep drop-off to Florida Straits
+    { name:'SE Florida / Keys',       factor:0.50, test:(lat,lon)=> lat>=24.5 && lat<=27   && lon>=-81.5 && lon<=-79.5 },
+    // Central Florida Atlantic (Brevard-Palm Beach): narrow-moderate shelf
+    { name:'Central FL Atlantic',     factor:0.60, test:(lat,lon)=> lat>=26.5 && lat<=29   && lon>=-81   && lon<=-79.5 },
+    // Georgia / SC Low Country: moderate-wide shelf, tidal amplification
+    { name:'Georgia/SC Coast',        factor:0.75, test:(lat,lon)=> lat>=30   && lat<=33.5 && lon>=-82   && lon<=-79 },
+    // North Carolina: moderate shelf, Outer Banks barrier geography
+    { name:'North Carolina',          factor:0.70, test:(lat,lon)=> lat>=33.5 && lat<=36.5 && lon>=-78.5 && lon<=-75 },
+    // Virginia/Chesapeake Bay: moderate-wide, bay funneling amplifies surge
+    { name:'Virginia/Chesapeake',     factor:0.80, test:(lat,lon)=> lat>=36.5 && lat<=38   && lon>=-77   && lon<=-75 },
+    // New Jersey / NY Bight: moderate-wide, Sandy territory (right-angle coastline traps surge)
+    { name:'NJ / NY Bight',          factor:0.85, test:(lat,lon)=> lat>=38   && lat<=41   && lon>=-75   && lon<=-72 },
+    // New England: variable, generally moderate
+    { name:'New England',             factor:0.70, test:(lat,lon)=> lat>=41   && lat<=44   && lon>=-72   && lon<=-69 },
+    // US SE Atlantic general fallback
+    { name:'US SE Atlantic',          factor:0.65, test:(lat,lon)=> lat>=25 && lat<=37 && lon>=-82 && lon<=-74 },
+    // US Mid-Atlantic/NE fallback
+    { name:'US Mid-Atlantic',         factor:0.75, test:(lat,lon)=> lat>=37 && lat<=44 && lon>=-76 && lon<=-69 },
+
+    // ── CARIBBEAN ──
+    // Bahamas: shallow banks but narrow shelf edges — unique hybrid
+    { name:'Bahamas',                 factor:0.60, test:(lat,lon)=> lat>=21 && lat<=27.5 && lon>=-80 && lon<=-73 },
+    // Greater Antilles (Cuba, Hispaniola, Puerto Rico, Jamaica): narrow-moderate shelves
+    { name:'Greater Antilles',        factor:0.50, test:(lat,lon)=> lat>=17 && lat<=24 && lon>=-86 && lon<=-64 },
+    // Lesser Antilles: very narrow volcanic island shelves, steep drop-offs
+    { name:'Lesser Antilles',         factor:0.40, test:(lat,lon)=> lat>=10 && lat<=18 && lon>=-64 && lon<=-59 },
+    // Caribbean general fallback
+    { name:'Caribbean Basin',         factor:0.45, test:(lat,lon)=> lat>=10 && lat<=24 && lon>=-86 && lon<=-59 },
+
+    // ── MEXICO & CENTRAL AMERICA ──
+    // Mexico Pacific: VERY narrow shelf — Patricia surge was minimal despite 200mph winds
+    { name:'Mexico Pacific',          factor:0.35, test:(lat,lon)=> lat>=14 && lat<=24 && lon>=-110 && lon<=-96 },
+    // Mexico Gulf (Tamaulipas-Veracruz-Tabasco): moderate-wide Campeche shelf
+    { name:'Mexico Gulf',             factor:0.85, test:(lat,lon)=> lat>=18 && lat<=24 && lon>=-98 && lon<=-90 },
+    // Yucatan Peninsula: moderate shelf
+    { name:'Yucatan',                 factor:0.75, test:(lat,lon)=> lat>=18 && lat<=22 && lon>=-92 && lon<=-86 },
+    // Central America Caribbean: narrow-moderate
+    { name:'Central America Carib',   factor:0.55, test:(lat,lon)=> lat>=8 && lat<=18 && lon>=-88 && lon<=-77 },
+    // Central America Pacific: narrow
+    { name:'Central America Pacific', factor:0.40, test:(lat,lon)=> lat>=8 && lat<=16 && lon>=-92 && lon<=-77 },
+
+    // ── INTERNATIONAL ──
+    // Bay of Bengal: extremely wide shelf, highest surge risk globally (Bhola, Nargis)
+    { name:'Bay of Bengal',           factor:1.10, test:(lat,lon)=> lat>=10 && lat<=24 && lon>=80 && lon<=95 },
+    // China / Vietnam coast: wide shelf (South China Sea)
+    { name:'China/Vietnam Coast',     factor:0.85, test:(lat,lon)=> lat>=10 && lat<=30 && lon>=105 && lon<=122 },
+    // Philippines / West Pacific islands: moderate, variable
+    { name:'Philippines/W Pacific',   factor:0.60, test:(lat,lon)=> lat>=5 && lat<=20 && lon>=120 && lon<=135 },
+    // Japan: moderate shelf
+    { name:'Japan',                   factor:0.65, test:(lat,lon)=> lat>=24 && lat<=40 && lon>=128 && lon<=145 },
+    // NE Australia (Great Barrier Reef): moderate-wide, reef dissipation
+    { name:'NE Australia',            factor:0.75, test:(lat,lon)=> lat>=-25 && lat<=-10 && lon>=142 && lon<=155 },
+    // West Africa: narrow shelf
+    { name:'West Africa',             factor:0.50, test:(lat,lon)=> lat>=5 && lat<=20 && lon>=-20 && lon<=0 },
 ];
 
 function getShelfFactor(lat, lon) {
@@ -598,38 +1287,465 @@ function getShelfFactor(lat, lon) {
     return 0.30;
 }
 
-function calculateDPS(dataPoint) {
+// ============================================================
+// IMPACT AREA SCORE (IAS) — 0 to 100
+//
+// Captures what DPS misses: how geography and meteorology amplify
+// a storm's ACTUAL impact beyond raw wind/surge potential.
+//
+// IAS = 55 × Surge_Geography + 45 × Rainfall_Threat
+//
+// Component 1 — Surge Geography (0→1):
+//   How much the local continental shelf amplifies storm surge.
+//   surge_raw × granular_shelf_factor / 25 (capped at 1.0)
+//   Patricia (narrow Mexico shelf, 0.35) → low despite Cat 5 winds
+//   Katrina (wide Louisiana shelf, 1.15) → near maximum
+//
+// Component 2 — Rainfall Threat (0→1):
+//   stall_severity × moisture_capacity
+//   Harvey (2kt stall, Cat 4 moisture) → near maximum
+//   Fast movers (>10kt forward speed) → zero
+//
+// Calibrated against: Harvey (~70), Katrina (~55), Patricia (~20),
+// Sandy (~25), Irma (~45)
+// ============================================================
+
+// ============================================================
+// ECONOMIC RISK SCORE (ERS) — 0 to 100
+//
+// Standalone formula measuring economic exposure along the storm's
+// path. Answers: "How much economic value is threatened?"
+//
+// ERS = min(100, 100 × economic_exposure × threat_reach)
+//
+// economic_exposure (0→1): Coastal Economic Exposure Index —
+//   ~40 segments covering Gulf + Atlantic + Caribbean coastlines.
+//   Based on metro population, property values, port/refinery
+//   infrastructure, and critical facilities (military, nuclear, etc.)
+//   Granular enough to differentiate Big Bend (0.15) from Panama City
+//   (0.40) even though they're only 120 nm apart.
+//
+// threat_reach (0→1): How much of the economic zone is within the
+//   storm's destructive footprint. Uses R34 (tropical storm wind radius)
+//   as the primary reach metric — a Cat 5 with R34=200nm threatens
+//   everything within 200nm of its track. Larger storms = more $ at risk.
+//   Also accounts for wind speed (stronger → more damage per $ exposed).
+//
+// Key insight: Sandy (DPS ~65) near NYC should score 90+ ERS because
+// the economic exposure is astronomical, even though Sandy was only Cat 1.
+// Helene (DPS ~87) at Big Bend should score ~20 ERS because the
+// economic zone is rural/sparse despite the storm being very powerful.
+// ============================================================
+
+// ── Coastal Economic Exposure Index ──
+// Segments ordered most-specific first, broader fallbacks later.
+// Exposure values (0→1.0) based on:
+//   - Metro population (Census 2020, coastal counties)
+//   - Assessed property value per mile of coastline (NOAA OCM)
+//   - Critical infrastructure density (ports, refineries, military)
+//   - Tourism economic output (BEA regional data)
+//
+// Each segment also has a "depth_nm" — how far inland the economic
+// zone extends, used to determine if an offshore storm threatens it.
+// ── Coastal Economic Exposure & Vulnerability Index ──
+// Each segment now includes:
+//   exposure (0→1.0): Economic value at risk (population, property, infrastructure)
+//   vuln (0.5→1.5): Structural vulnerability multiplier
+//     < 0.8  = highly resilient (strict modern codes, elevated, hardened)
+//     0.8-1.0 = average resilience
+//     1.0-1.2 = above-average vulnerability (older codes, lower elevation)
+//     > 1.2  = highly vulnerable (below sea level, fragile grid, pre-modern codes)
+//
+// Vulnerability factors derived from:
+//   - Building code era & enforcement (pre/post Andrew 1992, post IBC 2000)
+//   - Average structure elevation vs FEMA flood zone base elevation
+//   - Infrastructure resilience (grid redundancy, road network, hospital capacity)
+//   - NFIP repetitive loss data (FEMA severe repetitive loss properties per mile)
+//   - Isolation factor (supply chain fragility, evacuation route constraints)
+const ECON_ZONES = [
+    // ── NORTHEAST CORRIDOR ──
+    { name:'NYC Metro / Long Island',     exposure:1.00, vuln:0.85, depth_nm:50, test:(lat,lon)=> lat>=40.2 && lat<=41.2 && lon>=-74.3 && lon<=-72.5 },
+    { name:'Northern NJ / Newark',        exposure:0.92, vuln:0.90, depth_nm:40, test:(lat,lon)=> lat>=39.5 && lat<=40.8 && lon>=-74.5 && lon<=-73.8 },
+    { name:'Connecticut Coast',           exposure:0.75, vuln:0.80, depth_nm:30, test:(lat,lon)=> lat>=40.8 && lat<=41.4 && lon>=-73.7 && lon<=-72.0 },
+    { name:'Boston Metro',                exposure:0.80, vuln:0.80, depth_nm:35, test:(lat,lon)=> lat>=42.0 && lat<=42.7 && lon>=-71.3 && lon<=-70.5 },
+    { name:'Rhode Island / Cape Cod',     exposure:0.55, vuln:0.95, depth_nm:25, test:(lat,lon)=> lat>=41.2 && lat<=42.0 && lon>=-71.8 && lon<=-69.9 },
+
+    // ── MID-ATLANTIC ──
+    { name:'Atlantic City / Shore',       exposure:0.50, vuln:1.05, depth_nm:20, test:(lat,lon)=> lat>=39.0 && lat<=39.8 && lon>=-74.6 && lon<=-74.0 },
+    { name:'Delaware Bay / Philly',       exposure:0.65, vuln:0.85, depth_nm:35, test:(lat,lon)=> lat>=38.5 && lat<=40.0 && lon>=-75.6 && lon<=-74.6 },
+    { name:'Chesapeake Bay / Norfolk',    exposure:0.70, vuln:1.00, depth_nm:40, test:(lat,lon)=> lat>=36.5 && lat<=38.5 && lon>=-77.0 && lon<=-75.5 },
+    { name:'Outer Banks NC',             exposure:0.30, vuln:1.25, depth_nm:15, test:(lat,lon)=> lat>=34.5 && lat<=36.5 && lon>=-76.5 && lon<=-75.2 },
+
+    // ── SOUTHEAST ATLANTIC ──
+    { name:'Wilmington NC Metro',         exposure:0.35, vuln:1.05, depth_nm:20, test:(lat,lon)=> lat>=33.7 && lat<=34.5 && lon>=-78.2 && lon<=-77.5 },
+    { name:'Myrtle Beach SC',             exposure:0.40, vuln:1.10, depth_nm:15, test:(lat,lon)=> lat>=33.2 && lat<=33.9 && lon>=-79.2 && lon<=-78.5 },
+    { name:'Charleston SC Metro',         exposure:0.55, vuln:1.00, depth_nm:25, test:(lat,lon)=> lat>=32.4 && lat<=33.2 && lon>=-80.3 && lon<=-79.5 },
+    { name:'Savannah GA / Hilton Head',   exposure:0.45, vuln:0.95, depth_nm:20, test:(lat,lon)=> lat>=31.8 && lat<=32.4 && lon>=-81.3 && lon<=-80.5 },
+    { name:'Jacksonville FL Metro',       exposure:0.55, vuln:0.90, depth_nm:25, test:(lat,lon)=> lat>=30.0 && lat<=30.8 && lon>=-81.8 && lon<=-81.0 },
+
+    // ── FLORIDA ATLANTIC ──
+    { name:'Palm Beach / Treasure Coast', exposure:0.70, vuln:0.75, depth_nm:20, test:(lat,lon)=> lat>=26.5 && lat<=27.5 && lon>=-80.3 && lon<=-79.8 },
+    { name:'Fort Lauderdale / Broward',   exposure:0.85, vuln:0.70, depth_nm:25, test:(lat,lon)=> lat>=25.9 && lat<=26.5 && lon>=-80.4 && lon<=-79.9 },
+    { name:'Miami-Dade Metro',            exposure:0.95, vuln:0.65, depth_nm:30, test:(lat,lon)=> lat>=25.3 && lat<=25.9 && lon>=-80.5 && lon<=-80.0 },
+    { name:'Florida Keys',               exposure:0.30, vuln:1.15, depth_nm:10, test:(lat,lon)=> lat>=24.3 && lat<=25.3 && lon>=-82.0 && lon<=-80.0 },
+
+    // ── FLORIDA GULF COAST ──
+    { name:'Naples / Collier Co',         exposure:0.55, vuln:0.80, depth_nm:20, test:(lat,lon)=> lat>=25.8 && lat<=26.5 && lon>=-82.0 && lon<=-81.3 },
+    { name:'Fort Myers / Lee Co',         exposure:0.60, vuln:1.05, depth_nm:25, test:(lat,lon)=> lat>=26.3 && lat<=26.8 && lon>=-82.2 && lon<=-81.7 },
+    { name:'Sarasota / Manatee',          exposure:0.55, vuln:0.90, depth_nm:20, test:(lat,lon)=> lat>=26.8 && lat<=27.5 && lon>=-82.8 && lon<=-82.2 },
+    { name:'Tampa Bay Metro',             exposure:0.85, vuln:1.00, depth_nm:35, test:(lat,lon)=> lat>=27.5 && lat<=28.3 && lon>=-82.9 && lon<=-82.2 },
+    { name:'Clearwater / Pinellas',       exposure:0.65, vuln:0.90, depth_nm:15, test:(lat,lon)=> lat>=27.7 && lat<=28.2 && lon>=-83.0 && lon<=-82.5 },
+    { name:'Nature Coast FL (rural)',     exposure:0.10, vuln:1.20, depth_nm:10, test:(lat,lon)=> lat>=28.3 && lat<=29.3 && lon>=-83.5 && lon<=-82.5 },
+    { name:'Big Bend FL (rural)',         exposure:0.15, vuln:1.25, depth_nm:10, test:(lat,lon)=> lat>=29.3 && lat<=30.3 && lon>=-84.5 && lon<=-83.0 },
+    { name:'Panama City FL',             exposure:0.40, vuln:1.30, depth_nm:20, test:(lat,lon)=> lat>=29.8 && lat<=30.5 && lon>=-86.0 && lon<=-85.0 },
+    { name:'Destin / Fort Walton',        exposure:0.35, vuln:1.00, depth_nm:15, test:(lat,lon)=> lat>=30.2 && lat<=30.6 && lon>=-87.0 && lon<=-86.0 },
+    { name:'Pensacola Metro',             exposure:0.45, vuln:1.00, depth_nm:25, test:(lat,lon)=> lat>=30.2 && lat<=30.7 && lon>=-87.6 && lon<=-86.8 },
+
+    // ── CENTRAL GULF COAST ──
+    { name:'Mobile AL Metro',             exposure:0.50, vuln:1.00, depth_nm:30, test:(lat,lon)=> lat>=30.2 && lat<=31.0 && lon>=-88.3 && lon<=-87.5 },
+    { name:'Biloxi / Gulfport MS',        exposure:0.40, vuln:1.15, depth_nm:20, test:(lat,lon)=> lat>=30.2 && lat<=30.7 && lon>=-89.5 && lon<=-88.3 },
+    { name:'New Orleans Metro',           exposure:0.90, vuln:1.40, depth_nm:45, test:(lat,lon)=> lat>=29.5 && lat<=30.3 && lon>=-90.5 && lon<=-89.5 },
+    { name:'Houma / Terrebonne LA',       exposure:0.50, vuln:1.30, depth_nm:25, test:(lat,lon)=> lat>=29.0 && lat<=29.6 && lon>=-91.2 && lon<=-90.3 },
+    { name:'Lafayette / Vermilion LA',    exposure:0.40, vuln:1.05, depth_nm:20, test:(lat,lon)=> lat>=29.5 && lat<=30.5 && lon>=-92.5 && lon<=-91.2 },
+    { name:'Lake Charles LA (refinery)',  exposure:0.55, vuln:1.15, depth_nm:30, test:(lat,lon)=> lat>=29.8 && lat<=30.5 && lon>=-93.5 && lon<=-92.5 },
+
+    // ── TEXAS GULF COAST ──
+    { name:'Beaumont / Port Arthur TX',   exposure:0.55, vuln:1.10, depth_nm:30, test:(lat,lon)=> lat>=29.5 && lat<=30.3 && lon>=-94.5 && lon<=-93.5 },
+    { name:'Houston / Galveston Metro',   exposure:0.95, vuln:0.90, depth_nm:50, test:(lat,lon)=> lat>=28.8 && lat<=30.0 && lon>=-95.8 && lon<=-94.3 },
+    { name:'Freeport / Brazoria TX',      exposure:0.45, vuln:1.05, depth_nm:25, test:(lat,lon)=> lat>=28.5 && lat<=29.0 && lon>=-95.8 && lon<=-95.0 },
+    { name:'Matagorda / Victoria TX',     exposure:0.25, vuln:1.15, depth_nm:15, test:(lat,lon)=> lat>=28.2 && lat<=28.9 && lon>=-96.8 && lon<=-95.8 },
+    { name:'Corpus Christi TX',           exposure:0.45, vuln:1.05, depth_nm:25, test:(lat,lon)=> lat>=27.3 && lat<=28.2 && lon>=-97.5 && lon<=-96.8 },
+    { name:'South Padre / Brownsville',   exposure:0.25, vuln:1.15, depth_nm:15, test:(lat,lon)=> lat>=25.8 && lat<=27.3 && lon>=-97.8 && lon<=-96.8 },
+
+    // ── CARIBBEAN / INTERNATIONAL ──
+    { name:'San Juan PR Metro',           exposure:0.55, vuln:1.45, depth_nm:20, test:(lat,lon)=> lat>=17.8 && lat<=18.6 && lon>=-66.5 && lon<=-65.5 },
+    { name:'US Virgin Islands',           exposure:0.30, vuln:1.35, depth_nm:10, test:(lat,lon)=> lat>=17.5 && lat<=18.5 && lon>=-65.5 && lon<=-64.5 },
+    { name:'Nassau / Bahamas',            exposure:0.35, vuln:1.30, depth_nm:15, test:(lat,lon)=> lat>=24.5 && lat<=25.5 && lon>=-78.0 && lon<=-77.0 },
+    { name:'Cancun / Riviera Maya',       exposure:0.50, vuln:1.10, depth_nm:15, test:(lat,lon)=> lat>=20.0 && lat<=21.5 && lon>=-87.5 && lon<=-86.5 },
+];
+
+// ── NRI Zone Overrides (FEMA National Risk Index 2024) ──
+// For active/forecast storms, these values replace hand-tuned exposure & vuln
+// with data-driven estimates reflecting CURRENT infrastructure resilience.
+// Historical presets keep the hand-tuned values that reflect vulnerability
+// at the time each storm actually hit (e.g., pre-levee-fix New Orleans).
+let NRI_ZONES = null; // Loaded async from nri_zones.json
+
+function loadNRIZones() {
+    fetch('/frontend/nri_zones.json')
+        .then(r => r.ok ? r.json() : Promise.reject('NRI zones not found'))
+        .then(data => { NRI_ZONES = data; console.log('NRI zones loaded:', Object.keys(data).length, 'zones'); })
+        .catch(e => console.warn('NRI zones not available:', e));
+}
+loadNRIZones();
+
+function getEconomicExposure(lat, lon, useNRI = false) {
+    if(lat == null || lon == null) return { exposure: 0.10, vuln: 1.0, name: 'Unknown', depth_nm: 15 };
+    for(const z of ECON_ZONES) {
+        if(z.test(lat, lon)) {
+            let exposure = z.exposure, vuln = z.vuln;
+            // For active storms, override with NRI-derived values (current resilience)
+            if(useNRI && NRI_ZONES && NRI_ZONES[z.name]) {
+                exposure = NRI_ZONES[z.name].exposure;
+                vuln = NRI_ZONES[z.name].vuln;
+            }
+            return { exposure, vuln, name: z.name, depth_nm: z.depth_nm };
+        }
+    }
+    // No matching zone — open ocean or non-US coast
+    return { exposure: 0.05, vuln: 1.0, name: 'Open Ocean / Uncharted', depth_nm: 10 };
+}
+
+function calculateERS(dataPoint, useNRI = false) {
+    if(!dataPoint.max_wind_ms || dataPoint.max_wind_ms <= 0) {
+        return { score: 0, label: "Minimal", color: "var(--text-muted)", exposure: 0, vuln: 1.0, reach: 0, zone: '', nriActive: false };
+    }
+
+    // ── Economic Exposure & Vulnerability ──
+    // useNRI=true for active/forecast storms → uses FEMA NRI current resilience data
+    // useNRI=false for historical presets → uses hand-tuned values from when storm hit
+    const econ = getEconomicExposure(dataPoint.lat, dataPoint.lon, useNRI);
+
+    // ── Threat Reach ──
+    // reach = sqrt(size_component × intensity_component)
+    // size_component:  larger storms threaten more area (0→1)
+    // intensity_component: stronger storms do more $ per unit area (0→1)
+    const r34 = dataPoint.r34_nm || 0;
+    const v_kt = dataPoint.max_wind_ms / 0.514444;
+
+    // Size component: normalized to Sandy-scale storms (R34~400nm)
+    // sqrt(R34/400) preserves discrimination for large storms (Erin R34=490nm → 1.107)
+    // while avoiding artificial capping at R34=250nm (Sandy was incorrectly saturating at 1.0)
+    let sizeComponent = 0;
+    if(r34 > 0) {
+        sizeComponent = Math.min(1.5, Math.sqrt(r34 / 400.0));
+    } else if(v_kt >= 64) {
+        sizeComponent = 0.25;
+    } else if(v_kt >= 34) {
+        sizeComponent = 0.15;
+    }
+
+    // Intensity component: power 0.7 curve — damage grows sub-linearly with wind
+    // Cat 5 → 1.0, Cat 3 → 0.7, Cat 1 → 0.4, TS → 0.2
+    let intensityComponent = 0;
+    if(v_kt >= 34) {
+        intensityComponent = Math.min(1.0, 0.15 + 0.85 * Math.pow((v_kt - 34) / 103, 0.7));
+    }
+
+    const threatReach = Math.sqrt(sizeComponent * intensityComponent);
+
+    // ── Compose ERS ──
+    // ERS = 100 × exposure × vuln × threatReach
+    //
+    // The vulnerability multiplier amplifies damage in fragile zones:
+    //   New Orleans (vuln 1.40): levees, below sea level, fragile grid
+    //   Puerto Rico (vuln 1.45): isolated grid, older codes, supply chain
+    //   Panama City (vuln 1.30): pre-Andrew codes, ground-level construction
+    //   Miami-Dade (vuln 0.65): strictest codes post-Andrew, elevated structures
+    //
+    // UNCAPPED vulnerability premium: exposure × vuln is NOT capped at 1.0.
+    // This lets high-vulnerability zones saturate to ERS=100 even with moderate
+    // storm intensity, reflecting that fragile infrastructure amplifies damage:
+    //   New Orleans: 0.90 × 1.40 = 1.26 (levee risk, below sea level)
+    //   Puerto Rico: 0.55 × 1.45 = 0.80 (isolated grid, older codes)
+    //   NYC Metro:   1.00 × 0.85 = 0.85 (high value but resilient codes)
+    //   Miami-Dade:  0.95 × 0.65 = 0.62 (strictest codes post-Andrew)
+    // The final ERS score is still capped at 100 for display.
+    const effectiveExposure = econ.exposure * econ.vuln;
+    const rawScore = 100 * effectiveExposure * threatReach;
+    const scoreObj = Math.min(100, Math.round(rawScore));
+
+    let label = "Minimal";
+    let color = "var(--text-muted)";
+    if(scoreObj >= 80)      { label="Extreme";   color="#ef4444"; }
+    else if(scoreObj >= 60) { label="Very High";  color="#f97316"; }
+    else if(scoreObj >= 40) { label="High";       color="#fbbf24"; }
+    else if(scoreObj >= 20) { label="Moderate";   color="#34d399"; }
+    else if(scoreObj >= 8)  { label="Low";        color="#60a5fa"; }
+
+    return { score: scoreObj, label: label, color: color, exposure: econ.exposure, vuln: econ.vuln, reach: threatReach, zone: econ.name, nriActive: useNRI && NRI_ZONES != null };
+}
+
+function calculateIAS(dataPoint) {
     if(!dataPoint.max_wind_ms || dataPoint.max_wind_ms <= 0) {
         return { score: 0, label: "Minimal", color: "var(--text-muted)" };
     }
 
+    // ── Component 1: Surge Geography (0→1) ──
+    // Raw surge × shelf factor, normalized so 25 ft shelved surge = 1.0
+    let surgeGeo = 0;
+    const surgeRaw = calculateSurgeParametric(dataPoint);
+    if(surgeRaw > 0) {
+        const shelf = getShelfFactor(dataPoint.lat, dataPoint.lon);
+        const surgeShelved = surgeRaw * shelf;
+        surgeGeo = Math.min(surgeShelved / 25.0, 1.0);
+    }
+
+    // ── Component 2: Rainfall Threat (0→1) ──
+    // stall_severity: linear penalty for slow movement (≤12 kt threshold)
+    //   0 kt → 1.0, 2 kt → 0.83, 5 kt → 0.58, 8 kt → 0.33, 12+ kt → 0
+    // moisture_capacity: wind speed × size as proxy for precipitable water
+    //   Any Cat 1+ (>33 m/s) saturates moisture capacity — even weakened TCs
+    //   over warm water carry enormous atmospheric moisture (Trenberth 2007)
+    //
+    // Calibrated against Harvey: at 5 kt (slow) near landfall with Cat 4 winds,
+    // the rainfall component should contribute significantly to IAS.
+    // At 2 kt stall (post-landfall, weakened), it should still score meaningfully.
+    //
+    // IMPORTANT: Only activate when forward_speed_knots is ACTUALLY PRESENT.
+    // null/undefined = missing data (e.g. HURDAT2 storms) → no rainfall score.
+    // Rainfall threat uses continuous two-slope linear taper instead of hard
+    // 12 kt cutoff. Monotonically decreasing, fully continuous at the knee:
+    //   0→12 kt: steep slope from 1.0 to TAPER_FLOOR (primary stall zone)
+    //   12→20 kt: gentle slope from TAPER_FLOOR to 0.0 (residual rainfall tail)
+    //   ≥20 kt: no rainfall threat contribution
+    const RAINFALL_KNEE_KT = 12.0;
+    const RAINFALL_TAPER_KT = 20.0;
+    const TAPER_FLOOR = 0.05;
+    let rainfallThreat = 0;
+    const hasFwdData = dataPoint.forward_speed_knots != null && dataPoint.forward_speed_knots !== undefined;
+    if(hasFwdData) {
+        const fwd_kt = dataPoint.forward_speed_knots;
+        if(fwd_kt >= 0 && fwd_kt < RAINFALL_TAPER_KT) {
+            let stallSeverity;
+            if(fwd_kt < RAINFALL_KNEE_KT) {
+                stallSeverity = 1.0 - (1.0 - TAPER_FLOOR) * (fwd_kt / RAINFALL_KNEE_KT);
+            } else {
+                stallSeverity = TAPER_FLOOR * (RAINFALL_TAPER_KT - fwd_kt) / (RAINFALL_TAPER_KT - RAINFALL_KNEE_KT);
+            }
+
+            // Moisture proxy: saturates at 35 m/s (Cat 1) — even weak TCs
+            // over warm water have massive precipitable water columns
+            const windMoisture = Math.min(1.0, dataPoint.max_wind_ms / 35.0);
+            const r34 = dataPoint.r34_nm || 0;
+            const sizeFactor = r34 > 0 ? Math.min(1.3, Math.max(0.7, Math.sqrt(r34 / 150.0))) : 0.8;
+            const moistureCapacity = Math.min(1.0, windMoisture * sizeFactor);
+
+            // Near-land multiplier: rainfall over open ocean has minimal impact
+            const shelf = getShelfFactor(dataPoint.lat, dataPoint.lon);
+            const nearLand = shelf > 0.35 ? 1.0 : 0.3;
+
+            rainfallThreat = stallSeverity * moistureCapacity * nearLand;
+        }
+    }
+
+    // ── Compose IAS Score ──
+    const rawScore = 55 * surgeGeo + 45 * rainfallThreat;
+    const scoreObj = Math.min(100, Math.round(rawScore));
+
+    // Labels reflect actual impact context
+    let label = "Minimal";
+    let color = "var(--text-muted)";
+    if(scoreObj >= 75)      { label="Critical";  color="#ef4444"; } // Red
+    else if(scoreObj >= 55) { label="High";      color="#f97316"; } // Orange
+    else if(scoreObj >= 35) { label="Elevated";  color="#fbbf24"; } // Gold
+    else if(scoreObj >= 18) { label="Moderate";  color="#34d399"; } // Green
+    else if(scoreObj >= 8)  { label="Low";       color="#60a5fa"; } // Blue
+
+    return { score: scoreObj, label: label, color: color, surgeGeo: surgeGeo, rainfallThreat: rainfallThreat };
+}
+
+// ============================================================
+// STALL RISK — forecast-aware rainfall boost for active storms
+//
+// When NHC forecast data shows a storm is predicted to slow down
+// or stall, the IAS rainfall component gets a forward-looking boost.
+// This lets the IAS flag Harvey-like scenarios BEFORE the stall
+// happens, using the same data NHC/GFS models provide.
+// ============================================================
+window._activeStallRisk = null;
+
+function displayStallRisk(stallRisk) {
+    const bar = document.getElementById('stallRiskBar');
+    if(!stallRisk || stallRisk.risk_level === 'none') {
+        bar.classList.remove('visible');
+        return;
+    }
+
+    const colors = {
+        low:      { bg:'rgba(96,165,250,.08)',  border:'rgba(96,165,250,.25)',  text:'#60a5fa' },
+        moderate: { bg:'rgba(251,191,36,.08)',   border:'rgba(251,191,36,.25)',  text:'#fbbf24' },
+        high:     { bg:'rgba(249,115,22,.1)',    border:'rgba(249,115,22,.3)',   text:'#f97316' },
+        extreme:  { bg:'rgba(239,68,68,.1)',     border:'rgba(239,68,68,.3)',    text:'#ef4444' },
+    };
+    const icons = { low: '\u26a0', moderate: '\u26a0\ufe0f', high: '\ud83c\udf0a', extreme: '\ud83d\udea8' };
+    const c = colors[stallRisk.risk_level] || colors.low;
+
+    bar.style.background = c.bg;
+    bar.style.borderColor = c.border;
+    bar.style.color = c.text;
+
+    document.getElementById('stallBarIcon').textContent = icons[stallRisk.risk_level] || '';
+    document.getElementById('stallBarText').innerHTML = `<b>Stall Risk: ${stallRisk.risk_level.toUpperCase()}</b> — ${stallRisk.description}`;
+    document.getElementById('stallBarScore').textContent = stallRisk.risk_score;
+
+    bar.classList.add('visible');
+}
+
+function applyStallRiskToIAS(data, stallRisk) {
+    // Boost the rainfall component of IAS for active storms based on
+    // forecast stall risk. The boost applies a multiplier to the rainfall
+    // threat that reflects what the forecast PREDICTS will happen.
+    //
+    // This is the key innovation: current forward speed might be 12 kt
+    // (no rainfall risk), but if the forecast shows it slowing to 3 kt
+    // in 24 hours, the IAS should reflect that FUTURE stall risk NOW.
+    if(!stallRisk || stallRisk.risk_score <= 0) return;
+
+    const stallBoost = stallRisk.risk_score / 100; // 0→1 scale
+
+    data.forEach(d => {
+        if(!d.ias) return;
+
+        // Compute what the rainfall component WOULD be at the forecast min speed
+        // Uses same two-slope taper logic as main IAS calculation
+        const forecastMinKt = stallRisk.min_forecast_speed_kt || 12;
+        const FC_KNEE = 12.0, FC_TAPER = 20.0, FC_FLOOR = 0.05;
+        let forecastStall;
+        if(forecastMinKt < FC_KNEE) {
+            forecastStall = 1.0 - (1.0 - FC_FLOOR) * (forecastMinKt / FC_KNEE);
+        } else if(forecastMinKt < FC_TAPER) {
+            forecastStall = FC_FLOOR * (FC_TAPER - forecastMinKt) / (FC_TAPER - FC_KNEE);
+        } else {
+            forecastStall = 0;
+        }
+        const windMoisture = Math.min(1.0, (d.max_wind_ms || 0) / 35.0);
+        const r34 = d.r34_nm || 0;
+        const sizeFactor = r34 > 0 ? Math.min(1.3, Math.max(0.7, Math.sqrt(r34 / 150.0))) : 0.8;
+        const moistureCapacity = Math.min(1.0, windMoisture * sizeFactor);
+        const shelf = getShelfFactor(d.lat, d.lon);
+        const nearLand = shelf > 0.35 ? 1.0 : 0.3;
+        const forecastRainfall = forecastStall * moistureCapacity * nearLand;
+
+        // Blend: current rainfall + forecast rainfall weighted by stall risk confidence
+        const currentRainfall = d.ias.rainfallThreat || 0;
+        const boostedRainfall = Math.max(currentRainfall, currentRainfall + (forecastRainfall - currentRainfall) * stallBoost);
+
+        // Recompute IAS with boosted rainfall
+        const rawScore = 55 * d.ias.surgeGeo + 45 * boostedRainfall;
+        const newScore = Math.min(100, Math.round(rawScore));
+
+        if(newScore > d.ias.score) {
+            d.ias.score = newScore;
+            d.ias.rainfallThreat = boostedRainfall;
+            d.ias._stallBoosted = true;
+            // Update label/color
+            if(newScore >= 75)      { d.ias.label="Critical";  d.ias.color="#ef4444"; }
+            else if(newScore >= 55) { d.ias.label="High";      d.ias.color="#f97316"; }
+            else if(newScore >= 35) { d.ias.label="Elevated";  d.ias.color="#fbbf24"; }
+            else if(newScore >= 18) { d.ias.label="Moderate";  d.ias.color="#34d399"; }
+            else if(newScore >= 8)  { d.ias.label="Low";       d.ias.color="#60a5fa"; }
+        }
+    });
+
+    // Re-render the peak IAS stat with the boosted values
+    const iasScores = data.map(d => d.ias ? d.ias.score : 0);
+    const peakIasIdx = iasScores.indexOf(Math.max(...iasScores));
+    const peakIasObj = data[peakIasIdx].ias;
+
+    document.getElementById('statPeakIAS').textContent = peakIasObj.score;
+    document.getElementById('statPeakIAS').style.color = peakIasObj.color;
+    document.getElementById('statIASLabel').textContent = peakIasObj.label + ' Impact' + (peakIasObj._stallBoosted ? ' (Stall \u26a0)' : '');
+    const iasCtx = document.getElementById('iasContext');
+    if (iasCtx) iasCtx.textContent = getIASContext(peakIasObj.score);
+
+    // Re-render the DPS/IAS chart to show the boosted IAS line
+    renderDPSChart(data);
+}
+
+function clearStallRisk() {
+    window._activeStallRisk = null;
+    document.getElementById('stallRiskBar').classList.remove('visible');
+}
+
+function calculateDPS(dataPoint) {
+    if(!dataPoint.max_wind_ms || dataPoint.max_wind_ms <= 0) {
+        return { score: 0, label: "Minimal", color: "var(--text-muted)", basin: "ATLANTIC" };
+    }
+
     // ================================================================
-    // Destructive Potential Score (DPS) — 0-100 composite score
+    // BASIN-SPECIFIC DESTRUCTIVE POTENTIAL SCORE (DPS) — 0-100
     //
-    // DPS = 45*S + 35*Wf + 10*V + 10*F
+    // DPS = weighted sum of S + Wf + V + F with basin-specific coefficients
     //
-    // Unlike Saffir-Simpson (wind speed only), DPS captures the FULL
-    // picture: surge, storm size, intensity, and forward speed.
+    // Atlantic (Baseline):   40% Surge + 40% Wind Field + 10% Wind + 10% Duration
+    // Eastern Pacific:       25% Surge + 38% Wind Field + 20% Wind + 17% Duration (+15 RI bonus)
+    // Western Pacific:       30% Surge + 45% Wind Field + 10% Wind + 15% Duration
+    // North Indian:          50% Surge + 30% Wind Field + 08% Wind + 12% Duration
+    // South Indian:          42% Surge + 38% Wind Field + 10% Wind + 10% Duration
+    // South Pacific:         35% Surge + 40% Wind Field + 15% Wind + 10% Duration
     //
-    // A Cat 1 (Sandy, DPS ~71) can match a Cat 5 (Michael, DPS ~72)
-    // because Sandy's record-breaking wind field and surge potential
-    // offset her weaker peak winds — reflecting equal real-world danger.
-    //
-    // Components (each normalized 0→1):
-    //   S  (45%): Storm surge height with shelf factor — #1 damage driver
-    //   Wf (35%): Wind field area (R64² + R34²) — total energy footprint
-    //   V  (10%): Peak wind speed — intensity above hurricane threshold
-    //   F  (10%): Forward speed (inverse) — slower = more damage
-    //
-    // Calibrated against: Michael (72), Sandy (71), Katrina (91+)
+    // Each basin accounts for regional differences in:
+    // - Surge mechanics (shelf geometry, funnel effects, bathymetry)
+    // - Wind field distribution (compact Eastern Pacific vs. large Western Pacific)
+    // - Rainfall patterns (orographic, monsoon, tropical)
+    // - Economic vulnerability and population density
     // ================================================================
 
     const v_kt = dataPoint.max_wind_ms / 0.514444;
     const v_mph = v_kt * 1.15078;
 
-    // 1. Storm Surge (S) — 45% weight
-    // Biggest driver of catastrophic loss. Uses parametric surge model
-    // with continental shelf factor for geography-aware adjustment.
+    // 1. Storm Surge (S) — varies by basin (20-50%)
     let S = 0;
     const surgeRaw = calculateSurgeParametric(dataPoint);
     if(surgeRaw > 0) {
@@ -638,47 +1754,38 @@ function calculateDPS(dataPoint) {
         S = Math.min(surgeShelved / 25, 1.0);
     }
 
-    // 2. Wind Field / Storm Size (Wf) — 35% weight
-    // Weighted area approach: R64² (hurricane-force core) weighted 70%,
-    // R34² (tropical-storm footprint) weighted 30%. Area ∝ radius² so
-    // a storm with twice the radius affects 4× the territory.
-    // R64_max=45nm rewards compact but intense hurricane cores.
-    // Wf cap of 1.5 allows oversized storms to exceed baseline.
-    // If R64 unavailable (weaker storms), only R34 contributes.
-    const R64_MAX = 45;   // nm — normalization ceiling for hurricane-force radius
-    const R34_MAX = 300;  // nm — normalization ceiling for TS-force radius
+    // 2. Wind Field / Storm Size (Wf) — varies by basin (30-45%)
+    const R64_MAX = 45;   // nm
+    const R34_MAX = 300;  // nm
+    const WF_SOFTCAP = 3.0;
     let Wf = 0;
     const r64 = dataPoint.r64_nm || 0;
     const r34 = dataPoint.r34_nm || 0;
     if(r64 > 0) {
         Wf = 0.7 * (r64 * r64) / (R64_MAX * R64_MAX) + 0.3 * (r34 * r34) / (R34_MAX * R34_MAX);
     } else if(r34 > 0) {
-        // No hurricane-force winds reported — only TS footprint contributes
         Wf = 0.3 * (r34 * r34) / (R34_MAX * R34_MAX);
     }
-    Wf = Math.min(Wf, 1.5) / 1.5;  // Normalize: 0→1.5 maps to 0→1.0; oversized storms still rewarded
+    Wf = Math.min(1.0, Math.log(1 + Wf) / Math.log(1 + WF_SOFTCAP));
 
-    // 3. Wind Speed (V) — 10% weight
-    // Important but less than people think vs. water + size.
-    // Floor at 40 mph (strong TS) to give partial credit to sub-hurricane winds.
-    // Range: 40 mph → 0, 157 mph → 1.0  (span = 117 mph).
+    // 3. Wind Speed (V) — varies by basin (8-20%)
     let V = Math.max(0, Math.min((v_mph - 40) / 117, 1.0));
 
-    // 4. Forward Speed (F) — 10% weight
-    // Inverse: slower storms = more damage (prolonged rain, surge, wind).
-    // ≥25 mph forward speed → 0 (minimal added impact).
+    // 4. Forward Speed/Duration (F) — varies by basin (10-17%)
     let F = 0;
     if(dataPoint.forward_speed_knots && dataPoint.forward_speed_knots > 0) {
         const fwd_mph = dataPoint.forward_speed_knots * 1.15078;
         F = Math.max(0, 1.0 - Math.min(fwd_mph / 25, 1.0));
     }
 
-    // Compose DPS Score (Cap at 100)
-    let rawScore = 40 * S + 40 * Wf + 10 * V + 10 * F;
-    let scoreObj = Math.min(100, Math.round(rawScore));
+    // Detect basin and apply basin-specific coefficients
+    const basin = window.BasinDPS?.detectBasin(dataPoint.lat, dataPoint.lon) || "ATLANTIC";
+    const dpsResult = window.BasinDPS?.applyBasinDPS(S, Wf, V, F, basin, dataPoint) ||
+                      (function(){ const rs=100*(0.4*S+0.4*Wf+0.1*V+0.1*F); return {rawScore:rs,riBonus:0,finalScore:rs,basinName:"Atlantic"}; })();
 
-    // Determine Label and Color
-    // These categories reflect ACTUAL destructive potential, not just wind speed
+    let scoreObj = Math.min(100, Math.round(dpsResult.finalScore));
+
+    // Determine Label and Color based on DPS score
     let label = "Minimal";
     let color = "var(--text-muted)";
     if(scoreObj >= 80)      { label="Catastrophic"; color="var(--cat5)"; }
@@ -687,7 +1794,15 @@ function calculateDPS(dataPoint) {
     else if(scoreObj >= 20) { label="Moderate";     color="var(--cat2)"; }
     else if(scoreObj >= 10) { label="Minor";        color="var(--cat1)"; }
 
-    return { score: scoreObj, label: label, color: color };
+    return {
+        score: scoreObj,
+        label: label,
+        color: color,
+        basin: basin,
+        basinName: dpsResult.basinName,
+        riBonus: dpsResult.riBonus,
+        components: { S, Wf, V, F }
+    };
 }
 
 // ============================================================
@@ -767,9 +1882,23 @@ function generateStormContext(data) {
     }
 
     if (minFwd < 5 && minFwd < 999) {
-        bullets.push('Near-stall at times — prolonged exposure and rainfall');
+        bullets.push('Near-stall at times \u2014 prolonged exposure and rainfall');
     } else if (maxFwd > 35) {
-        bullets.push('Fast-moving — reduced exposure time at any one location');
+        bullets.push('Fast-moving \u2014 reduced exposure time at any one location');
+    }
+
+    // Forecast stall risk for active storms
+    if (window._activeStallRisk && window._activeStallRisk.risk_level !== 'none') {
+        const sr = window._activeStallRisk;
+        if (sr.risk_level === 'extreme') {
+            bullets.push(`\u26a0 FORECAST STALL WARNING: ${sr.stall_hours}h near-stall predicted (${sr.min_forecast_speed_kt} kt min) \u2014 Harvey-like rainfall threat`);
+        } else if (sr.risk_level === 'high') {
+            bullets.push(`\u26a0 High stall risk forecast: ${sr.slow_hours}h of slow motion (${sr.min_forecast_speed_kt} kt min) \u2014 significant rainfall enhancement`);
+        } else if (sr.risk_level === 'moderate') {
+            bullets.push(`Moderate deceleration forecast: ${sr.slow_hours}h slow motion \u2014 enhanced rainfall expected`);
+        } else if (sr.risk_level === 'low') {
+            bullets.push(`Minor deceleration forecast \u2014 slightly enhanced rainfall possible`);
+        }
     }
 
     if (peakSurge >= 20) {
@@ -952,7 +2081,7 @@ function interpQuadrantRadius(theta_deg, ne, se, sw, nw) {
 // ============================================================
 // PRESETS & ACCORDION
 // ============================================================
-function loadPreset(id){document.getElementById('stormId').value=id;fetchHistory()}
+function loadPreset(id){document.getElementById('stormId').value=id;clearStallRisk();window._isActiveStorm=false;fetchHistory()}
 
 function highlightSelectedChip(stormId){
     document.querySelectorAll('.preset-chip.selected,.active-chip.selected').forEach(el=>el.classList.remove('selected'));
@@ -1040,10 +2169,20 @@ function renderActiveStorms(storms){
         const wind=kt?`${kt} kt`:'--';
         const pres=s.pressure_mb?`${s.pressure_mb} mb`:'';
         const loc=s.lat&&s.lon?`${Math.abs(s.lat).toFixed(1)}\u00b0${s.lat>=0?'N':'S'} ${Math.abs(s.lon).toFixed(1)}\u00b0${s.lon>=0?'E':'W'}`:'';
+        // Quick stall hint from current movement speed
+        const mvSpd = s.movement_speed_knots;
+        let stallHint = '';
+        if(mvSpd != null && mvSpd < 5) {
+            stallHint = '<span class="stall-risk-badge stall-risk-extreme" style="margin-left:4px">STALL</span>';
+        } else if(mvSpd != null && mvSpd < 8) {
+            stallHint = '<span class="stall-risk-badge stall-risk-high" style="margin-left:4px">SLOW</span>';
+        } else if(mvSpd != null && mvSpd < 12) {
+            stallHint = '<span class="stall-risk-badge stall-risk-moderate" style="margin-left:4px">SLOW</span>';
+        }
         return `<div class="active-chip" data-storm-id="${s.id}" onclick="loadActiveStorm('${s.id}')">
             <div class="active-dot" style="background:${color}"></div>
             <div class="chip-detail">
-                <span class="chip-name">${s.name||'Unnamed'}</span>
+                <span class="chip-name">${s.name||'Unnamed'}${stallHint}</span>
                 <span class="chip-stats">${cls} &middot; ${wind}${pres?' &middot; '+pres:''}${loc?' &middot; '+loc:''}</span>
             </div>
             <span class="chip-intensity" style="color:${color}">${label}</span>
@@ -1083,6 +2222,36 @@ function startActiveStormPolling(intervalMs=300000){ // 5 minutes
 
 // Start polling on page load
 startActiveStormPolling();
+
+// Auto-load storm from URL hash ONLY when opened from an external link
+// (not on refresh within the same tab). This preserves shareable links
+// while always showing the welcome screen on a normal visit.
+(function checkHashOnLoad() {
+    const hash = window.location.hash;
+    if (hash && hash.startsWith('#storm=')) {
+        // If the page was navigated to from an external source (shared link),
+        // performance.navigation.type or the PerformanceNavigationTiming API
+        // can distinguish. But the simplest approach: clear the hash on load
+        // so the welcome page shows, but pre-fill the search field so the user
+        // can click Visualize to load it.
+        const stormId = decodeURIComponent(hash.slice(7));
+        if (stormId) {
+            document.getElementById('stormId').value = stormId;
+            history.replaceState(null, '', window.location.pathname);
+        }
+    }
+})();
+// Also handle hash changes (back/forward navigation)
+window.addEventListener('hashchange', function() {
+    const hash = window.location.hash;
+    if (hash && hash.startsWith('#storm=')) {
+        const stormId = decodeURIComponent(hash.slice(7));
+        if (stormId && stormId !== document.getElementById('stormId').value) {
+            document.getElementById('stormId').value = stormId;
+            fetchHistory();
+        }
+    }
+});
 
 // Basin display names
 const BASIN_NAMES={NA:'Atlantic',EP:'East Pacific',WP:'West Pacific',NI:'N. Indian',SI:'S. Indian',SP:'S. Pacific',SA:'S. Atlantic'};
@@ -1127,8 +2296,10 @@ function basinName(b){return BASIN_NAMES[b]||b}
         function nameYearKey(s) { return `${(s.name||'').toUpperCase()}_${s.year}`; }
 
         // HURDAT2 is authoritative for Atlantic
+        // Use the basin from the API response if provided; only default to NA/EP for ATCF-format IDs
         hurdat.forEach(s => {
-            const storm = {...s, basin: s.id.startsWith('EP') ? 'EP' : 'NA', source: 'hurdat2'};
+            const basin = s.basin || (s.id.startsWith('EP') ? 'EP' : 'NA');
+            const storm = {...s, basin, source: 'hurdat2'};
             allStorms.push(storm);
             existingIds.add(storm.id);
             const nyk = nameYearKey(storm);
@@ -1204,7 +2375,14 @@ function basinName(b){return BASIN_NAMES[b]||b}
 
         years.forEach(yr=>{
             const storms=byYear[yr];
-            storms.sort((a,b)=>(b.peak_dps||0)-(a.peak_dps||0));
+            // Sort by cumulative DPS (compiled bundle) if available, else catalog peak_dps
+            storms.sort((a,b)=>{
+                const aCompiled=getCompiledScore(a.id, a.name, a.year);
+                const bCompiled=getCompiledScore(b.id, b.name, b.year);
+                const aDps=aCompiled?Math.round(aCompiled.dps):(a.peak_dps||0);
+                const bDps=bCompiled?Math.round(bCompiled.dps):(b.peak_dps||0);
+                return bDps-aDps;
+            });
 
             // Group within year by basin
             const byBasin={};
@@ -1240,6 +2418,8 @@ function basinName(b){return BASIN_NAMES[b]||b}
         });
         
         console.log(`Created year accordion sections for ${years.length} years (${years.join(', ')})`);
+        // If compiled bundle already loaded, update chips that used catalog peak_dps
+        refreshAccordionChipsDPS();
 
         // Apply default basin filter (Atlantic) after catalog loads
         const defaultBasin = document.getElementById('basinSelect').value;
@@ -1264,7 +2444,9 @@ function dpsChipColor(score){
 }
 function stormChipHtml(s){
     const cat=s.category||0;
-    const dps=s.peak_dps||0;
+    // Use cumulative DPS from compiled bundle if available; fall back to catalog peak_dps
+    const compiled=getCompiledScore(s.id, s.name, s.year);
+    const dps=compiled?Math.round(compiled.dps):(s.peak_dps||0);
     const basinTag=(s.basin && s.basin!=='NA')?` <span style="color:var(--text-dim);font-size:.58rem">${s.basin}</span>`:'';
     const dotColor=dps>0?dpsChipColor(dps):catColor(cat);
     const metaText=dps>0?`DPS ${dps}`:catLabel(cat);
@@ -1281,15 +2463,25 @@ document.getElementById('basinSelect').addEventListener('change', function(){
     filterAccordionByBasin(window.selectedBasin);
 });
 
+// Tap-to-toggle tooltips (mobile support)
+document.addEventListener('click', function(e) {
+    // Close all open tooltips first
+    document.querySelectorAll('.tip.tip-active').forEach(t => { if (t !== e.target) t.classList.remove('tip-active'); });
+    // Toggle clicked tooltip
+    if (e.target.classList.contains('tip')) { e.target.classList.toggle('tip-active'); e.stopPropagation(); }
+});
+
 // Enter key triggers search from either input
 document.getElementById('stormId').addEventListener('keydown', function(e){ if(e.key==='Enter'){e.preventDefault();fetchHistory()} });
 document.getElementById('searchYear').addEventListener('keydown', function(e){ if(e.key==='Enter'){e.preventDefault();fetchHistory()} });
 
-// Show year field when user enters what looks like a storm name
+// Show year field when user enters what looks like a storm name (not an ATCF ID like AL092008)
 document.getElementById('stormId').addEventListener('input', function(){
-    const input = this.value.trim().toUpperCase();
-    const looksLikeName = /^[A-Z]{2,}$/.test(input);
-    document.getElementById('nameSearchGroup').style.display = looksLikeName ? 'flex' : 'none';
+    const input = this.value.trim();
+    const looksLikeAtcfId = /^[A-Z]{2}\d{4,}$/i.test(input);
+    const hasText = input.length >= 2;
+    // Show year field for anything that isn't clearly an ATCF/SID format
+    document.getElementById('nameSearchGroup').style.display = (hasText && !looksLikeAtcfId) ? 'flex' : 'none';
 });
 
 function filterAccordionByBasin(selectedBasin) {
@@ -1354,11 +2546,98 @@ function filterAccordionByBasin(selectedBasin) {
 function isAtcfId(s){return /^(AL|EP|CP)\d{6}$/.test(s)}
 function isIbtracsSid(s){return /^\d{7}[NS]\d{5}$/.test(s)}
 
+// ---- Mobile Menu ----
+function toggleMobileMenu() {
+    const sidebar = document.querySelector('.sidebar');
+    const btn = document.getElementById('mobileMenuBtn');
+    const isOpen = sidebar.classList.toggle('mobile-open');
+    btn.classList.toggle('active', isOpen);
+    btn.innerHTML = isOpen ? '&#10005;' : '&#9776;';
+}
+// Close mobile menu when a storm is loaded
+function closeMobileMenu() {
+    const sidebar = document.querySelector('.sidebar');
+    const btn = document.getElementById('mobileMenuBtn');
+    if (sidebar) sidebar.classList.remove('mobile-open');
+    if (btn) { btn.classList.remove('active'); btn.innerHTML = '&#9776;'; }
+}
+
+// ---- Sidebar Collapsible Sections with localStorage memory ----
+function toggleSidebarSection(sectionId) {
+    const section = document.getElementById(sectionId);
+    if (!section) return;
+    section.classList.toggle('collapsed');
+    // Persist state
+    try {
+        const states = JSON.parse(localStorage.getItem('sidebarStates') || '{}');
+        states[sectionId] = section.classList.contains('collapsed');
+        localStorage.setItem('sidebarStates', JSON.stringify(states));
+    } catch(e) {}
+}
+function restoreSidebarStates() {
+    try {
+        const states = JSON.parse(localStorage.getItem('sidebarStates') || '{}');
+        Object.entries(states).forEach(([id, collapsed]) => {
+            const el = document.getElementById(id);
+            if (el && collapsed) el.classList.add('collapsed');
+        });
+    } catch(e) {}
+}
+restoreSidebarStates();
+
+// ---- Loading Skeleton & Progress Steps ----
+function showLoadingSkeleton() {
+    document.getElementById('skeletonRow').classList.add('visible');
+    document.getElementById('skeletonViz').classList.add('visible');
+    document.getElementById('loadingSteps').classList.add('visible');
+    // Reset all steps
+    ['stepFetch','stepIKE','stepDPS','stepRender'].forEach(id => {
+        const el = document.getElementById(id);
+        el.className = 'loading-step';
+        el.querySelector('.step-icon').innerHTML = '&#9675;';
+    });
+    setLoadingStep('stepFetch');
+}
+function hideLoadingSkeleton() {
+    document.getElementById('skeletonRow').classList.remove('visible');
+    document.getElementById('skeletonViz').classList.remove('visible');
+    document.getElementById('loadingSteps').classList.remove('visible');
+}
+function setLoadingStep(stepId) {
+    const steps = ['stepFetch','stepIKE','stepDPS','stepRender'];
+    const idx = steps.indexOf(stepId);
+    steps.forEach((id, i) => {
+        const el = document.getElementById(id);
+        if (i < idx) { el.className = 'loading-step done'; el.querySelector('.step-icon').innerHTML = '&#10003;'; }
+        else if (i === idx) { el.className = 'loading-step active'; el.querySelector('.step-icon').innerHTML = '&#9696;'; }
+        else { el.className = 'loading-step'; el.querySelector('.step-icon').innerHTML = '&#9675;'; }
+    });
+}
+
+// ---- Progressive Chart Disclosure ----
+function toggleChartExpand() {
+    const stack = document.getElementById('chartsStack');
+    const btn = document.getElementById('chartExpandBtn');
+    const isCollapsed = stack.classList.toggle('charts-stack-collapsed');
+    btn.innerHTML = isCollapsed
+        ? '&#9660; Show IKE, Surge, Pressure, Wind &amp; SST charts'
+        : '&#9650; Hide detailed charts';
+    // Re-render visible charts when expanding (Chart.js needs this)
+    if (!isCollapsed && window.stormData && window.stormData.length > 0) {
+        try { renderIKEChart(window.stormData); } catch(e) {}
+    }
+}
+
+let _fetchInFlight = false;
 async function fetchHistory(){
+    if (_fetchInFlight) return; // Debounce: prevent duplicate requests
     const rawId=document.getElementById('stormId').value.trim().toUpperCase();if(!rawId)return;
+    _fetchInFlight = true;
     const yearInput=document.getElementById('searchYear').value;
     const btn=document.getElementById('fetchBtn'),loading=document.getElementById('loadingBar'),errorBox=document.getElementById('errorBox');
     btn.disabled=true;loading.classList.add('visible');errorBox.classList.remove('visible');hideResults();
+    showLoadingSkeleton();
+    closeMobileMenu();
 
     try{
         let data=null;
@@ -1411,20 +2690,33 @@ async function fetchHistory(){
 
         if(!data || !data.length) throw new Error(`No results for "${rawId}". Try a storm name with year (e.g. "Katrina" + 2005), or pick one from Historic Storms in the sidebar.`);
 
+        setLoadingStep('stepIKE');
         const fetchMs=Math.round(performance.now()-t0);
         window.stormData=data.sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp));
         window._lastFetchMs=fetchMs;
+        setLoadingStep('stepDPS');
+        // Allow UI to repaint before heavy render
+        await new Promise(r => setTimeout(r, 0));
+        setLoadingStep('stepRender');
+        hideLoadingSkeleton();
         renderAll(usedId,window.stormData);
-    }catch(e){errorBox.textContent=e.message;errorBox.classList.add('visible')}
-    finally{btn.disabled=false;loading.classList.remove('visible')}
+        // Update URL hash for shareability
+        history.replaceState(null, '', '#storm=' + encodeURIComponent(usedId));
+    }catch(e){errorBox.textContent=e.message;errorBox.classList.add('visible');hideLoadingSkeleton()}
+    finally{btn.disabled=false;loading.classList.remove('visible');_fetchInFlight=false}
 }
 
 function hideResults(){
     ['statsRow','vizArea','scrubberBar'].forEach(id=>document.getElementById(id).classList.remove('visible'));
+    document.getElementById('stormTitleBar').classList.remove('visible');
     document.getElementById('welcomeState').classList.remove('hidden');
+    if (window.location.hash) history.replaceState(null, '', window.location.pathname);
     document.getElementById('mapLegend').style.display='none';
+    document.getElementById('mapLegendToggle').style.display='none';
+    document.getElementById('rainfallBar').style.display='none';
     window._sstReady=false;window._sstData=null;
     window.animatedMarker=null;window.windOverlay=null;
+    clearStallRisk();
     stopAnimation();
 }
 
@@ -1434,27 +2726,137 @@ function renderAll(stormId,data){
     const preset=PRESETS.find(p=>p.id===stormId);
     const catalogEntry=window.stormCatalog&&window.stormCatalog.find(s=>s.id===stormId);
     const name=preset?preset.name:catalogEntry?catalogEntry.name:stormId;
-    const totalIke=data.map(d=>d.ike_total_tj);
-    
-    // Compute DPS for all points
-    data.forEach(d => { d.dps = calculateDPS(d); });
+    // Compute DPS, IAS, and ERS for all points
+    // Historical presets use hand-tuned zones (vulnerability at time of storm)
+    // Active/forecast storms use FEMA NRI data (current infrastructure resilience)
+    const useNRI = !preset;
+    data.forEach(d => { d.dps = calculateDPS(d); d.ias = calculateIAS(d); d.ers = calculateERS(d, useNRI); });
+
+    // Scale snapshot DPS to match compiled cumulative score (if available).
+    // This keeps per-point variation intact while ensuring the peak snapshot
+    // and all map markers reflect the cumulative assessment (duration/breadth bonuses).
+    const _compiledForScale = getCompiledScore(stormId, name, data[0] ? new Date(data[0].timestamp).getFullYear() : null);
+    if (_compiledForScale) {
+        const rawPeak = Math.max(...data.map(d => d.dps.score));
+        const targetPeak = Math.round(_compiledForScale.dps);
+        if (rawPeak > 0 && targetPeak !== rawPeak) {
+            const scale = targetPeak / rawPeak;
+            data.forEach(d => {
+                const scaled = Math.min(100, Math.round(d.dps.score * scale));
+                d.dps = Object.assign({}, d.dps, {
+                    score: scaled,
+                    color: dpsColor(scaled),
+                    label: scaled >= 80 ? 'Catastrophic' : scaled >= 60 ? 'Extreme' : scaled >= 40 ? 'Severe' : scaled >= 20 ? 'Moderate' : scaled >= 10 ? 'Minor' : 'Minimal'
+                });
+            });
+        }
+    }
+
     const dpsScores = data.map(d => d.dps.score);
     const peakDpsIdx = dpsScores.indexOf(Math.max(...dpsScores));
     const peakDpsObj = data[peakDpsIdx].dps;
 
-    const peakIdx=totalIke.indexOf(Math.max(...totalIke)),peakTime=new Date(data[peakIdx].timestamp);
+    const iasScores = data.map(d => d.ias.score);
+    const peakIasIdx = iasScores.indexOf(Math.max(...iasScores));
+    const peakIasObj = data[peakIasIdx].ias;
 
-    document.getElementById('statPeakDPS').textContent=peakDpsObj.score;
-    document.getElementById('statPeakDPS').style.color=peakDpsObj.color;
-    document.getElementById('statDPSLabel').textContent=peakDpsObj.label + ' Threat';
+    const ersScores = data.map(d => d.ers.score);
+    const peakErsIdx = ersScores.indexOf(Math.max(...ersScores));
+    const peakErsObj = data[peakErsIdx].ers;
 
-    document.getElementById('statPeakIke').textContent=totalIke[peakIdx].toFixed(1)+' TJ';
-    document.getElementById('statPeakTime').textContent='at '+peakTime.toLocaleDateString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+    // Snapshot card — tabs for landfall/peak/current
+    let compiled_pre = getCompiledScore(stormId, name, data[0] ? new Date(data[0].timestamp).getFullYear() : null);
+    const isActive = !!window._isActiveStorm;
+    _snapshotBasin = peakDpsObj.basin || (compiled_pre ? compiled_pre.basin : 'ATLANTIC');
+    setupSnapshotTabs(data, peakDpsObj, peakDpsIdx, compiled_pre, isActive);
+
+    document.getElementById('statPeakIAS').textContent=peakIasObj.score;
+    document.getElementById('statPeakIAS').style.color=peakIasObj.color;
+    document.getElementById('statIASLabel').textContent=peakIasObj.label + ' Impact';
+
+    document.getElementById('statPeakERS').textContent=peakErsObj.score;
+    document.getElementById('statPeakERS').style.color=peakErsObj.color;
+    const nriTag = peakErsObj.nriActive ? ' (NRI)' : '';
+    document.getElementById('statERSLabel').textContent=peakErsObj.label + ' Risk' + nriTag + (peakErsObj.zone ? ' · '+peakErsObj.zone : '');
+
+    // Hero DPS — Destructive Power Score (0-100)
+    // Use pre-compiled score if available; otherwise compute from DPS+IAS+ERS
+    // Try direct ID match first, then name+year fallback (handles IBTrACS SID → ATCF ID mismatch)
+    let compiled = getCompiledScore(stormId, name, data[0] ? new Date(data[0].timestamp).getFullYear() : null);
+    let heroDPS, heroDPSLabel;
+    if (compiled) {
+        heroDPS = Math.round(compiled.dps);
+        heroDPSLabel = compiled.dps_label + ' · Peak ' + Math.round(compiled.peak_dps);
+    } else {
+        // Fallback: use peak single-snapshot DPS as hero (no cumulative data)
+        heroDPS = peakDpsObj.score;
+        heroDPSLabel = peakDpsObj.label;
+    }
+    const heroColor = heroDPS >= 80 ? '#ef4444' : heroDPS >= 60 ? '#f97316' : heroDPS >= 40 ? '#fbbf24' : heroDPS >= 20 ? '#34d399' : heroDPS >= 10 ? '#60a5fa' : '#94a3b8';
+    const heroCard = document.getElementById('dpsHeroCard');
+    const heroEl = document.getElementById('statHeroDPS');
+    // Apply severity class for glow/pulse effects
+    heroCard.className = heroCard.className.replace(/severity-\w+/g, '').trim();
+    const sevClass = heroDPS >= 80 ? 'severity-catastrophic' : heroDPS >= 60 ? 'severity-extreme' : heroDPS >= 40 ? 'severity-severe' : heroDPS >= 20 ? 'severity-moderate' : 'severity-minor';
+    heroCard.classList.add(sevClass);
+    // Animated count-up for hero number
+    heroEl.style.color = heroColor;
+    heroEl.classList.remove('dps-count-up');
+    void heroEl.offsetWidth; // force reflow
+    heroEl.classList.add('dps-count-up');
+    animateCountUp(heroEl, heroDPS, heroColor);
+    document.getElementById('statHeroDPSLabel').textContent = heroDPSLabel;
+    updateScoreContexts(heroDPS, peakIasObj.score, peakErsObj.score);
+
+    // Storm title bar
+    const stormYear = data[0] ? new Date(data[0].timestamp).getFullYear() : null;
+    const stormCat = preset ? preset.cat : (catalogEntry ? catalogEntry.cat : Math.max(...data.map(d=>Math.floor(d.max_wind_mph>=157?5:d.max_wind_mph>=130?4:d.max_wind_mph>=111?3:d.max_wind_mph>=96?2:d.max_wind_mph>=74?1:0))));
+    updateStormTitleBar(stormId, name, stormYear, stormCat, heroDPS);
+    // Update search field with human-readable name
+    const searchField = document.getElementById('stormId');
+    if (name !== stormId) searchField.value = name;
+
+    // DPS Trend — only shown for active storms (not historical)
+    if (window._isActiveStorm) {
+        const initTrend = computeDpsTrend(data, peakDpsIdx);
+        updateTrendIndicator(initTrend);
+    } else {
+        updateTrendIndicator({ type: 'stable', delta: 0 });
+    }
+
+    // Breakdown bars — component composition for all 4 score cards
+    updateBreakdownBars(heroDPS, peakDpsObj, peakDpsObj, peakIasObj, peakErsObj, peakDpsObj.basin || 'ATLANTIC');
+
+    // Rainfall Red Bar Warning
+    const rainBar = document.getElementById('rainfallBar');
+    if (compiled && compiled.rainfall_anomalous) {
+        document.getElementById('rainfallBarText').textContent = compiled.rainfall_level + ': ' + compiled.rainfall_text;
+        document.getElementById('rainfallBarScore').textContent = Math.round(compiled.rainfall_warning) + '/100';
+        rainBar.style.display = 'flex';
+        rainBar.classList.toggle('rain-extreme', compiled.rainfall_warning >= 60);
+    } else {
+        rainBar.style.display = 'none';
+        rainBar.classList.remove('rain-extreme');
+    }
 
     highlightSelectedChip(stormId);
+
+    // Sync sidebar preset chip DPS with hero card to ensure consistency
+    const matchPreset = PRESETS.find(p => p.id === stormId) ||
+                        (data[0] && data[0].name ? PRESETS.find(p => p.name.toUpperCase() === data[0].name.toUpperCase() && p.year === new Date(data[0].timestamp).getFullYear()) : null);
+    if (matchPreset && matchPreset.dps !== heroDPS) {
+        matchPreset.dps = heroDPS;
+        rerenderPresetChips();
+        highlightSelectedChip(stormId);
+    }
+
     document.getElementById('statsRow').classList.add('visible');
     document.getElementById('vizArea').classList.add('visible');
     document.getElementById('mapLegend').style.display='flex';
+    document.getElementById('mapLegend').classList.add('legend-collapsed');
+    const _legendBtn = document.getElementById('mapLegendToggle');
+    _legendBtn.style.display='block';
+    _legendBtn.innerHTML='Legend &#9650;';
     const slider=document.getElementById('scrubSlider');slider.max=data.length-1;slider.value=0;
     document.getElementById('scrubberBar').classList.add('visible');
     updateScrubDisplay(0);
@@ -1544,28 +2946,26 @@ function updateStormContext(data){
     box.style.display='none'; // start hidden, user clicks to reveal
 }
 
-function renderDPSChart(data){
-    const ctx=document.getElementById('dpiChart').getContext('2d');
-    if(currentDPSChart)currentDPSChart.destroy();
-    const labels=data.map(d=>{const t=new Date(d.timestamp);return`${t.getMonth()+1}/${t.getDate()} ${String(t.getHours()).padStart(2,'0')}Z`});
-    const dpsScores=data.map(d=>d.dps?d.dps.score:0);
+let currentIASChart=null, currentERSChart=null;
 
-    // Build per-point colors matching the DPS threat level
-    const pointColors=data.map(d=>{
-        if(!d.dps)return'#94a3b8';
-        const s=d.dps.score;
-        if(s>=80)return'#ef4444';if(s>=60)return'#f97316';if(s>=40)return'#fbbf24';
-        if(s>=20)return'#34d399';if(s>=10)return'#60a5fa';return'#94a3b8';
-    });
+function switchScoreTab(tabName){
+    document.querySelectorAll('#scoreChartTabbed .chart-tab').forEach(t=>t.classList.remove('active'));
+    document.querySelector(`#scoreChartTabbed .chart-tab[data-scoretab="${tabName}"]`).classList.add('active');
+    document.querySelectorAll('#scoreChartTabbed .chart-tab-pane').forEach(p=>p.classList.remove('active'));
+    const paneMap={dps:'tabDPS',ias:'tabIAS',ers:'tabERS'};
+    document.getElementById(paneMap[tabName]).classList.add('active');
+    // Resize active chart so it fills the pane
+    const charts={dps:currentDPSChart,ias:currentIASChart,ers:currentERSChart};
+    if(charts[tabName]) charts[tabName].resize();
+}
 
-    // Gradient fill under the line
+function _buildScoreChart(canvasId, scores, data, label, lineColor, gradientStops, tooltipCb){
+    const ctx=document.getElementById(canvasId).getContext('2d');
     const gradient=ctx.createLinearGradient(0,0,0,ctx.canvas.clientHeight||300);
-    gradient.addColorStop(0,'rgba(239,68,68,0.18)');
-    gradient.addColorStop(0.4,'rgba(249,115,22,0.10)');
-    gradient.addColorStop(1,'rgba(99,102,241,0.02)');
-
-    currentDPSChart=new Chart(ctx,{type:'line',data:{labels,datasets:[
-        {label:'Destructive Potential (DPS)',data:dpsScores,borderColor:'#f43f5e',backgroundColor:gradient,borderWidth:3,fill:true,tension:.35,pointRadius:0,pointHitRadius:10,
+    gradientStops.forEach(s=>gradient.addColorStop(s[0],s[1]));
+    const labels=data.map(d=>{const t=new Date(d.timestamp);return`${t.getMonth()+1}/${t.getDate()} ${String(t.getHours()).padStart(2,'0')}Z`});
+    return new Chart(ctx,{type:'line',data:{labels,datasets:[
+        {label,data:scores,borderColor:lineColor,backgroundColor:gradient,borderWidth:3,fill:true,tension:.35,pointRadius:0,pointHitRadius:10,
          segment:{borderColor:c=>{
             const v=c.p1.parsed.y;
             if(v>=80)return'#ef4444';if(v>=60)return'#f97316';if(v>=40)return'#fbbf24';
@@ -1574,13 +2974,33 @@ function renderDPSChart(data){
         }
     ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
         onHover:(evt,els)=>{if(els&&els.length){if(window.animationFrameId)stopAnimation();const i=els[0].index;window.currentAnimIndex=i;document.getElementById('scrubSlider').value=i;syncVisualization(i,true)}},
-        plugins:{zoneBands:{zones:DPS_ZONES},legend:{position:'top',labels:{color:'#e2e8f0',font:{size:12,weight:600},boxWidth:12,padding:14}},tooltip:{backgroundColor:'rgba(10,14,26,.95)',titleColor:'#f1f5f9',bodyColor:'#94a3b8',borderColor:'#1e293b',borderWidth:1,padding:10,cornerRadius:8,displayColors:true,titleFont:{weight:600},bodyFont:{size:12},callbacks:{label:c=>{
-            const score=Math.round(c.parsed.y);
-            const d=data[c.dataIndex];
-            const lbl=d&&d.dps?d.dps.label:'—';
-            return`DPS: ${score} / 100  —  ${lbl} Threat`;
-        }}}},
-        scales:{x:{grid:{color:'rgba(30,41,59,.5)',drawBorder:false},ticks:{maxTicksLimit:10,font:{size:10}}},y:{beginAtZero:true,max:100,grid:{color:'rgba(30,41,59,.5)',drawBorder:false},title:{display:true,text:'Destructive Potential Score (0-100)',color:'#64748b',font:{size:10,weight:600}},ticks:{font:{size:10},stepSize:20}}}}});
+        plugins:{zoneBands:{zones:DPS_ZONES},legend:{display:false},tooltip:{backgroundColor:'rgba(10,14,26,.95)',titleColor:'#f1f5f9',bodyColor:'#94a3b8',borderColor:'#1e293b',borderWidth:1,padding:10,cornerRadius:8,displayColors:true,titleFont:{weight:600},bodyFont:{size:12},callbacks:{label:tooltipCb}}},
+        scales:{x:{grid:{color:'rgba(30,41,59,.5)',drawBorder:false},ticks:{maxTicksLimit:10,font:{size:10}}},y:{beginAtZero:true,max:100,grid:{color:'rgba(30,41,59,.5)',drawBorder:false},title:{display:true,text:'Score (0–100)',color:'#64748b',font:{size:10,weight:600}},ticks:{font:{size:10},stepSize:20}}}}});
+}
+
+function renderDPSChart(data){
+    if(currentDPSChart)currentDPSChart.destroy();
+    if(currentIASChart)currentIASChart.destroy();
+    if(currentERSChart)currentERSChart.destroy();
+
+    const dpsScores=data.map(d=>d.dps?d.dps.score:0);
+    const iasScores=data.map(d=>d.ias?d.ias.score:0);
+    const ersScores=data.map(d=>d.ers?d.ers.score:0);
+
+    currentDPSChart=_buildScoreChart('dpsCanvas',dpsScores,data,'Destructive Potential (DPS)','#f43f5e',
+        [[0,'rgba(239,68,68,0.18)'],[0.4,'rgba(249,115,22,0.10)'],[1,'rgba(99,102,241,0.02)']],
+        c=>{const score=Math.round(c.parsed.y);const d=data[c.dataIndex];const lbl=d&&d.dps?d.dps.label:'—';return`DPS: ${score} / 100  —  ${lbl} Threat`;}
+    );
+
+    currentIASChart=_buildScoreChart('iasCanvas',iasScores,data,'Impact Area (IAS)','#f97316',
+        [[0,'rgba(249,115,22,0.16)'],[0.5,'rgba(251,191,36,0.08)'],[1,'rgba(99,102,241,0.02)']],
+        c=>{const score=Math.round(c.parsed.y);const d=data[c.dataIndex];const lbl=d&&d.ias?d.ias.label:'—';return`IAS: ${score} / 100  —  ${lbl} Impact`;}
+    );
+
+    currentERSChart=_buildScoreChart('ersCanvas',ersScores,data,'Economic Risk (ERS)','#10b981',
+        [[0,'rgba(16,185,129,0.16)'],[0.5,'rgba(16,185,129,0.06)'],[1,'rgba(99,102,241,0.02)']],
+        c=>{const score=Math.round(c.parsed.y);const d=data[c.dataIndex];const lbl=d&&d.ers?d.ers.label:'—';const zone=d&&d.ers&&d.ers.zone?' ('+d.ers.zone+')':'';return`ERS: ${score} / 100  —  ${lbl} Risk${zone}`;}
+    );
 }
 
 function renderChart(data){
@@ -1774,10 +3194,16 @@ function renderMap(data){
         const surgeTxt = estSurge > 0 ? `${estSurge.toFixed(1)} ft` : 'N/A';
 
         const fwdMph = d.forward_speed_knots ? (d.forward_speed_knots * 1.15078).toFixed(0) : null;
-        const popup=`<div style="font-family:Inter,sans-serif;font-size:11px;line-height:1.6;width:165px">
+        const iasObj = d.ias || {score:0,color:'#94a3b8'};
+        const ersObj = d.ers || {score:0,color:'#94a3b8'};
+        const popup=`<div style="font-family:Inter,sans-serif;font-size:11px;line-height:1.6;width:210px">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
                 <div style="font-weight:700;font-size:12px;">${tStr}</div>
-                <div style="background:${d.dps.color};color:#fff;padding:1px 6px;border-radius:4px;font-weight:bold;font-size:10px;">DPS ${d.dps.score}</div>
+                <div style="display:flex;gap:2px;flex-wrap:wrap">
+                    <div style="background:${d.dps.color};color:#fff;padding:1px 4px;border-radius:4px;font-weight:bold;font-size:8px;">DPS ${d.dps.score}</div>
+                    <div style="background:${iasObj.color};color:#fff;padding:1px 4px;border-radius:4px;font-weight:bold;font-size:8px;">IAS ${iasObj.score}</div>
+                    <div style="background:${ersObj.color};color:#fff;padding:1px 4px;border-radius:4px;font-weight:bold;font-size:8px;">ERS ${ersObj.score}</div>
+                </div>
             </div>
             <div style="color:#a78bfa">Wind Energy: <b style="float:right">${d.ike_total_tj.toFixed(1)} TJ</b></div>
             <div style="color:#60a5fa">Surge Potential: <b style="float:right">${surgeTxt}</b></div>
@@ -1799,6 +3225,17 @@ function renderMap(data){
         if(sid){
             fetch(`${API_BASE}/storms/${sid}/forecast`).then(r=>r.ok?r.json():null).then(fc=>{
                 if(!fc||!currentMap)return;
+
+                // ── Stall Risk Analysis ──
+                if(fc.stall_risk) {
+                    window._activeStallRisk = fc.stall_risk;
+                    displayStallRisk(fc.stall_risk);
+                    // Re-compute IAS with stall risk boost for active storms
+                    if(window.stormData) {
+                        applyStallRiskToIAS(window.stormData, fc.stall_risk);
+                    }
+                }
+
                 // Draw forecast cone
                 if(fc.cone_polygon&&fc.cone_polygon.length>2){
                     L.polygon(fc.cone_polygon,{
@@ -1810,6 +3247,19 @@ function renderMap(data){
                 if(fc.forecast_track&&fc.forecast_track.length>1){
                     const pts=fc.forecast_track.map(p=>[p.lat,p.lon]);
                     L.polyline(pts,{color:'#fff',weight:2,opacity:.5,dashArray:'8 4',interactive:false}).addTo(currentMap);
+
+                    // Color-code forecast segments by stall risk speed
+                    if(fc.stall_risk && fc.stall_risk.segments && fc.stall_risk.segments.length > 0) {
+                        for(let si = 0; si < pts.length - 1; si++) {
+                            const seg = fc.stall_risk.segments[si];
+                            if(!seg) continue;
+                            const segColor = seg.speed_kt < 5 ? '#ef4444' : seg.speed_kt < 8 ? '#f97316' : seg.speed_kt < 12 ? '#fbbf24' : 'rgba(255,255,255,.4)';
+                            L.polyline([pts[si], pts[si+1]], {
+                                color: segColor, weight: 4, opacity: .8, interactive: false
+                            }).addTo(currentMap);
+                        }
+                    }
+
                     // Forecast position markers
                     fc.forecast_track.forEach(p=>{
                         if(p.hour===0)return; // skip current position
@@ -1881,7 +3331,6 @@ function updateScrubDisplay(i){
     const d=window.stormData;if(!d||!d[i])return;
     const ts=new Date(d[i].timestamp);
     document.getElementById('scrubTime').textContent=ts.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' '+String(ts.getHours()).padStart(2,'0')+':00Z';
-    document.getElementById('scrubIke').textContent=d[i].ike_total_tj.toFixed(1)+' TJ';
 }
 
 window.animationFrameId=null;window.animStartTime=null;window.animDurationMs=1000;window.currentAnimIndex=0;window.lastSyncIndex=-1;
@@ -1941,6 +3390,12 @@ function syncVisualization(fi,snap){
         window.lastSyncIndex=bi;
         updateScrubDisplay(bi);
 
+        // Update DPS trend indicator (active storms only)
+        if (window._isActiveStorm) {
+            const trend = computeDpsTrend(data, bi);
+            updateTrendIndicator(trend);
+        }
+
         // Update wind field overlay
         updateWindField(bi);
 
@@ -1974,6 +3429,59 @@ function syncVisualization(fi,snap){
             window.animatedMarker.setStyle({fillColor:dpsColor(d1.dps?d1.dps.score:0)});
         }
     }
+}
+
+// ---- Storm Title Bar ----
+function updateStormTitleBar(stormId, name, year, cat, heroDPS) {
+    const bar = document.getElementById('stormTitleBar');
+    document.getElementById('stormTitleName').textContent = name;
+    document.getElementById('stormTitleMeta').textContent = year ? '(' + year + ')' : '';
+    const catEl = document.getElementById('stormTitleCat');
+    if (cat >= 1) {
+        catEl.textContent = 'Cat ' + cat;
+        catEl.style.background = catColor(cat);
+        catEl.style.display = '';
+    } else {
+        catEl.style.display = 'none';
+    }
+    // Historical rank among PRESETS
+    const rankEl = document.getElementById('stormTitleRank');
+    const sorted = PRESETS.slice().sort((a,b) => b.dps - a.dps);
+    const idx = sorted.findIndex(p => p.id === stormId);
+    if (idx >= 0) {
+        rankEl.textContent = '#' + (idx+1) + ' of ' + sorted.length + ' historic';
+        rankEl.style.display = '';
+    } else {
+        rankEl.style.display = 'none';
+    }
+    bar.classList.add('visible');
+}
+
+function resetToWelcome() {
+    hideResults();
+    document.getElementById('stormTitleBar').classList.remove('visible');
+    document.getElementById('stormId').value = '';
+    document.getElementById('nameSearchGroup').style.display = 'none';
+    document.getElementById('stormId').focus();
+}
+
+// ---- Map Legend Toggle ----
+function toggleMapLegend() {
+    const legend = document.getElementById('mapLegend');
+    const btn = document.getElementById('mapLegendToggle');
+    legend.classList.toggle('legend-collapsed');
+    btn.innerHTML = legend.classList.contains('legend-collapsed') ? 'Legend &#9650;' : 'Legend &#9660;';
+}
+
+// ---- PWA Service Worker Registration ----
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/frontend/sw.js').then(reg => {
+            console.log('[SW] Registered, scope:', reg.scope);
+        }).catch(err => {
+            console.log('[SW] Registration failed (non-fatal):', err.message);
+        });
+    });
 }
 </script>
 </body>

@@ -1,0 +1,25 @@
+basin,name,year,damage_billions,peak_wind_mph,central_pressure_mb,rmw_nm,r34_nm,duration_days,duration_factor,rapid_intensification_24h_mph,landfalls,notes,validation_target
+North Indian,Bhola,1970,300.0,185,910,25,80,2.5,0.7,,,"Worst historical cyclone in terms of casualties, catastrophic surge in Bangladesh",True
+Atlantic,Katrina,2005,125.0,175,902,14,60,4.5,1.2,,,"Unprecedented storm surge in New Orleans, failed levee system, long duration threat",True
+Atlantic,Harvey,2017,125.0,130,937,25,80,5.0,1.3,,,"Extreme stalling over Texas, 60+ inches rainfall in some areas, large wind field",True
+Atlantic,Ian,2022,112.0,150,927,16,65,3.5,0.9,,,"Rapid intensification, major surge and wind damage in Florida",True
+Atlantic,Maria,2017,90.0,175,908,12,50,3.0,0.8,,,"Compact, intense hurricane, devastating impacts in Puerto Rico",True
+Atlantic,Ida,2021,75.0,150,929,15,60,2.5,0.7,,,"Rapid intensification before landfall, intense but short duration",False
+Atlantic,Irma,2017,50.0,180,914,10,55,3.0,0.8,,,"Extreme peak intensity, compact eye, significant damage across Caribbean",False
+Atlantic,Helene,2024,32.0,140,927,18,70,4.0,1.0,,,"Long duration threat, significant impacts across Southeast US",True
+Atlantic,Florence,2018,24.0,140,927,20,75,3.5,0.9,,,"Slow movement, significant rainfall inland, mid-range damage",True
+Eastern Pacific,Otis,2023,14.0,175,897,12,35,2.0,0.6,115,,"Extreme rapid intensification (115 mph/24h), compact wind field, narrow shelf limits surge",True
+Western Pacific,Haiyan,2013,14.0,195,895,15,80,3.5,0.9,,4,"Multiple destructive landfalls (Philippines, Vietnam), extreme wind field size",True
+North Indian,Amphan,2020,14.0,160,908,18,70,2.5,0.7,,,"Rapid intensification, significant impacts India and Bangladesh",False
+Western Pacific,Hagibis,2019,10.0,160,915,16,75,2.5,0.7,,1,"Direct impact on Tokyo area, significant rainfall and wind damage",False
+South Indian,Cyclone Gonu,2007,4.2,150,920,22,80,2.5,0.7,,,"Rare direct Muscat impact, significant regional damage",False
+North Indian,Sidr,2007,3.3,150,924,20,70,3.0,0.8,,,"Devastating surge impact Bangladesh, funnel effect in Bay of Bengal",True
+South Indian,Cyclone Fani,2019,1.8,165,912,16,65,2.0,0.6,,,"Landfall Odisha India, rapid intensification phase",False
+North Indian,Aila,2009,1.7,120,945,22,75,2.5,0.7,,,"Significant surge in Bangladesh, saltwater intrusion coastal areas",True
+Western Pacific,Ketsana,2009,0.8,115,955,28,100,3.0,0.8,,2,"Moderate intensity, very large wind field, impacts Vietnam and Cambodia",False
+South Pacific,Cyclone Winston,2016,0.7,185,884,14,50,2.0,0.6,,,"Southern Hemisphere record low pressure, impacts Fiji",False
+Western Pacific,Mangkhut,2018,0.614,175,905,18,85,2.5,0.7,,2,"Large wind field, impacts Philippines and Hong Kong, relatively modest damage",True
+Eastern Pacific,Patricia,2015,0.5,215,872,8,30,1.5,0.5,130,,"Lowest pressure recorded in Eastern Pacific, but no nearby population",False
+Eastern Pacific,Linda,1997,0.5,185,897,10,32,2.0,0.6,120,,"Extreme rapid intensification, compact system, offshore impacts",False
+South Pacific,Cyclone Pam,2015,0.4,185,896,16,60,2.0,0.6,,,"Vanuatu devastation, extreme wind speeds, sparse population impact limits damage",False
+Western Pacific,Noru,2022,0.01,130,935,22,90,2.0,0.6,,1,"Large but moderate intensity system, sparse damage",True

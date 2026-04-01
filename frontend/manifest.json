@@ -1,0 +1,24 @@
+{
+  "name": "StormDPS — Destructive Power Score",
+  "short_name": "StormDPS",
+  "description": "See any hurricane's true destructive potential — beyond the Category scale.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0e1a",
+  "theme_color": "#0a0e1a",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/frontend/logo-32.png",
+      "sizes": "32x32",
+      "type": "image/png"
+    },
+    {
+      "src": "/frontend/logo-180.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["weather", "utilities"]
+}
