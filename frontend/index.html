@@ -2799,17 +2799,16 @@ async function fetchHistory(){
                 }
             }
 
-            // If still no data and no year, show a helpful error
-            if((!data || !data.length) && !yr){
-                throw new Error(`"${rawId}" looks like a storm name but no matching storms were found in the catalog. Please enter the year in the "Year" field below, then click Visualize again.`);
-            }
-
-            // IBTrACS name+year search (explicit year or auto-resolved year)
-            if((!data || !data.length) && yr){
+            // IBTrACS search — with year if available, name-only as last resort
+            if(!data || !data.length){
+                const searchBody = yr
+                    ? {name:rawId, year:parseInt(yr)}
+                    : {name:rawId};  // name-only: backend finds most recent match
+                console.log(`[NAME-RESOLVE] Trying IBTrACS search:`, searchBody);
                 const r2=await fetch(`${API_BASE}/ibtracs/search`,{
                     method:'POST',
                     headers:{'Content-Type':'application/json'},
-                    body:JSON.stringify({name:rawId,year:parseInt(yr)})
+                    body:JSON.stringify(searchBody)
                 });
                 if(r2.ok) {
                     data=await r2.json();
