@@ -604,11 +604,11 @@ function getCompiledScore(stormId, stormName, stormYear) {
 }
 
 async function loadPreloadBundle() {
+    const bundleBase = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1);
     try {
         // Try compiled bundle first — includes pre-computed DPS scores for instant display
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 30000);
-        const bundleBase = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1);
         const r = await fetch(bundleBase + 'compiled_bundle.json', { signal: controller.signal });
         clearTimeout(timeout);
         if (!r.ok) throw new Error(`Compiled bundle HTTP ${r.status}`);
