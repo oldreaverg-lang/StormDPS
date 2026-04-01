@@ -51,12 +51,32 @@ async def lifespan(app: FastAPI):
     logger.info("[STARTUP] Shared httpx.AsyncClient created (max_connections=200, pool_timeout=10s)")
 
     # --- STARTUP: Initialize WeatherDataService ---
-    # Disabled temporarily to isolate crash cause
-    app.state.weather_service = None
-    logger.info("[STARTUP] WeatherDataService skipped (diagnostic mode)")
+    try:
+        weather_service = WeatherDataService()
+        await weather_service.__aenter__()
+        app.state.weather_service = weather_service
+        logger.info("[STARTUP] WeatherDataService initialized")
+    except Exception as e:
+        logger.error(f"[STARTUP] Failed to initialize WeatherDataService: {e}")
+        app.state.weather_service = None
 
-    # --- STARTUP: Preload warm-up skipped (diagnostic mode) ---
-    logger.info("[STARTUP] Preload warm-up skipped (diagnostic mode)")
+    # --- STARTUP: warm the preload cache in the background ---
+    # IKE cache files are shipped with the Docker image, so this should
+    # find everything "already cached" and skip heavy NOAA recomputation.
+    async def warm_preload():
+        try:
+            result = await generate_preload_bundle(grid_resolution_km=15.0, skip_points=1)
+            logger.info(
+                f"[PRELOAD] Warm-up complete: "
+                f"{result['already_cached']} cached, "
+                f"{result['newly_computed']} computed, "
+                f"{result['failed']} failed"
+            )
+        except Exception as e:
+            logger.warning(f"[PRELOAD] Warm-up failed (non-fatal): {e}")
+
+    # Run in background so the server starts accepting requests immediately
+    asyncio.create_task(warm_preload())
     yield
     # --- SHUTDOWN: close shared httpx.AsyncClient ---
     try:
