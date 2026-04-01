@@ -15,8 +15,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the rest of the application
 COPY . .
 
-# Railway sets PORT automatically; default to 8000 for local testing
-ENV PORT=8000
+# Railway sets PORT automatically (8080); default to 8080 for consistency
+ENV PORT=8080
 
 # Expose the port
 EXPOSE ${PORT}
