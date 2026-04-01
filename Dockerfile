@@ -21,12 +21,10 @@ ENV PORT=8000
 # Expose the port
 EXPOSE ${PORT}
 
-# Run with gunicorn + uvicorn workers for production
-CMD gunicorn main:app \
-    --worker-class uvicorn.workers.UvicornWorker \
-    --bind 0.0.0.0:${PORT} \
-    --workers 1 \
-    --timeout 120 \
-    --graceful-timeout 30 \
-    --access-logfile - \
-    --error-logfile -
+# Run uvicorn directly (lower memory than gunicorn + worker)
+CMD uvicorn main:app \
+    --host 0.0.0.0 \
+    --port ${PORT} \
+    --timeout-keep-alive 120 \
+    --log-level info \
+    --access-log
