@@ -109,6 +109,17 @@
             .dps-trend-wrap{display:flex;align-items:baseline;gap:.3rem}
             .label-full{display:none}
             .label-short{display:inline}
+            /* Loading state: hide skeletons, clean up loading screen */
+            .skeleton-row{display:none!important}
+            .skeleton-viz{display:none!important}
+            .loading-steps{border:none;background:transparent;padding:.6rem .3rem}
+            .loading-step{font-size:.85rem}
+            /* Welcome splash: tighter on mobile */
+            .welcome-state{padding:1rem .5rem}
+            .welcome-state img{width:120px!important;height:120px!important;border-radius:22px!important}
+            .welcome-text{font-size:.8rem!important}
+            .quick-start-row{gap:.35rem}
+            .quick-start-btn{font-size:.72rem;padding:.35rem .55rem}
             /* Viz: stack map and charts vertically */
             .viz-area{flex-direction:column}
             .viz-area.visible{display:flex}
