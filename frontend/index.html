@@ -648,19 +648,34 @@ function getCompiledScore(stormId, stormName, stormYear) {
 }
 
 async function loadPreloadBundle() {
-    // Detect base path: Railway/API server serves frontend at /frontend/,
-    // GitHub Pages serves at relative path. Check if /api/v1 exists (API server)
-    // or if pathname is root (no /frontend/ in URL).
+    // Try multiple paths: Railway serves at /frontend/, GitHub Pages at relative path
     const pathDir = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1);
-    const bundleBase = (pathDir === '/' || !pathDir.includes('/frontend')) ? '/frontend/' : pathDir;
-    try {
-        // Try compiled bundle first — includes pre-computed DPS scores for instant display
+    const candidates = ['/frontend/', pathDir];
+    // Deduplicate
+    const paths = [...new Set(candidates)];
+
+    async function tryFetchBundle(base) {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 30000);
-        const r = await fetch(bundleBase + 'compiled_bundle.json', { signal: controller.signal });
+        const r = await fetch(base + 'compiled_bundle.json', { signal: controller.signal });
         clearTimeout(timeout);
-        if (!r.ok) throw new Error(`Compiled bundle HTTP ${r.status}`);
-        const bundle = await r.json();
+        if (!r.ok) throw new Error(`HTTP ${r.status} from ${base}`);
+        return r.json();
+    }
+
+    let bundle = null;
+    for (const base of paths) {
+        try {
+            bundle = await tryFetchBundle(base);
+            console.log(`[PRELOAD] Compiled bundle fetched from ${base}compiled_bundle.json`);
+            break;
+        } catch (e) {
+            console.warn(`[PRELOAD] Failed to fetch from ${base}: ${e.message}`);
+        }
+    }
+
+    try {
+        if (!bundle) throw new Error('All compiled bundle paths failed');
         // Load pre-computed scores (instant — no client-side computation needed)
         if (bundle.storms) {
             Object.keys(bundle.storms).forEach(sid => {
@@ -704,11 +719,18 @@ async function loadPreloadBundle() {
         refreshPresetDPSFromCompiled();
         // Re-render year accordion chips now that compiled scores are available
         refreshAccordionChipsDPS();
+        // If a storm is already displayed, re-render it with compiled scores
+        // (handles case where bundle loads after user clicks a storm)
+        if (window.stormData && window.stormData.length > 0 && window._currentStormId) {
+            console.log('[PRELOAD] Re-rendering current storm with compiled scores');
+            renderAll(window._currentStormId, window.stormData);
+        }
     } catch (e) {
         // Fallback: raw preload_bundle.json (requires client-side DPS computation)
         console.warn('[PRELOAD] Compiled bundle unavailable, falling back to raw:', e.message);
         try {
-            const r = await fetch(bundleBase + 'preload_bundle.json');
+            const fallbackBase = paths.find(p => p !== '/') || '/frontend/';
+            const r = await fetch(fallbackBase + 'preload_bundle.json');
             if (!r.ok) throw new Error(`Raw bundle HTTP ${r.status}`);
             const bundle = await r.json();
             if (bundle.storms) {
@@ -1565,7 +1587,7 @@ let NRI_ZONES = null; // Loaded async from nri_zones.json
 
 function loadNRIZones() {
     const nriPathDir = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1);
-    const nriBase = (nriPathDir === '/' || !nriPathDir.includes('/frontend')) ? '/frontend/' : nriPathDir;
+    const nriBase = (nriPathDir.includes('/frontend')) ? nriPathDir : '/frontend/';
     fetch(nriBase + 'nri_zones.json')
         .then(r => r.ok ? r.json() : Promise.reject('NRI zones not found'))
         .then(data => { NRI_ZONES = data; console.log('NRI zones loaded:', Object.keys(data).length, 'zones'); })
@@ -2901,6 +2923,7 @@ function hideResults(){
 }
 
 function renderAll(stormId,data){
+    window._currentStormId = stormId;  // Track for late-arriving compiled bundle re-render
     resetChartTracking(); // Force re-render of all charts for new storm data
     document.getElementById('welcomeState').classList.add('hidden');
     const preset=PRESETS.find(p=>p.id===stormId);
@@ -3044,7 +3067,8 @@ function renderAll(stormId,data){
     renderDPSChart(data);
     updateStormContext(data);
     // Render the active tab's chart (IKE is default active tab)
-    const activeTab=document.querySelector('.chart-tab.active');
+    // Scoped to #chartTabbed to avoid matching score chart tabs (DPS/IAS/ERS)
+    const activeTab=document.querySelector('#chartTabbed .chart-tab.active');
     const activeTabName=activeTab?activeTab.dataset.tab:'ike';
     if(activeTabName==='ike') renderChart(data);
     else if(activeTabName==='surge') renderSurgeChart(data);
