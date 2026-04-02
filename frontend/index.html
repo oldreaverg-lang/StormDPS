@@ -648,7 +648,11 @@ function getCompiledScore(stormId, stormName, stormYear) {
 }
 
 async function loadPreloadBundle() {
-    const bundleBase = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1);
+    // Detect base path: Railway/API server serves frontend at /frontend/,
+    // GitHub Pages serves at relative path. Check if /api/v1 exists (API server)
+    // or if pathname is root (no /frontend/ in URL).
+    const pathDir = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1);
+    const bundleBase = (pathDir === '/' || !pathDir.includes('/frontend')) ? '/frontend/' : pathDir;
     try {
         // Try compiled bundle first — includes pre-computed DPS scores for instant display
         const controller = new AbortController();
@@ -1066,20 +1070,20 @@ function updateScoreContexts(dps, ias, ers) {
 // DPS is computed server-side for catalog storms; these are approximate
 // reference values for the preset list, recalculated when a storm is loaded.
 const PRESETS=[
-    {id:'AL122005',name:'Katrina',year:2005,cat:5,dps:95,ias:0,ers:0},
-    {id:'AL112017',name:'Irma',year:2017,cat:5,dps:91,ias:0,ers:0},
-    {id:'AL092024',name:'Helene',year:2024,cat:4,dps:87,ias:0,ers:0},
-    {id:'AL092008',name:'Ike',year:2008,cat:4,dps:78,ias:0,ers:0},
-    {id:'AL092022',name:'Ian',year:2022,cat:4,dps:73,ias:0,ers:0},
-    {id:'AL062018',name:'Florence',year:2018,cat:4,dps:69,ias:0,ers:0},
-    {id:'AL052019',name:'Dorian',year:2019,cat:5,dps:65,ias:0,ers:0},
-    {id:'AL182012',name:'Sandy',year:2012,cat:3,dps:65,ias:0,ers:0},
-    {id:'AL142024',name:'Milton',year:2024,cat:5,dps:63,ias:0,ers:0},
-    {id:'AL152017',name:'Maria',year:2017,cat:5,dps:61,ias:0,ers:0},
-    {id:'AL142018',name:'Michael',year:2018,cat:5,dps:61,ias:0,ers:0},
-    {id:'AL092017',name:'Harvey',year:2017,cat:4,dps:55,ias:0,ers:0},
-    {id:'AL102023',name:'Idalia',year:2023,cat:3,dps:51,ias:0,ers:0},
-    {id:'AL022024',name:'Beryl',year:2024,cat:5,dps:47,ias:0,ers:0},
+    {id:'AL122005',name:'Katrina',year:2005,cat:5,dps:100,ias:0,ers:0},
+    {id:'AL112017',name:'Irma',year:2017,cat:5,dps:100,ias:0,ers:0},
+    {id:'AL092008',name:'Ike',year:2008,cat:4,dps:100,ias:0,ers:0},
+    {id:'AL092022',name:'Ian',year:2022,cat:4,dps:100,ias:0,ers:0},
+    {id:'AL152017',name:'Maria',year:2017,cat:5,dps:100,ias:0,ers:0},
+    {id:'AL052019',name:'Dorian',year:2019,cat:5,dps:100,ias:0,ers:0},
+    {id:'AL182012',name:'Sandy',year:2012,cat:3,dps:98,ias:0,ers:0},
+    {id:'AL092017',name:'Harvey',year:2017,cat:4,dps:97,ias:0,ers:0},
+    {id:'AL142018',name:'Michael',year:2018,cat:5,dps:93,ias:0,ers:0},
+    {id:'AL142024',name:'Milton',year:2024,cat:5,dps:86,ias:0,ers:0},
+    {id:'AL022024',name:'Beryl',year:2024,cat:5,dps:83,ias:0,ers:0},
+    {id:'AL092024',name:'Helene',year:2024,cat:4,dps:81,ias:0,ers:0},
+    {id:'AL062018',name:'Florence',year:2018,cat:4,dps:77,ias:0,ers:0},
+    {id:'AL102023',name:'Idalia',year:2023,cat:3,dps:63,ias:0,ers:0},
 ];
 
 function catColor(c){return['var(--td)','var(--cat1)','var(--cat2)','var(--cat3)','var(--cat4)','var(--cat5)'][c]||'var(--td)'}
@@ -1560,7 +1564,8 @@ const ECON_ZONES = [
 let NRI_ZONES = null; // Loaded async from nri_zones.json
 
 function loadNRIZones() {
-    const nriBase = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1);
+    const nriPathDir = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1);
+    const nriBase = (nriPathDir === '/' || !nriPathDir.includes('/frontend')) ? '/frontend/' : nriPathDir;
     fetch(nriBase + 'nri_zones.json')
         .then(r => r.ok ? r.json() : Promise.reject('NRI zones not found'))
         .then(data => { NRI_ZONES = data; console.log('NRI zones loaded:', Object.keys(data).length, 'zones'); })
