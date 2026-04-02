@@ -182,5 +182,15 @@ async def serve_frontend():
     return FileResponse(FRONTEND_DIR / "index.html")
 
 
+@app.get("/robots.txt")
+async def serve_robots():
+    return FileResponse(FRONTEND_DIR / "robots.txt", media_type="text/plain")
+
+
+@app.get("/sitemap.xml")
+async def serve_sitemap():
+    return FileResponse(FRONTEND_DIR / "sitemap.xml", media_type="application/xml")
+
+
 # Serve any other static assets from the frontend folder
 app.mount("/frontend", StaticFiles(directory=FRONTEND_DIR), name="frontend")

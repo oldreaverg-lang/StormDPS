@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://stormdps.com/frontend/sitemap.xml
+Sitemap: https://stormdps.com/sitemap.xml
