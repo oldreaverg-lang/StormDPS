@@ -343,7 +343,7 @@ COASTAL_EXPOSURE_WEIGHTS = {
     "NE Florida / Georgia":     0.65,  # Jacksonville metro, Savannah, ~2M combined
     "Texas":                    0.60,  # Houston corridor is dense but coast is spread
     "Carolinas":                0.55,  # Charleston, Myrtle Beach, Wilmington
-    "Louisiana / Mississippi":  0.55,  # New Orleans metro, but lots of rural coast
+    "Louisiana / Mississippi":  0.60,  # New Orleans metro, but lots of rural coast
     "North Carolina":           0.45,  # Outer Banks, Morehead City — lower density
     # Lower density
     "Alabama / FL Panhandle":   0.35,  # Pensacola, Panama City — smaller metros
@@ -724,12 +724,25 @@ def compile():
 
         # R7 + [F2]: Rainfall stall bonus — scaled by economic weight of STALL LOCATION
         # (not exposure region). Dorian stalled over Bahamas (0.08) not NE Florida (0.65).
+        #
+        # [F11] Partial slow-hour credit: slow-moving storms (5–8 kt near land) receive
+        # half-rate stall credit. A storm creeping at 5.8 kt for 36 hours generates surge
+        # and rainfall accumulation that is forecastable pre-landfall and nearly as
+        # destructive as a true stall. Previously only true stall (≤5 kt) hours counted,
+        # causing storms like Sally (36 slow-hours, 6 stall-hours) to be significantly
+        # underscored despite the slow approach being well-predicted before landfall.
         STALL_THRESHOLD_HOURS = 4
-        STALL_BONUS_PER_HOUR = 0.01
+        STALL_BONUS_PER_HOUR = 0.01        # Full rate for stall hours (≤5 kt)
+        SLOW_BONUS_PER_HOUR  = 0.005       # Half rate for slow hours (5–8 kt)  [F11]
         STALL_BONUS_CAP = 0.10
-        if rain_result.total_stall_hours > STALL_THRESHOLD_HOURS and cum_result.peak_dpi > 0:
+        effective_stall_hours = (
+            rain_result.total_stall_hours +
+            rain_result.total_slow_hours * 0.5  # [F11] half-weight slow hours
+        )
+        if effective_stall_hours > STALL_THRESHOLD_HOURS and cum_result.peak_dpi > 0:
             raw_stall = min(
-                rain_result.total_stall_hours * STALL_BONUS_PER_HOUR,
+                rain_result.total_stall_hours * STALL_BONUS_PER_HOUR +
+                rain_result.total_slow_hours  * SLOW_BONUS_PER_HOUR,   # [F11]
                 STALL_BONUS_CAP
             )
             # [F2] Find WHERE the stall happened (slowest forward speed snapshot)
