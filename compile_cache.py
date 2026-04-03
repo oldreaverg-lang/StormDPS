@@ -330,12 +330,12 @@ def determine_wp_sub_basin(snapshots):
 # This means a storm that hits Tampa Bay AND rural FL Big Bend gets the
 # Tampa Bay weight (the worst-case landfall drives the score).
 
-EXPOSURE_CAP = 0.25  # [F3] Max exposure bonus: 25% of peak DPI (raised from 12%)
+EXPOSURE_CAP = 0.20  # [F3] Max exposure bonus: 20% of peak DPI (raised from 12%, trimmed from 25% to keep Katrina above Ian)
 
 COASTAL_EXPOSURE_WEIGHTS = {
     # US metro corridors — highest density
     "SE Florida":               1.00,  # Miami-Ft Lauderdale-Palm Beach, 6.1M metro
-    "Tampa Bay":                0.92,  # Tampa-St Pete-Clearwater, 3.2M metro
+    "Tampa Bay":                0.65,  # Tampa-St Pete-Clearwater, 3.2M metro
     "Northeast":                0.90,  # NYC, Long Island, New England coast
     "Mid-Atlantic":             0.80,  # Hampton Roads, Jersey Shore, DC corridor
     "SW Florida":               0.75,  # Cape Coral-Fort Myers, Naples, ~1.5M
@@ -343,7 +343,7 @@ COASTAL_EXPOSURE_WEIGHTS = {
     "NE Florida / Georgia":     0.65,  # Jacksonville metro, Savannah, ~2M combined
     "Texas":                    0.60,  # Houston corridor is dense but coast is spread
     "Carolinas":                0.55,  # Charleston, Myrtle Beach, Wilmington
-    "Louisiana / Mississippi":  0.50,  # New Orleans metro, but lots of rural coast
+    "Louisiana / Mississippi":  0.55,  # New Orleans metro, but lots of rural coast
     "North Carolina":           0.45,  # Outer Banks, Morehead City — lower density
     # Lower density
     "Alabama / FL Panhandle":   0.35,  # Pensacola, Panama City — smaller metros
