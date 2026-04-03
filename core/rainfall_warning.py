@@ -97,7 +97,8 @@ RIVER_BASIN_ZONES = [
     (29.5, 31.5, -92.0, -89.0, 1.4, "Louisiana Mississippi Basin"),           # Many storms
     (37.0, 40.0, -77.5, -74.0, 1.3, "Mid-Atlantic Potomac / Delaware"),      # Sandy-type
     (25.5, 27.5, -81.5, -80.0, 1.2, "SW FL Peace / Caloosahatchee"),         # Ian-type
-    (34.5, 36.5, -84.0, -81.5, 1.6, "TN/NC French Broad / Pigeon"),          # Helene inland
+    (34.0, 37.0, -85.5, -81.0, 1.6, "TN/NC French Broad / Pigeon"),          # Helene inland
+    (30.5, 34.5, -85.0, -82.0, 1.3, "GA/AL Chattahoochee / Flint"),           # Helene mid-track
 ]
 
 # Land bounding boxes (near-land check for stall relevance)
@@ -340,27 +341,41 @@ def compute_rainfall_warning(
 
     # Rough total rainfall estimate (mm) for display
     # TCR ≈ rain_rate × residence_hours × terrain_enhancement
+    # Always compute rain-shield crossing time as a floor estimate
     effective_rain_hours = stall_hours + slow_hours * 0.6
-    if effective_rain_hours < 3.0:
-        # Use minimum residence time based on rain shield and speed.
-        # A typical hurricane crossing takes 6-12 hours at a given point;
-        # stalling storms extend this to 24-120 hours.
-        if near_land_slow_snapshots:
+    # Even storms with some slow hours need a floor based on rain-shield size.
+    # Compute rain-shield crossing time and total land-track hours.
+    land_snaps = [s for s in snapshots
+                  if _is_near_land(s["lat"], s["lon"])
+                  and (s.get("forward_speed_knots") or 0) > 0]
+    if effective_rain_hours < 12.0:
+        # Use average forward speed of all land snapshots for crossing estimate
+        if land_snaps:
             avg_fwd = sum(
-                (s.get("forward_speed_knots", 10) or 10) for s in near_land_slow_snapshots
-            ) / len(near_land_slow_snapshots)
+                (s.get("forward_speed_knots", 10) or 10) for s in land_snaps
+            ) / len(land_snaps)
         else:
             avg_fwd = 15.0  # Assume normal crossing speed
 
-        # Handle zero forward speed (stalled storms) explicitly
         if avg_fwd == 0:
-            # Stalled storm: assume prolonged residence time (72 hours)
             effective_rain_hours = 72.0
         else:
             rain_shield_km = max_r34 * NM_TO_M * 1.5 * 2 / 1000.0 if max_r34 > 0 else 300.0
-            # Cap rain shield to reasonable diameter (600km) and ensure realistic hours
             rain_shield_km = min(rain_shield_km, 600.0)
-            effective_rain_hours = min(24.0, max(3.0, rain_shield_km / (avg_fwd * 1.852)))
+            crossing_hours = min(24.0, max(3.0, rain_shield_km / (avg_fwd * 1.852)))
+            # For large storms crossing long land distances, add credit for
+            # total land-track hours (Helene 2024 maintained TS-force winds
+            # 500+ km inland, continuously dumping rain)
+            total_land_track_h = sum(
+                _delta_hours(timestamps, i, len(snapshots))
+                for i, s in enumerate(snapshots)
+                if _is_near_land(s["lat"], s["lon"])
+                and (s.get("forward_speed_knots") or 0) > 0
+            )
+            land_bonus = min(12.0, total_land_track_h * 0.3)
+            shield_estimate = max(crossing_hours, crossing_hours * 0.5 + land_bonus)
+            # Take the larger of stall-based or shield-based estimate
+            effective_rain_hours = max(effective_rain_hours, shield_estimate)
 
     estimated_total_mm = peak_rain_rate * effective_rain_hours
 
@@ -381,10 +396,10 @@ def compute_rainfall_warning(
     if max_terrain_enhancement > 1.0:
         terrain_excess = max_terrain_enhancement - 1.0  # 0-0.8 range
         zone_breadth = min(1.0, len(terrain_hits) / 2.0)  # Multiple zones = worse
-        # Must have slow/stall behavior to deliver sustained rain to terrain.
-        # A fast-crossing storm drops rain on terrain but doesn't produce
-        # the catastrophic accumulations that cause flooding disasters.
-        # Harvey stalled 113h; Helene was fast but huge moisture feed.
+        # Slow movement amplifies terrain rainfall, but fast-moving Cat 3+
+        # storms (Helene 2024) can also produce catastrophic terrain flooding
+        # because their sheer moisture volume overwhelms drainage capacity.
+        # The moisture delivery factor (IKE × size) compensates for speed.
         combined_slow = stall_hours + slow_hours
         if combined_slow > 12.0:
             slow_present = 1.0     # Clear stall/slow pattern
@@ -393,7 +408,12 @@ def compute_rainfall_warning(
         elif combined_slow > 0:
             slow_present = 0.35    # Brief slow period
         else:
-            slow_present = 0.15    # No evidence of slow movement — minimal terrain credit
+            # [R6] Fast-moving but intense storms: grant terrain credit scaled
+            # by moisture delivery. Helene was fast (25kt) but Cat 4 with
+            # massive moisture feed → catastrophic Appalachian flooding.
+            # IKE proxy: high IKE = massive moisture reservoir even at speed.
+            intensity_compensator = min(0.6, ike_norm * 0.5 + size_norm * 0.3)
+            slow_present = max(0.15, intensity_compensator)
         terrain_factor = 15.0 * min(1.0, terrain_excess * zone_breadth * slow_present / 0.5)
     else:
         terrain_factor = 0.0
@@ -424,8 +444,13 @@ def compute_rainfall_warning(
 
     if max_basin_factor > 1.0:
         basin_excess = max_basin_factor - 1.0
-        # Basin flooding needs duration to accumulate
-        duration_present = min(1.0, (stall_hours + slow_hours) / 24.0)
+        # Basin flooding needs duration to accumulate — but very large, intense
+        # storms can overwhelm basins even at normal speed (Helene 2024: Cat 4,
+        # massive moisture feed → catastrophic French Broad / Pigeon flooding).
+        slow_duration = min(1.0, (stall_hours + slow_hours) / 24.0)
+        # Intensity proxy: large IKE + large wind field = massive moisture dump
+        intensity_proxy = min(0.6, ike_norm * 0.4 + size_norm * 0.3 + rain_duration_norm * 0.3)
+        duration_present = max(slow_duration, intensity_proxy)
         basin_factor = 15.0 * min(1.0, basin_excess * duration_present / 0.6)
     else:
         basin_factor = 0.0
