@@ -21,13 +21,13 @@ Formula:
   Where:
     peak_dpi:        Max single-snapshot DPI along the track (our existing metric)
     duration_factor: Bonus for prolonged exposure near populated coast
-                     = Σ (DPI_i / peak_dpi × Δt_hours) / T_ref,  capped at 0.40
-                     Only counts snapshots where DPI_i > 30 (meaningful threat)
+                     = Σ (DPI_i / peak_dpi × Δt_hours) / T_ref,  capped at 0.25
+                     Only counts snapshots where DPI_i > 25 (meaningful threat)
                      T_ref = 24 hours (typical crossing time for a "normal" storm)
     breadth_factor:  Bonus for large storms tracking along populated coast
-                     = (IKE_peak / IKE_ref) × coastal_hours / coastal_ref, capped at 0.30
-                     IKE_ref = 80 TJ (Katrina-class)
-                     coastal_ref = 36 hours
+                     = (IKE_peak / IKE_ref) × coastal_hours / coastal_ref, capped at 0.25
+                     IKE_ref = 150 TJ (above-average)
+                     coastal_ref = 48 hours
 
   The cumDPI is then capped at 100.
 
@@ -65,8 +65,8 @@ COASTAL_REF_HOURS = 48.0   # Reference coastal exposure time
 DPI_THREAT_THRESHOLD = 25.0  # Min DPI to count as "meaningful threat"
                               # Lower than single-DPI threshold because weakened
                               # storms still cause flooding (Harvey post-landfall)
-DURATION_CAP = 0.18        # Max duration bonus (fraction of peak)
-BREADTH_CAP = 0.15         # Max breadth bonus (fraction of peak)
+DURATION_CAP = 0.25        # Max duration bonus (fraction of peak)  [R1: raised from 0.18]
+BREADTH_CAP = 0.25         # Max breadth bonus (fraction of peak)  [R1: raised from 0.15]
 
 # Simple land proximity check: lat/lon bounding boxes for US coastal zones
 # A snapshot is "near coast" if it falls within these boxes.
@@ -355,7 +355,17 @@ def compute_cumulative_dpi(
     # affect a wide geographic area. This bonus captures the "Sandy effect"
     # where a Cat 1's enormous wind field causes more total damage than
     # many Cat 4s.
-    ike_norm = min(1.0, peak_ike / IKE_REF_TJ)
+    # [R2] Piecewise IKE normalization:
+    #   Below IKE_REF: linear (0→1.0)
+    #   Above IKE_REF: sqrt curve (1.0→~1.47 at 2x, ~1.82 at 3x)
+    #   Capped at 2.0 to prevent runaway
+    # This gives extra credit to anomalously large wind fields (Sandy 640 TJ,
+    # Ida 576 TJ, Michael 321 TJ) without compressing them all to 1.0.
+    if peak_ike <= IKE_REF_TJ:
+        ike_norm = peak_ike / IKE_REF_TJ
+    else:
+        ike_norm = min(2.0, 1.0 + math.sqrt((peak_ike - IKE_REF_TJ) / IKE_REF_TJ))
+
     coastal_time_norm = min(1.0, coastal_hours / COASTAL_REF_HOURS)
     breadth_raw = ike_norm * coastal_time_norm * 0.20 * econ_density_factor
     breadth_factor = min(BREADTH_CAP, breadth_raw)

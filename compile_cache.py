@@ -314,6 +314,138 @@ def determine_wp_sub_basin(snapshots):
     return max_region if counts[max_region] > 0 else "WP_GENERAL"
 
 
+# ============================================================================
+# POPULATION EXPOSURE WEIGHTS (R3 — Coastal Asset Density)
+# ============================================================================
+# Each coastal region gets a relative population/asset density weight (0–1.0).
+# Storms making landfall in dense metro corridors get a DPS boost reflecting
+# the disproportionate threat to life and property.
+#
+# Weights are calibrated against FEMA National Structure Inventory (NSI) counts
+# per km of coastline, normalized to the densest corridor (SE Florida = 1.0).
+#
+# The exposure factor is computed as:
+#   exposure_factor = max(weights at all landfalls) × EXPOSURE_CAP
+#
+# This means a storm that hits Tampa Bay AND rural FL Big Bend gets the
+# Tampa Bay weight (the worst-case landfall drives the score).
+
+EXPOSURE_CAP = 0.12  # Max exposure bonus: 12% of peak DPI
+
+COASTAL_EXPOSURE_WEIGHTS = {
+    # US metro corridors — highest density
+    "SE Florida":               1.00,  # Miami-Ft Lauderdale-Palm Beach, 6.1M metro
+    "Tampa Bay":                0.92,  # Tampa-St Pete-Clearwater, 3.2M metro
+    "Northeast":                0.90,  # NYC, Long Island, New England coast
+    "Mid-Atlantic":             0.80,  # Hampton Roads, Jersey Shore, DC corridor
+    "SW Florida":               0.75,  # Cape Coral-Fort Myers, Naples, ~1.5M
+    # Moderate-high density
+    "NE Florida / Georgia":     0.65,  # Jacksonville metro, Savannah, ~2M combined
+    "Texas":                    0.60,  # Houston corridor is dense but coast is spread
+    "Carolinas":                0.55,  # Charleston, Myrtle Beach, Wilmington
+    "Louisiana / Mississippi":  0.50,  # New Orleans metro, but lots of rural coast
+    "North Carolina":           0.45,  # Outer Banks, Morehead City — lower density
+    # Lower density
+    "Alabama / FL Panhandle":   0.35,  # Pensacola, Panama City — smaller metros
+    "Puerto Rico / USVI":       0.40,  # San Juan metro, but smaller economy
+    "FL Big Bend":              0.15,  # Very rural — Cedar Key, Steinhatchee
+    "Mississippi":              0.30,  # Biloxi-Gulfport, small metro
+    # Caribbean / international
+    "Bahamas":                  0.08,  # Small population, low asset base
+    "Hispaniola":               0.25,
+    "Leeward Islands":          0.15,
+    "Windward Islands":         0.12,
+    "Cuba / Jamaica":           0.20,
+    "Mexico / Central America": 0.20,
+    # Western Pacific
+    "Philippines":              0.35,
+    "Vietnam / Cambodia":       0.30,
+    "Taiwan":                   0.55,
+    "Japan":                    0.80,
+    "Thailand / Laos":          0.25,
+    "China":                    0.50,
+    # Default
+    "Coast":                    0.20,
+}
+
+
+def compute_exposure_factor(landfall_events):
+    """
+    Compute population exposure factor from landfall events.
+
+    Takes the max exposure weight across all landfalls (worst-case scenario)
+    and scales it by EXPOSURE_CAP to produce a factor that gets added to
+    the cumDPI multiplier alongside duration_factor and breadth_factor.
+
+    Returns: (exposure_factor, primary_region)
+    """
+    if not landfall_events:
+        return 0.0, "Open Ocean"
+
+    best_weight = 0.0
+    best_region = "Coast"
+
+    for event in landfall_events:
+        region = event.get("region", "Coast")
+        weight = COASTAL_EXPOSURE_WEIGHTS.get(region, 0.20)
+        if weight > best_weight:
+            best_weight = weight
+            best_region = region
+
+    exposure_factor = best_weight * EXPOSURE_CAP
+    return round(exposure_factor, 4), best_region
+
+
+# ============================================================================
+# PERPENDICULAR SURGE FACTOR (R4)
+# ============================================================================
+# Storms with multiple landfalls but zero/low coastal hours are making fast,
+# perpendicular crossings — direct hits that the duration/breadth formula
+# misses because it rewards coast-parallel tracking.
+#
+# Perpendicular landfalls into concave coastlines (bays, inlets, sounds)
+# can produce severe surge funneling (e.g., Eta into Tampa Bay approach,
+# Claudette crossing Louisiana to NC).
+#
+# Factor: perp_bonus = landfalls_at_us_coasts * 0.02 (2% per US landfall)
+#   - Only counts US mainland landfalls (not Caribbean pass-throughs)
+#   - Only activates if coastal_hours < 12 (truly perpendicular)
+#   - Capped at PERPENDICULAR_CAP
+
+PERPENDICULAR_CAP = 0.08  # Max perpendicular bonus: 8% of peak DPI
+
+# US mainland regions that count for perpendicular bonus
+US_MAINLAND_REGIONS = {
+    "SE Florida", "Tampa Bay", "Northeast", "Mid-Atlantic", "SW Florida",
+    "NE Florida / Georgia", "Texas", "Carolinas", "Louisiana / Mississippi",
+    "North Carolina", "Alabama / FL Panhandle", "FL Big Bend", "Mississippi",
+}
+
+
+def compute_perpendicular_factor(landfall_events, coastal_hours):
+    """
+    Compute perpendicular surge bonus for storms making fast, direct landfalls.
+
+    Only activates when coastal_hours < 12 (storm isn't coast-parallel).
+    Gives 2% bonus per US mainland landfall, capped at PERPENDICULAR_CAP.
+
+    Returns: (perp_factor, us_landfall_count)
+    """
+    if coastal_hours >= 12:
+        return 0.0, 0  # Not a perpendicular pattern
+
+    us_landfalls = sum(
+        1 for e in landfall_events
+        if e.get("region", "") in US_MAINLAND_REGIONS
+    )
+
+    if us_landfalls < 2:
+        return 0.0, us_landfalls  # Need 2+ US landfalls to qualify
+
+    perp_factor = min(PERPENDICULAR_CAP, us_landfalls * 0.02)
+    return round(perp_factor, 4), us_landfalls
+
+
 def apply_basin_dps_adjustment(cum_dpi, basin, snapshots):
     """
     Apply basin-specific DPS adjustments including:
@@ -536,17 +668,48 @@ def compile():
         # Compute cumulative DPI (aka DPS)
         cum_result = compute_cumulative_dpi(snapshots, storm_name=name, storm_year=year)
 
+        # Detect landfall events (needed for exposure factor)
+        landfall_events = detect_landfall_events(snapshots)
+
         # Detect basin and apply basin-specific adjustments
         basin = detect_basin(snapshots)
-        adjusted_dps, basin_name, adjustment_notes = apply_basin_dps_adjustment(
-            cum_result.cum_dpi, basin, snapshots
+
+        # Apply population exposure factor (R3)
+        # Uses landfall regions to boost DPS for dense metro corridors
+        exposure_factor, exposure_region = compute_exposure_factor(landfall_events)
+        # Apply perpendicular surge factor (R4)
+        perp_factor, us_lf_count = compute_perpendicular_factor(
+            landfall_events, cum_result.total_coastal_hours
         )
 
-        # Compute rainfall warning
+        # Compute rainfall warning (needed before stall bonus)
         rain_result = compute_rainfall_warning(snapshots, storm_name=name)
 
-        # Detect landfall events
-        landfall_events = detect_landfall_events(snapshots)
+        # R7: Rainfall stall bonus — stalling storms cause disproportionate inland flooding
+        STALL_THRESHOLD_HOURS = 4
+        STALL_BONUS_PER_HOUR = 0.01
+        STALL_BONUS_CAP = 0.10
+        if rain_result.total_stall_hours > STALL_THRESHOLD_HOURS and cum_result.peak_dpi > 0:
+            stall_bonus = min(
+                rain_result.total_stall_hours * STALL_BONUS_PER_HOUR,
+                STALL_BONUS_CAP
+            )
+        else:
+            stall_bonus = 0.0
+
+        # Combine exposure + perpendicular + stall into a post-multiplier boost
+        combined_boost = exposure_factor + perp_factor + stall_bonus
+        if combined_boost > 0 and cum_result.peak_dpi > 0:
+            current_multiplier = cum_result.cum_dpi / cum_result.peak_dpi
+            boosted = cum_result.peak_dpi * (current_multiplier + combined_boost)
+            boosted = min(100.0, boosted)
+        else:
+            boosted = cum_result.cum_dpi
+
+        # Apply basin-specific adjustment on the boosted value
+        adjusted_dps, basin_name, adjustment_notes = apply_basin_dps_adjustment(
+            boosted, basin, snapshots
+        )
 
         # Find peak snapshot data for quick display
         peak_wind = max((s.get("max_wind_ms", 0) or 0) for s in snapshots)
@@ -568,6 +731,15 @@ def compile():
             "basin": basin,
             "basin_name": basin_name,
             "dps_original": cum_result.cum_dpi,  # Keep original for reference
+            # Population exposure (R3)
+            "exposure_factor": exposure_factor,
+            "exposure_region": exposure_region,
+            # Perpendicular surge factor (R4)
+            "perp_factor": perp_factor,
+            "us_landfall_count": us_lf_count,
+            # Rainfall stall bonus (R7)
+            "stall_bonus": stall_bonus,
+            "stall_hours": rain_result.total_stall_hours,
             # Breakdown factors
             "duration_factor": cum_result.duration_factor,
             "breadth_factor": cum_result.breadth_factor,
@@ -600,8 +772,11 @@ def compile():
         rain_flag = " RAIN-WARN" if rain_result.is_anomalous else ""
         adj_details = f" [{adjustment_notes}]" if adjustment_notes else ""
         adj_note = f" (was {cum_result.cum_dpi:.0f})" if abs(adjusted_dps - cum_result.cum_dpi) > 1 else ""
+        exp_note = f" EXP:+{exposure_factor:.1%}({exposure_region})" if exposure_factor > 0 else ""
+        perp_note = f" PERP:+{perp_factor:.1%}(LF:{us_lf_count})" if perp_factor > 0 else ""
+        stall_note = f" STALL:+{stall_bonus:.1%}({rain_result.total_stall_hours:.0f}h)" if stall_bonus > 0 else ""
         lf_info = f" LF:{len(landfall_events)}({', '.join(e['region'] for e in landfall_events)})" if landfall_events else " LF:0(fish)"
-        print(f"DPS {adjusted_dps:.0f} (peak {cum_result.peak_dpi:.0f}){adj_note}{adj_details}{rain_flag}{lf_info}")
+        print(f"DPS {adjusted_dps:.0f} (peak {cum_result.peak_dpi:.0f}){adj_note}{adj_details}{exp_note}{perp_note}{stall_note}{rain_flag}{lf_info}")
 
     # Build output
     output = {
