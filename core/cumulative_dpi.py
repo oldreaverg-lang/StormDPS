@@ -68,6 +68,30 @@ DPI_THREAT_THRESHOLD = 25.0  # Min DPI to count as "meaningful threat"
 DURATION_CAP = 0.25        # Max duration bonus (fraction of peak)  [R1: raised from 0.18]
 BREADTH_CAP = 0.25         # Max breadth bonus (fraction of peak)  [R1: raised from 0.15]
 
+# [F7] Per-zone weights for duration/breadth accumulation.
+# Caribbean island and near-miss hours count at a fraction of US mainland hours
+# for a US-centric DPS score. This prevents long Caribbean tracks (Matthew, Irma)
+# from inflating duration/breadth as much as equivalent time over the US coast.
+US_MAINLAND_ZONES = {
+    "Gulf Coast", "FL West/South", "FL East",
+    "SE Atlantic", "Mid-Atlantic / NE", "LA / MS coast",
+}
+ZONE_WEIGHTS = {
+    # US mainland coast → full credit
+    "Gulf Coast":          1.0,
+    "FL West/South":       1.0,
+    "FL East":             1.0,
+    "SE Atlantic":         1.0,
+    "Mid-Atlantic / NE":   1.0,
+    "LA / MS coast":       1.0,
+    # US territory (Caribbean island, moderate economy)
+    "Puerto Rico / USVI":  0.40,
+    # Near-miss / small economy island chain
+    "Bahamas proximity":   0.15,
+    # Default for any near-coast snapshot not in the above list
+    "Open Ocean":          0.0,
+}
+
 # Simple land proximity check: lat/lon bounding boxes for US coastal zones
 # A snapshot is "near coast" if it falls within these boxes.
 # This is a rough heuristic — the real land_proximity module gives precise
@@ -120,6 +144,18 @@ def _get_coastal_label(lat: float, lon: float) -> str:
         if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
             return label
     return "Open Ocean"
+
+
+def _get_zone_weight(coastal_zone: str) -> float:
+    """
+    [F7] Return the duration/breadth accumulation weight for a coastal zone.
+
+    US mainland zones count at 1.0. Caribbean islands and near-miss areas are
+    discounted so that storms spending most of their track over foreign islands
+    (Matthew, Irma) don't get the same duration/breadth credit as storms that
+    linger over populated US coast (Harvey, Sandy).
+    """
+    return ZONE_WEIGHTS.get(coastal_zone, 0.30)  # unknown zones: 30% credit
 
 
 def _parse_timestamp(ts_str: str) -> datetime:
@@ -301,12 +337,18 @@ def compute_cumulative_dpi(
         total_hours = len(dpi_series) * 6.0  # Assume 6h intervals
 
     # ── Duration Factor ──
-    # Sum of (DPI_i / peak_dpi × Δt_hours) for snapshots where:
+    # Sum of (DPI_i / peak_dpi × Δt_hours × zone_weight) for snapshots where:
     #   1. DPI > threshold (meaningful threat)
     #   2. Near a populated coast
-    # Normalized by T_ref (24h standard crossing time)
+    # Normalized by T_ref (24h standard crossing time).
+    #
+    # [F7] Each snapshot is weighted by its coastal zone (US mainland = 1.0,
+    # Caribbean islands = 0.15–0.40). This prevents long Caribbean tracks
+    # (Matthew, Irma) from accumulating as much duration/breadth credit as
+    # equivalent time spent over the US coast.
     duration_integral = 0.0
-    coastal_hours = 0.0
+    coastal_hours = 0.0          # Raw (unweighted) — for reporting only
+    weighted_coastal_hours = 0.0 # Zone-weighted — used in breadth computation
     coastal_count = 0
 
     for i, s in enumerate(dpi_series):
@@ -325,30 +367,27 @@ def compute_cumulative_dpi(
 
         dt_hours = min(dt_hours, 12.0)  # Cap at 12h to avoid gaps
 
-        coastal_hours += dt_hours
+        coastal_hours += dt_hours  # Raw hours for reporting
+
+        # [F7] Zone weight: US mainland = 1.0, Caribbean islands = 0.15–0.40
+        zone_weight = _get_zone_weight(s.get("coastal_zone", "Open Ocean"))
+        weighted_coastal_hours += dt_hours * zone_weight
+
         # Weight by relative DPI intensity — but use a lower threshold
         # to capture post-landfall exposure (Harvey stalling at tropical
         # storm intensity still causes massive flooding damage).
         # Weight is (DPI / peak)^0.5 to give more credit to weaker
         # but still-active snapshots.
-        weight = math.sqrt(s["dpi"] / peak_dpi)
-        duration_integral += weight * dt_hours
-
-    # ── Economic Density Factor ──
-    # Scale cumulative bonuses by the economic density of the most-affected zone.
-    # Storms stalling over small-economy islands (Bahamas) shouldn't get the
-    # same duration/breadth credit as storms stalling over Houston or Miami.
-    econ_density_factor = 1.0
-    if peak_entry.get("coastal_zone") == "Bahamas proximity":
-        econ_density_factor = 0.15  # Tiny economy
-    elif peak_entry.get("coastal_zone") == "Puerto Rico / USVI":
-        econ_density_factor = 0.60  # Moderate US territory
+        intensity_weight = math.sqrt(s["dpi"] / peak_dpi)
+        duration_integral += intensity_weight * dt_hours * zone_weight  # [F7]
 
     # ── Duration Factor ──
     # Normalize: a "standard" storm crosses in ~24h with DPI at peak.
     # Anything above that = prolonged exposure.
+    # Zone weighting (F7) has already been folded into duration_integral,
+    # so no separate econ_density_factor multiplication is needed.
     excess_duration = max(0.0, duration_integral - T_REF_HOURS)
-    duration_factor = min(DURATION_CAP, excess_duration / (T_REF_HOURS * 3.0) * econ_density_factor)
+    duration_factor = min(DURATION_CAP, excess_duration / (T_REF_HOURS * 3.0))
 
     # ── Breadth Factor ──
     # Large storms (high IKE) tracking along coast for extended periods
@@ -361,13 +400,15 @@ def compute_cumulative_dpi(
     #   Capped at 2.0 to prevent runaway
     # This gives extra credit to anomalously large wind fields (Sandy 640 TJ,
     # Ida 576 TJ, Michael 321 TJ) without compressing them all to 1.0.
+    # [F7] Use zone-weighted coastal hours so Caribbean tracks don't inflate
+    # the breadth factor as much as equivalent US mainland exposure.
     if peak_ike <= IKE_REF_TJ:
         ike_norm = peak_ike / IKE_REF_TJ
     else:
         ike_norm = min(2.0, 1.0 + math.sqrt((peak_ike - IKE_REF_TJ) / IKE_REF_TJ))
 
-    coastal_time_norm = min(1.0, coastal_hours / COASTAL_REF_HOURS)
-    breadth_raw = ike_norm * coastal_time_norm * 0.20 * econ_density_factor
+    coastal_time_norm = min(1.0, weighted_coastal_hours / COASTAL_REF_HOURS)  # [F7]
+    breadth_raw = ike_norm * coastal_time_norm * 0.20
     breadth_factor = min(BREADTH_CAP, breadth_raw)
 
     # ── Cumulative DPI ──
