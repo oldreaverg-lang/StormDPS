@@ -75,6 +75,7 @@ BREADTH_CAP = 0.25         # Max breadth bonus (fraction of peak)  [R1: raised f
 US_MAINLAND_ZONES = {
     "Gulf Coast", "FL West/South", "FL East",
     "SE Atlantic", "Mid-Atlantic / NE", "LA / MS coast",
+    "New Orleans", "Biloxi / Gulfport", "Mobile",
 }
 ZONE_WEIGHTS = {
     # US mainland coast → full credit

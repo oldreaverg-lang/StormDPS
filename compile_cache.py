@@ -158,6 +158,10 @@ COASTAL_REGIONS = [
     (25.0, 27.0, -80.5, -79.5, "SE Florida"),
     (28.5, 30.5, -85.0, -82.0, "FL Big Bend"),
     (27.0, 31.0, -82.0, -79.5, "NE Florida / Georgia"),
+    # Gulf coast metro sub-regions — checked before the broader LA/MS/AL boxes
+    (28.0, 30.2, -91.5, -89.0, "New Orleans"),       # New Orleans metro / coastal parishes / Lake Pontchartrain
+    (30.2, 30.6, -89.5, -88.7, "Biloxi / Gulfport"), # Biloxi-Gulfport metro
+    (30.1, 31.0, -88.3, -87.7, "Mobile"),             # Mobile Bay metro
     (28.0, 30.5, -94.0, -88.0, "Louisiana / Mississippi"),
     (30.5, 31.0, -90.0, -88.0, "Mississippi"),
     (24.5, 30.5, -98.0, -94.0, "Texas"),
@@ -343,7 +347,10 @@ COASTAL_EXPOSURE_WEIGHTS = {
     "NE Florida / Georgia":     0.65,  # Jacksonville metro, Savannah, ~2M combined
     "Texas":                    0.60,  # Houston corridor is dense but coast is spread
     "Carolinas":                0.55,  # Charleston, Myrtle Beach, Wilmington
-    "Louisiana / Mississippi":  0.60,  # New Orleans metro, but lots of rural coast
+    "New Orleans":              0.65,  # New Orleans metro — dense, below sea level, extreme surge risk
+    "Biloxi / Gulfport":       0.65,  # Biloxi-Gulfport — dense barrier island coast, high surge exposure
+    "Mobile":                  0.65,  # Mobile Bay — funnel geometry amplifies surge significantly
+    "Louisiana / Mississippi":  0.60,  # Broader rural LA/MS coast
     "North Carolina":           0.45,  # Outer Banks, Morehead City — lower density
     # Lower density
     "Alabama / FL Panhandle":   0.35,  # Pensacola, Panama City — smaller metros
@@ -447,6 +454,7 @@ US_MAINLAND_REGIONS = {
     "SE Florida", "Tampa Bay", "Northeast", "Mid-Atlantic", "SW Florida",
     "NE Florida / Georgia", "Texas", "Carolinas", "Louisiana / Mississippi",
     "North Carolina", "Alabama / FL Panhandle", "FL Big Bend", "Mississippi",
+    "New Orleans", "Biloxi / Gulfport", "Mobile",
 }
 
 
