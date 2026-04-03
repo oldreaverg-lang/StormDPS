@@ -697,8 +697,19 @@ def compile():
         else:
             stall_bonus = 0.0
 
-        # Combine exposure + perpendicular + stall into a post-multiplier boost
-        combined_boost = exposure_factor + perp_factor + stall_bonus
+        # R12: Rainfall inland damage extension
+        # Storms with high rainfall warning AND high estimated rainfall get a boost
+        # distinct from the stall bonus — this captures rain-driven inland flooding
+        RAIN_WARN_THRESHOLD = 40
+        RAIN_MM_THRESHOLD = 300
+        RAIN_INLAND_CAP = 0.08
+        if rain_result.warning_score > RAIN_WARN_THRESHOLD and rain_result.estimated_total_mm > RAIN_MM_THRESHOLD and cum_result.peak_dpi > 0:
+            rain_inland_factor = min(rain_result.warning_score / 100.0 * 0.08, RAIN_INLAND_CAP)
+        else:
+            rain_inland_factor = 0.0
+
+        # Combine exposure + perpendicular + stall + rainfall inland into a post-multiplier boost
+        combined_boost = exposure_factor + perp_factor + stall_bonus + rain_inland_factor
         if combined_boost > 0 and cum_result.peak_dpi > 0:
             current_multiplier = cum_result.cum_dpi / cum_result.peak_dpi
             boosted = cum_result.peak_dpi * (current_multiplier + combined_boost)
@@ -740,6 +751,8 @@ def compile():
             # Rainfall stall bonus (R7)
             "stall_bonus": stall_bonus,
             "stall_hours": rain_result.total_stall_hours,
+            # Rainfall inland factor (R12)
+            "rain_inland_factor": rain_inland_factor,
             # Breakdown factors
             "duration_factor": cum_result.duration_factor,
             "breadth_factor": cum_result.breadth_factor,
@@ -775,8 +788,9 @@ def compile():
         exp_note = f" EXP:+{exposure_factor:.1%}({exposure_region})" if exposure_factor > 0 else ""
         perp_note = f" PERP:+{perp_factor:.1%}(LF:{us_lf_count})" if perp_factor > 0 else ""
         stall_note = f" STALL:+{stall_bonus:.1%}({rain_result.total_stall_hours:.0f}h)" if stall_bonus > 0 else ""
+        rain_inland_note = f" RAIN-INLAND:+{rain_inland_factor:.1%}(warn:{rain_result.warning_score:.0f},mm:{rain_result.estimated_total_mm:.0f})" if rain_inland_factor > 0 else ""
         lf_info = f" LF:{len(landfall_events)}({', '.join(e['region'] for e in landfall_events)})" if landfall_events else " LF:0(fish)"
-        print(f"DPS {adjusted_dps:.0f} (peak {cum_result.peak_dpi:.0f}){adj_note}{adj_details}{exp_note}{perp_note}{stall_note}{rain_flag}{lf_info}")
+        print(f"DPS {adjusted_dps:.0f} (peak {cum_result.peak_dpi:.0f}){adj_note}{adj_details}{exp_note}{perp_note}{stall_note}{rain_inland_note}{rain_flag}{lf_info}")
 
     # Build output
     output = {
