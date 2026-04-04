@@ -527,6 +527,7 @@
                         <button class="chart-tab" data-scoretab="ias" onclick="switchScoreTab('ias')">IAS <span class="tip" data-tip="Impact Area Score: Measures geographic and rainfall amplification. Shows how local geography (continental shelf, terrain, river basins) and stalling storms can magnify actual damage beyond peak intensity alone.">?</span></button>
                         <button class="chart-tab" data-scoretab="ers" onclick="switchScoreTab('ers')">ERS <span class="tip" data-tip="Economic Risk Score: Combines coastal economic value with storm threat. Shows exposure—where the most valuable infrastructure lies along the projected path relative to storm intensity and size.">?</span></button>
                     </div>
+                    <div style="font-size:.6rem;color:var(--text-dim);text-align:right;padding:.1rem .5rem 0;">Click a point to sync the map ↑</div>
                     <div class="chart-tab-body">
                         <div class="chart-tab-pane active" id="tabDPS"><canvas id="dpsCanvas"></canvas></div>
                         <div class="chart-tab-pane" id="tabIAS"><canvas id="iasCanvas"></canvas></div>
@@ -3211,7 +3212,7 @@ function _buildScoreChart(canvasId, scores, data, label, lineColor, gradientStop
          }}
         }
     ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
-        onHover:(evt,els)=>{if(els&&els.length){if(window.animationFrameId)stopAnimation();const i=els[0].index;window.currentAnimIndex=i;document.getElementById('scrubSlider').value=i;syncVisualization(i,true)}},
+        onClick:(evt,els)=>{if(els&&els.length){if(window.animationFrameId)stopAnimation();const i=els[0].index;window.currentAnimIndex=i;document.getElementById('scrubSlider').value=i;syncVisualization(i,true)}},
         plugins:{zoneBands:{zones:DPS_ZONES},legend:{display:false},tooltip:{backgroundColor:'rgba(10,14,26,.95)',titleColor:'#f1f5f9',bodyColor:'#94a3b8',borderColor:'#1e293b',borderWidth:1,padding:10,cornerRadius:8,displayColors:true,titleFont:{weight:600},bodyFont:{size:12},callbacks:{label:tooltipCb}}},
         scales:{x:{grid:{color:'rgba(30,41,59,.5)',drawBorder:false},ticks:{maxTicksLimit:10,font:{size:10}}},y:{beginAtZero:true,max:100,grid:{color:'rgba(30,41,59,.5)',drawBorder:false},title:{display:true,text:'Score (0–100)',color:'#64748b',font:{size:10,weight:600}},ticks:{font:{size:10},stepSize:20}}}}});
 }
@@ -3250,7 +3251,7 @@ function renderChart(data){
         {label:'Hurricane IKE',data:data.map(d=>d.ike_hurricane_tj),borderColor:'#ef4444',borderWidth:2,borderDash:[6,3],fill:false,tension:.35,pointRadius:0,pointHitRadius:10},
         {label:'TS IKE',data:data.map(d=>d.ike_tropical_storm_tj),borderColor:'#3b82f6',borderWidth:1.5,fill:false,tension:.35,pointRadius:0,pointHitRadius:10}
     ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
-        onHover:(evt,els)=>{if(els&&els.length){if(window.animationFrameId)stopAnimation();const i=els[0].index;window.currentAnimIndex=i;document.getElementById('scrubSlider').value=i;syncVisualization(i,true)}},
+        onClick:(evt,els)=>{if(els&&els.length){if(window.animationFrameId)stopAnimation();const i=els[0].index;window.currentAnimIndex=i;document.getElementById('scrubSlider').value=i;syncVisualization(i,true)}},
         plugins:{zoneBands:{zones:IKE_ZONES},legend:{position:'top',labels:{color:'#e2e8f0',font:{size:11,weight:500},boxWidth:12,padding:14}},tooltip:{backgroundColor:'rgba(10,14,26,.92)',titleColor:'#f1f5f9',bodyColor:'#94a3b8',borderColor:'#1e293b',borderWidth:1,padding:8,cornerRadius:8,displayColors:true,titleFont:{weight:600},callbacks:{label:c=>`${c.dataset.label}: ${c.parsed.y.toFixed(1)} TJ (Terajoules)`}}},
         scales:{x:{grid:{color:'rgba(30,41,59,.5)',drawBorder:false},ticks:{maxTicksLimit:10,font:{size:10}}},y:{beginAtZero:true,grid:{color:'rgba(30,41,59,.5)',drawBorder:false},title:{display:true,text:'Wind Energy (Terajoules)',color:'#64748b',font:{size:10,weight:500}},ticks:{font:{size:10}}}}}});
 }
@@ -3263,7 +3264,7 @@ function renderSurgeChart(data){
     currentSurgeChart=new Chart(ctx,{type:'line',data:{labels,datasets:[
         {label:'Storm Surge (ft)',data:surgeData,borderColor:'#10b981',backgroundColor:'rgba(16,185,129,.08)',borderWidth:2.5,fill:true,tension:.35,pointRadius:0,pointHitRadius:10}
     ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
-        onHover:(evt,els)=>{if(els&&els.length){if(window.animationFrameId)stopAnimation();const i=els[0].index;window.currentAnimIndex=i;document.getElementById('scrubSlider').value=i;syncVisualization(i,true)}},
+        onClick:(evt,els)=>{if(els&&els.length){if(window.animationFrameId)stopAnimation();const i=els[0].index;window.currentAnimIndex=i;document.getElementById('scrubSlider').value=i;syncVisualization(i,true)}},
         plugins:{zoneBands:{zones:SURGE_ZONES},legend:{position:'top',labels:{color:'#e2e8f0',font:{size:11,weight:500},boxWidth:12,padding:14}},tooltip:{backgroundColor:'rgba(10,14,26,.92)',titleColor:'#f1f5f9',bodyColor:'#94a3b8',borderColor:'#1e293b',borderWidth:1,padding:8,cornerRadius:8,displayColors:true,titleFont:{weight:600},callbacks:{label:c=>`Surge Potential: ${c.parsed.y.toFixed(1)} ft`}}},
         scales:{x:{grid:{color:'rgba(30,41,59,.5)',drawBorder:false},ticks:{maxTicksLimit:10,font:{size:10}}},y:{beginAtZero:true,grid:{color:'rgba(30,41,59,.5)',drawBorder:false},title:{display:true,text:'Storm Surge (feet)',color:'#64748b',font:{size:10,weight:500}},ticks:{font:{size:10}}}}}});
 }
@@ -3276,7 +3277,7 @@ function renderPressureChart(data){
     currentPressureChart=new Chart(ctx,{type:'line',data:{labels,datasets:[
         {label:'Min Pressure (mb)',data:pressureData,borderColor:'#f59e0b',backgroundColor:'rgba(245,158,11,.08)',borderWidth:2.5,fill:true,tension:.35,pointRadius:0,pointHitRadius:10}
     ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
-        onHover:(evt,els)=>{if(els&&els.length){if(window.animationFrameId)stopAnimation();const i=els[0].index;window.currentAnimIndex=i;document.getElementById('scrubSlider').value=i;syncVisualization(i,true)}},
+        onClick:(evt,els)=>{if(els&&els.length){if(window.animationFrameId)stopAnimation();const i=els[0].index;window.currentAnimIndex=i;document.getElementById('scrubSlider').value=i;syncVisualization(i,true)}},
         plugins:{zoneBands:{zones:PRESSURE_ZONES},legend:{position:'top',labels:{color:'#e2e8f0',font:{size:11,weight:500},boxWidth:12,padding:14}},tooltip:{backgroundColor:'rgba(10,14,26,.92)',titleColor:'#f1f5f9',bodyColor:'#94a3b8',borderColor:'#1e293b',borderWidth:1,padding:8,cornerRadius:8,displayColors:true,titleFont:{weight:600},callbacks:{label:c=>`Pressure: ${c.parsed.y.toFixed(1)} mb`}}},
         scales:{x:{grid:{color:'rgba(30,41,59,.5)',drawBorder:false},ticks:{maxTicksLimit:10,font:{size:10}}},y:{beginAtZero:false,min:860,grid:{color:'rgba(30,41,59,.5)',drawBorder:false},title:{display:true,text:'Barometric Pressure (mb)',color:'#64748b',font:{size:10,weight:500}},ticks:{font:{size:10}}}}}});
 }
@@ -3310,7 +3311,7 @@ function renderWindChart(data){
         {label:'Max Wind (mph)',data:windMph,borderColor:'#f43f5e',backgroundColor:'rgba(244,63,94,.08)',borderWidth:2.5,fill:true,tension:.35,pointRadius:0,pointHitRadius:10,yAxisID:'y'},
         {label:'Max Wind (kt)',data:windKt,borderColor:'#a78bfa',backgroundColor:'transparent',borderWidth:1.5,borderDash:[5,3],fill:false,tension:.35,pointRadius:0,pointHitRadius:10,yAxisID:'y2'}
     ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
-        onHover:(evt,els)=>{if(els&&els.length){if(window.animationFrameId)stopAnimation();const i=els[0].index;window.currentAnimIndex=i;document.getElementById('scrubSlider').value=i;syncVisualization(i,true)}},
+        onClick:(evt,els)=>{if(els&&els.length){if(window.animationFrameId)stopAnimation();const i=els[0].index;window.currentAnimIndex=i;document.getElementById('scrubSlider').value=i;syncVisualization(i,true)}},
         plugins:{zoneBands:{zones:WIND_ZONES},legend:{position:'top',labels:{color:'#e2e8f0',font:{size:11,weight:500},boxWidth:12,padding:14}},tooltip:{backgroundColor:'rgba(10,14,26,.92)',titleColor:'#f1f5f9',bodyColor:'#94a3b8',borderColor:'#1e293b',borderWidth:1,padding:8,cornerRadius:8,displayColors:true,titleFont:{weight:600},callbacks:{label:c=>{
             if(c.datasetIndex===0)return`Wind: ${c.parsed.y.toFixed(0)} mph (${ssLabel(c.parsed.y)})`;
             return`Wind: ${c.parsed.y.toFixed(0)} kt`;
@@ -3394,7 +3395,7 @@ function renderSSTChart(data,sstData){
         {label:'Sea Surface Temp (°C)',data:sstValues,borderColor:'#ef4444',backgroundColor:'rgba(239,68,68,.08)',borderWidth:2.5,fill:true,tension:.35,pointRadius:0,pointHitRadius:10,spanGaps:true},
         {label:'26.5°C Threshold',data:Array(labels.length).fill(26.5),borderColor:'rgba(251,191,36,.5)',borderWidth:1.5,borderDash:[6,4],fill:false,pointRadius:0,pointHitRadius:0}
     ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
-        onHover:(evt,els)=>{if(els&&els.length){if(window.animationFrameId)stopAnimation();const i=els[0].index;window.currentAnimIndex=i;document.getElementById('scrubSlider').value=i;syncVisualization(i,true)}},
+        onClick:(evt,els)=>{if(els&&els.length){if(window.animationFrameId)stopAnimation();const i=els[0].index;window.currentAnimIndex=i;document.getElementById('scrubSlider').value=i;syncVisualization(i,true)}},
         plugins:{zoneBands:{zones:SST_ZONES},legend:{position:'top',labels:{color:'#e2e8f0',font:{size:11,weight:500},boxWidth:12,padding:14}},tooltip:{backgroundColor:'rgba(10,14,26,.92)',titleColor:'#f1f5f9',bodyColor:'#94a3b8',borderColor:'#1e293b',borderWidth:1,padding:8,cornerRadius:8,displayColors:true,titleFont:{weight:600},callbacks:{label:c=>{
             if(c.datasetIndex===1)return'Intensification threshold: 26.5°C';
             return c.parsed.y!==null?`SST: ${c.parsed.y.toFixed(1)}°C`:'SST: No data';
