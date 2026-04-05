@@ -221,28 +221,25 @@ def _load_cell_sync(col: int, row: int) -> dict:
     with open(flood_path) as f:
         flood_data = json.load(f)
 
-    # 3. OSM buildings + HAZUS damage model
+    # 3. Fetch OSM buildings — fetch_buildings handles its own file caching
     buildings_path = os.path.join(sdir, f"cell_{col}_{row}_buildings.json")
-    if not os.path.exists(buildings_path):
-        osm_buildings = fetch_buildings(lon_min, lat_min, lon_max, lat_max)
-        with open(buildings_path, "w") as f:
-            json.dump(osm_buildings, f)
-    else:
-        with open(buildings_path) as f:
-            osm_buildings = json.load(f)
+    fetch_buildings(lon_min, lat_min, lon_max, lat_max, buildings_path, cache=True)
 
-    # 4. Run damage model
-    if not os.path.exists(damage_path):
-        damaged_buildings = estimate_damage_from_raster(
-            raster_path, osm_buildings
-        )
+    with open(buildings_path) as f:
+        buildings_data = json.load(f)
+    if not buildings_data.get("features"):
+        empty = _empty_fc()
         with open(damage_path, "w") as f:
-            json.dump(damaged_buildings, f)
-    else:
-        with open(damage_path) as f:
-            damaged_buildings = json.load(f)
+            json.dump(empty, f)
+        return {"buildings": empty, "flood": flood_data}
 
-    return {"buildings": damaged_buildings, "flood": flood_data}
+    # 4. Run HAZUS damage model — writes damage GeoJSON to damage_path
+    estimate_damage_from_raster(raster_path, buildings_path, damage_path)
+
+    with open(damage_path) as f:
+        damage_data = json.load(f)
+
+    return {"buildings": damage_data, "flood": flood_data}
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
