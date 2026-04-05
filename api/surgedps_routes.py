@@ -260,10 +260,12 @@ async def surgedps_health():
 
 @router.get("/seasons")
 async def surgedps_seasons():
-    """Return available seasons (2015+) for the storm browser."""
+    """Return available seasons (2015+) for the storm browser.
+    get_seasons() returns List[dict] like {"year": 2020, "count": 5}.
+    """
     try:
         seasons = await asyncio.to_thread(get_seasons)
-        return [s for s in seasons if s >= SEASON_MIN_YEAR]
+        return [s for s in seasons if s["year"] >= SEASON_MIN_YEAR]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
