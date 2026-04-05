@@ -27,6 +27,9 @@ python-multipart==0.0.20
 # google-auth==2.38.0
 # google-cloud-aiplatform==1.78.0
 
+# --- Fast JSON (orjson is 5-10x faster than stdlib for large payloads) ---
+orjson>=3.9,<4.0
+
 # --- SurgeDPS dependencies ---
 # rasterio uses bundled GDAL wheels; pin to a recent stable release.
 requests>=2.31,<3.0
