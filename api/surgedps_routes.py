@@ -392,16 +392,20 @@ async def surgedps_search_storms(q: str = Query(...)):
     try:
         ql = q.lower().strip()
         seen_ids: set = set()
+        seen_name_year: set = set()  # deduplicate across ID formats (e.g. katrina_2005 vs AL122005)
         results = []
         for s in HISTORICAL_STORMS:
             if ql in s.name.lower() or ql in s.storm_id.lower():
                 results.append(_inject_dps(s.to_dict()))
                 seen_ids.add(s.storm_id)
+                seen_name_year.add((s.name.lower().strip(), s.year))
         hurdat_matches = await asyncio.to_thread(search_storms, q)
         for s in hurdat_matches:
-            if s.storm_id not in seen_ids:
+            key = (s.name.lower().strip(), s.year)
+            if s.storm_id not in seen_ids and key not in seen_name_year:
                 results.append(_inject_dps(s.to_dict()))
                 seen_ids.add(s.storm_id)
+                seen_name_year.add(key)
             if len(results) >= 20:
                 break
         return results
