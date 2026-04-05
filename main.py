@@ -29,6 +29,7 @@ from fastapi.staticfiles import StaticFiles
 
 from api.routes import router, generate_preload_bundle
 from api.weather_routes import router as weather_router
+from api.surgedps_routes import router as surgedps_router
 from services.weather_data_service import WeatherDataService
 
 logger = logging.getLogger(__name__)
@@ -132,6 +133,7 @@ app.add_middleware(GZipMiddleware, minimum_size=500)
 
 app.include_router(router, prefix="/api/v1")
 app.include_router(weather_router, prefix="/api/v1")
+app.include_router(surgedps_router, prefix="/surgedps/api")
 
 
 @app.get("/health")
@@ -180,6 +182,34 @@ async def internal_error_handler(request: Request, exc):
 @app.get("/")
 async def serve_frontend():
     return FileResponse(FRONTEND_DIR / "index.html")
+
+
+# ---------------------------------------------------------------------------
+# SurgeDPS sub-app — serves the React SPA at /surgedps (and /surgedps/*)
+# Static assets under /surgedps/assets/ are handled by the StaticFiles mount
+# below; everything else falls through to the SPA shell.
+# ---------------------------------------------------------------------------
+
+SURGEDPS_FRONTEND_DIR = FRONTEND_DIR / "surgedps"
+
+
+@app.get("/surgedps")
+async def serve_surgedps():
+    return FileResponse(SURGEDPS_FRONTEND_DIR / "index.html")
+
+
+@app.get("/surgedps/{path:path}")
+async def serve_surgedps_spa(path: str, request: Request):
+    # Let /surgedps/api/* be handled by the router (already mounted above)
+    if path.startswith("api/"):
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=404, content={"detail": "Not found"})
+    # Static assets (js, css, svg, png …) — serve directly if present
+    asset_file = SURGEDPS_FRONTEND_DIR / path
+    if asset_file.is_file():
+        return FileResponse(asset_file)
+    # Client-side routing fallback → SPA shell
+    return FileResponse(SURGEDPS_FRONTEND_DIR / "index.html")
 
 
 @app.get("/robots.txt")
