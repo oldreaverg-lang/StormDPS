@@ -83,6 +83,24 @@ if _dps_path.exists():
 _active_storm: Optional[StormEntry] = None
 _active_exposure_region: str = ""
 
+# ── Per-cell generation locks ─────────────────────────────────────────────────
+# Ensures only one coroutine generates a given cell at a time.
+# When multiple users request the same uncached cell simultaneously (common
+# during live storms), the second request waits for the first to finish and
+# then reads the cached result instead of launching a duplicate pipeline.
+_cell_locks: dict[str, asyncio.Lock] = {}
+_cell_locks_guard = threading.Lock()  # plain lock — used only during lock creation
+
+
+def _get_cell_lock(storm_id: str, col: int, row: int) -> asyncio.Lock:
+    """Return (creating if needed) the per-cell asyncio.Lock for (storm, col, row)."""
+    key = f"{storm_id}:{col},{row}"
+    with _cell_locks_guard:
+        if key not in _cell_locks:
+            _cell_locks[key] = asyncio.Lock()
+        return _cell_locks[key]
+
+
 # ── Router ───────────────────────────────────────────────────────────────────
 router = APIRouter()
 
@@ -486,8 +504,12 @@ async def surgedps_cell(col: int = Query(...), row: int = Query(...)):
         storm = _active_storm
         print(f"\n--- Loading cell ({col}, {row}) for {storm.name} ---")
 
-        # Generate if not cached
-        ok = await asyncio.to_thread(_generate_cell_files, storm, col, row)
+        # Acquire the per-cell lock so only one coroutine runs the generation
+        # pipeline at a time. A second request for the same cell will wait here
+        # and then immediately hit the file cache once the first finishes.
+        cell_lock = _get_cell_lock(storm.storm_id, col, row)
+        async with cell_lock:
+            ok = await asyncio.to_thread(_generate_cell_files, storm, col, row)
 
         # Metadata (small — fast regardless)
         conf = _compute_confidence(storm.storm_id)
@@ -518,6 +540,14 @@ async def surgedps_cell(col: int = Query(...), row: int = Query(...)):
 
     except HTTPException:
         raise
+    except RuntimeError as e:
+        # Building data sources (NSI + Overpass) both unavailable
+        msg = str(e)
+        print(f"[cell {col},{row}] Building data unavailable: {msg}")
+        raise HTTPException(
+            status_code=503,
+            detail="Building data temporarily unavailable — please try again in a moment.",
+        )
     except Exception as e:
         import traceback
         traceback.print_exc()
