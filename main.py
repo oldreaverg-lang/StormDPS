@@ -29,7 +29,16 @@ from fastapi.staticfiles import StaticFiles
 
 from api.routes import router, generate_preload_bundle
 from api.weather_routes import router as weather_router
-from api.surgedps_routes import router as surgedps_router
+try:
+    from api.surgedps_routes import router as surgedps_router
+    _surgedps_available = True
+except Exception as _surgedps_import_err:
+    surgedps_router = None
+    _surgedps_available = False
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        f"SurgeDPS router unavailable (import failed): {_surgedps_import_err}"
+    )
 from services.weather_data_service import WeatherDataService
 
 logger = logging.getLogger(__name__)
@@ -133,7 +142,8 @@ app.add_middleware(GZipMiddleware, minimum_size=500)
 
 app.include_router(router, prefix="/api/v1")
 app.include_router(weather_router, prefix="/api/v1")
-app.include_router(surgedps_router, prefix="/surgedps/api")
+if _surgedps_available and surgedps_router is not None:
+    app.include_router(surgedps_router, prefix="/surgedps/api")
 
 
 @app.get("/health")
