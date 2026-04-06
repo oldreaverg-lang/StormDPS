@@ -27,16 +27,22 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import math
 import os
+import re
 import sys
+import time
 import threading
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
 import orjson
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
+
+logger = logging.getLogger("surgedps")
 
 # ── Module path setup ───────────────────────────────────────────────────────
 _STORMDS_ROOT = Path(__file__).resolve().parent.parent  # StormDPS/
@@ -76,12 +82,23 @@ SEASON_MIN_YEAR = 2015
 _DPS_SCORES: dict = {}
 _dps_path = _DATA_DIR / "dps_scores.json"
 if _dps_path.exists():
-    with open(_dps_path) as _f:
-        _DPS_SCORES = json.load(_f)
+    try:
+        with open(_dps_path) as _f:
+            _DPS_SCORES = json.load(_f)
+        logger.info("Loaded %d DPS scores from %s", len(_DPS_SCORES), _dps_path)
+    except (json.JSONDecodeError, IOError) as _e:
+        logger.error("Failed to load DPS scores from %s: %s", _dps_path, _e)
+else:
+    logger.warning("DPS scores file not found: %s", _dps_path)
 
 # ── Active Storm State ────────────────────────────────────────────────────────
-_active_storm: Optional[StormEntry] = None
-_active_exposure_region: str = ""
+# Keyed by storm_id so multiple concurrent users can work with different storms.
+# Each entry stores (StormEntry, exposure_region) tuple.
+_active_storms: dict[str, tuple[StormEntry, str]] = {}
+_active_storms_lock = threading.Lock()
+
+# Legacy global for backward compat with health endpoint
+_last_activated_storm_id: Optional[str] = None
 
 # ── Per-cell generation locks ─────────────────────────────────────────────────
 # Ensures only one coroutine generates a given cell at a time.
@@ -131,8 +148,8 @@ def _compute_confidence(storm_id: str) -> dict:
                 with open(os.path.join(sdir, fname)) as f:
                     data = json.load(f)
                 total += len(data.get("features", []))
-            except Exception:
-                pass
+            except (json.JSONDecodeError, IOError, OSError) as exc:
+                logger.warning("Skipping %s during confidence calc: %s", fname, exc)
     level = "high" if total > 500 else ("medium" if total >= 50 else "low")
     return {"confidence": level, "building_count": total}
 
@@ -193,8 +210,19 @@ def _empty_fc() -> dict:
     return {"type": "FeatureCollection", "features": []}
 
 
+_SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_\-]+$")
+
+
+def _sanitize_storm_id(storm_id: str) -> str:
+    """Strip anything except alphanumeric, underscore, and hyphen."""
+    if _SAFE_ID_RE.match(storm_id):
+        return storm_id
+    return re.sub(r"[^A-Za-z0-9_\-]", "", storm_id)
+
+
 def _storm_cache_dir(storm: StormEntry) -> str:
-    d = os.path.join(CACHE_DIR, storm.storm_id)
+    safe_id = _sanitize_storm_id(storm.storm_id)
+    d = os.path.join(CACHE_DIR, safe_id)
     os.makedirs(d, exist_ok=True)
     return d
 
@@ -350,14 +378,21 @@ def _prewarm_storm(storm_id: str) -> None:
         print(f"[prewarm] {storm_id} failed: {e}")
 
 
+def _prewarm_worker(storm_id: str, delay: float) -> None:
+    """Staggered pre-warm worker for a single storm."""
+    time.sleep(delay)
+    _prewarm_storm(storm_id)
+
+
 def _start_prewarm() -> None:
     """Launch pre-warm threads at import time with a staggered start."""
+    if os.environ.get("SURGEDPS_SKIP_PREWARM"):
+        logger.info("Pre-warming skipped (SURGEDPS_SKIP_PREWARM set)")
+        return
     for i, sid in enumerate(_PREWARM_STORM_IDS):
         t = threading.Thread(
-            target=lambda s=sid, delay=i * 15: (
-                __import__("time").sleep(delay),
-                _prewarm_storm(s),
-            ),
+            target=_prewarm_worker,
+            args=(sid, i * 15),
             daemon=True,
             name=f"prewarm-{sid}",
         )
@@ -377,7 +412,8 @@ _start_prewarm()
 async def surgedps_health():
     return {
         "status": "ok",
-        "active_storm": _active_storm.storm_id if _active_storm else None,
+        "active_storms": list(_active_storms.keys()),
+        "last_activated": _last_activated_storm_id,
         "prewarm_storms": _PREWARM_STORM_IDS,
     }
 
@@ -444,7 +480,7 @@ async def surgedps_season(year: int):
 
 @router.get("/storm/{storm_id}/activate")
 async def surgedps_activate_storm(storm_id: str):
-    global _active_storm, _active_exposure_region
+    global _last_activated_storm_id
 
     # Resolve storm
     storm = await asyncio.to_thread(get_storm_by_id, storm_id)
@@ -456,15 +492,11 @@ async def surgedps_activate_storm(storm_id: str):
     if storm is None:
         raise HTTPException(status_code=404, detail=f"Storm '{storm_id}' not found")
 
-    _active_storm = storm
-    print(f"\n{'='*60}")
-    print(f"ACTIVATED: {storm.name} ({storm.year}) — Cat {storm.category}")
-    print(f"  Landfall: ({storm.landfall_lon}, {storm.landfall_lat})")
-    print(f"  Wind: {storm.max_wind_kt} kt  Pressure: {storm.min_pressure_mb} mb")
-    print(f"{'='*60}\n")
+    logger.info("ACTIVATED: %s (%d) — Cat %d  Landfall: (%.2f, %.2f)",
+                storm.name, storm.year, storm.category,
+                storm.landfall_lon, storm.landfall_lat)
 
     # Generate center cell if not cached (heavy)
-    print("Ensuring center cell (0,0)…")
     ok = await asyncio.to_thread(_generate_cell_files, storm, 0, 0)
 
     # Build storm metadata
@@ -475,13 +507,18 @@ async def surgedps_activate_storm(storm_id: str):
     eli = _compute_eli(storm_data.get("dps_score", 0), conf["building_count"])
     storm_data["eli"] = eli["eli"]
     storm_data["eli_tier"] = eli["eli_tier"]
-    _active_exposure_region = storm_data.get("exposure_region", "")
+    exposure_region = storm_data.get("exposure_region", "")
     vdps = _compute_validated_dps(
-        storm_data.get("dps_score", 0), conf["building_count"], _active_exposure_region
+        storm_data.get("dps_score", 0), conf["building_count"], exposure_region
     )
     storm_data["validated_dps"] = vdps["validated_dps"]
     storm_data["dps_adjustment"] = vdps["dps_adjustment"]
     storm_data["dps_adj_reason"] = vdps["dps_adj_reason"]
+
+    # Register in the per-storm state dict (thread-safe)
+    with _active_storms_lock:
+        _active_storms[storm_id] = (storm, exposure_region)
+    _last_activated_storm_id = storm_id
 
     if ok:
         # ── FAST PATH: splice raw bytes — no json.load / json.dumps ──────────
@@ -491,18 +528,41 @@ async def surgedps_activate_storm(storm_id: str):
             body = _build_activate_json(storm_data, damage_bytes, flood_bytes)
             return Response(content=body, media_type="application/json")
 
-    # Fallback (files missing for some reason)
-    return {"storm": storm_data, "center_cell": {"buildings": _empty_fc(), "flood": _empty_fc()}}
+    # Cell generation failed — tell the client (#2)
+    raise HTTPException(
+        status_code=500,
+        detail=f"Failed to generate center cell for {storm.name}. Data sources may be temporarily unavailable.",
+    )
 
 
 @router.get("/cell")
-async def surgedps_cell(col: int = Query(...), row: int = Query(...)):
-    if _active_storm is None:
-        raise HTTPException(status_code=400, detail="No storm active")
+async def surgedps_cell(
+    col: int = Query(...),
+    row: int = Query(...),
+    storm_id: Optional[str] = Query(None),
+):
+    # Resolve storm: prefer explicit storm_id param, fall back to last-activated
+    storm: Optional[StormEntry] = None
+    exposure_region = ""
+
+    if storm_id:
+        with _active_storms_lock:
+            entry = _active_storms.get(storm_id)
+        if entry:
+            storm, exposure_region = entry
+
+    # Backward compat: if no storm_id param or not found, use last activated
+    if storm is None and _last_activated_storm_id:
+        with _active_storms_lock:
+            entry = _active_storms.get(_last_activated_storm_id)
+        if entry:
+            storm, exposure_region = entry
+
+    if storm is None:
+        raise HTTPException(status_code=400, detail="No storm active — activate a storm first")
 
     try:
-        storm = _active_storm
-        print(f"\n--- Loading cell ({col}, {row}) for {storm.name} ---")
+        logger.info("Loading cell (%d, %d) for %s", col, row, storm.name)
 
         # Acquire the per-cell lock so only one coroutine runs the generation
         # pipeline at a time. A second request for the same cell will wait here
@@ -515,7 +575,7 @@ async def surgedps_cell(col: int = Query(...), row: int = Query(...)):
         conf = _compute_confidence(storm.storm_id)
         dps_val = _DPS_SCORES.get(storm.storm_id, 0) or _DPS_SCORES.get(storm.storm_id.lower(), 0)
         eli = _compute_eli(dps_val, conf["building_count"])
-        vdps = _compute_validated_dps(dps_val, conf["building_count"], _active_exposure_region)
+        vdps = _compute_validated_dps(dps_val, conf["building_count"], exposure_region)
         meta = {
             "confidence": conf["confidence"],
             "building_count": conf["building_count"],
@@ -533,7 +593,7 @@ async def surgedps_cell(col: int = Query(...), row: int = Query(...)):
                 damage_bytes, flood_bytes = raw
                 body = _build_cell_json(damage_bytes, flood_bytes, meta)
                 n_approx = damage_bytes.count(b'"type":"Feature"')
-                print(f"--- Cell ({col},{row}): ~{n_approx} buildings (fast path) ---")
+                logger.info("Cell (%d,%d): ~%d buildings (fast path)", col, row, n_approx)
                 return Response(content=body, media_type="application/json")
 
         raise HTTPException(status_code=500, detail="Cell files not generated")
@@ -542,13 +602,11 @@ async def surgedps_cell(col: int = Query(...), row: int = Query(...)):
         raise
     except RuntimeError as e:
         # Building data sources (NSI + Overpass) both unavailable
-        msg = str(e)
-        print(f"[cell {col},{row}] Building data unavailable: {msg}")
+        logger.warning("Cell (%d,%d) building data unavailable: %s", col, row, e)
         raise HTTPException(
             status_code=503,
             detail="Building data temporarily unavailable — please try again in a moment.",
         )
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Unexpected error in cell (%d,%d)", col, row)
         raise HTTPException(status_code=500, detail=str(e))
