@@ -217,7 +217,11 @@ async def serve_surgedps_spa(path: str, request: Request):
     # Static assets (js, css, svg, png …) — serve directly if present
     asset_file = SURGEDPS_FRONTEND_DIR / path
     if asset_file.is_file():
-        return FileResponse(asset_file)
+        response = FileResponse(asset_file)
+        # Vite hashed assets are immutable — cache aggressively
+        if path.startswith("assets/"):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
     # Client-side routing fallback → SPA shell
     return FileResponse(SURGEDPS_FRONTEND_DIR / "index.html")
 

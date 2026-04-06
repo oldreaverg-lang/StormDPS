@@ -34,7 +34,7 @@ import re
 import sys
 import time
 import threading
-from functools import lru_cache
+from collections import OrderedDict
 from pathlib import Path
 from typing import Optional
 
@@ -49,9 +49,6 @@ _STORMDS_ROOT = Path(__file__).resolve().parent.parent  # StormDPS/
 _SURGEDPS_SRC = str(_STORMDS_ROOT / "surgedps")
 if _SURGEDPS_SRC not in sys.path:
     sys.path.insert(0, _SURGEDPS_SRC)
-
-# ── SurgeDPS module imports ──────────────────────────────────────────────────
-import numpy as np  # noqa: F401
 
 from damage_model.depth_damage import estimate_damage_from_raster  # type: ignore
 from data_ingest.building_fetcher import fetch_buildings  # type: ignore
@@ -94,18 +91,32 @@ else:
 # ── Active Storm State ────────────────────────────────────────────────────────
 # Keyed by storm_id so multiple concurrent users can work with different storms.
 # Each entry stores (StormEntry, exposure_region) tuple.
-_active_storms: dict[str, tuple[StormEntry, str]] = {}
+# Bounded to 50 entries (LRU eviction) to prevent unbounded memory growth.
+_MAX_ACTIVE_STORMS = 50
+_active_storms: OrderedDict[str, tuple[StormEntry, str]] = OrderedDict()
 _active_storms_lock = threading.Lock()
 
 # Legacy global for backward compat with health endpoint
 _last_activated_storm_id: Optional[str] = None
+
+
+def _register_active_storm(storm_id: str, storm: StormEntry, region: str) -> None:
+    """Thread-safe registration with LRU eviction."""
+    with _active_storms_lock:
+        _active_storms.pop(storm_id, None)  # Move to end if exists
+        _active_storms[storm_id] = (storm, region)
+        while len(_active_storms) > _MAX_ACTIVE_STORMS:
+            _active_storms.popitem(last=False)  # Evict oldest
+
 
 # ── Per-cell generation locks ─────────────────────────────────────────────────
 # Ensures only one coroutine generates a given cell at a time.
 # When multiple users request the same uncached cell simultaneously (common
 # during live storms), the second request waits for the first to finish and
 # then reads the cached result instead of launching a duplicate pipeline.
-_cell_locks: dict[str, asyncio.Lock] = {}
+# Bounded to 200 entries to prevent unbounded memory growth.
+_MAX_CELL_LOCKS = 200
+_cell_locks: OrderedDict[str, asyncio.Lock] = OrderedDict()
 _cell_locks_guard = threading.Lock()  # plain lock — used only during lock creation
 
 
@@ -113,8 +124,12 @@ def _get_cell_lock(storm_id: str, col: int, row: int) -> asyncio.Lock:
     """Return (creating if needed) the per-cell asyncio.Lock for (storm, col, row)."""
     key = f"{storm_id}:{col},{row}"
     with _cell_locks_guard:
-        if key not in _cell_locks:
+        if key in _cell_locks:
+            _cell_locks.move_to_end(key)
+        else:
             _cell_locks[key] = asyncio.Lock()
+            while len(_cell_locks) > _MAX_CELL_LOCKS:
+                _cell_locks.popitem(last=False)
         return _cell_locks[key]
 
 
@@ -137,10 +152,22 @@ _REGIONAL_BLDG_BASELINE = {
 }
 
 
+# Confidence cache: {storm_id: (result_dict, timestamp)}
+_confidence_cache: dict[str, tuple[dict, float]] = {}
+_CONFIDENCE_TTL = 60.0  # seconds — rescan at most once per minute per storm
+
+
 def _compute_confidence(storm_id: str) -> dict:
+    now = time.monotonic()
+    cached = _confidence_cache.get(storm_id)
+    if cached and (now - cached[1]) < _CONFIDENCE_TTL:
+        return cached[0]
+
     sdir = os.path.join(CACHE_DIR, storm_id)
     if not os.path.isdir(sdir):
-        return {"confidence": "unvalidated", "building_count": 0}
+        result = {"confidence": "unvalidated", "building_count": 0}
+        _confidence_cache[storm_id] = (result, now)
+        return result
     total = 0
     for fname in os.listdir(sdir):
         if fname.endswith("_buildings.json"):
@@ -151,7 +178,9 @@ def _compute_confidence(storm_id: str) -> dict:
             except (json.JSONDecodeError, IOError, OSError) as exc:
                 logger.warning("Skipping %s during confidence calc: %s", fname, exc)
     level = "high" if total > 500 else ("medium" if total >= 50 else "low")
-    return {"confidence": level, "building_count": total}
+    result = {"confidence": level, "building_count": total}
+    _confidence_cache[storm_id] = (result, now)
+    return result
 
 
 def _compute_eli(dps_score: float, building_count: int) -> dict:
@@ -302,13 +331,13 @@ def _generate_cell_files(storm: StormEntry, col: int, row: int) -> bool:
 
     # Already cached — nothing to do
     if os.path.exists(damage_path) and os.path.exists(flood_path):
-        print(f"  [cache hit] cell ({col},{row}) for {storm.storm_id}")
+        logger.debug("[cache hit] cell (%d,%d) for %s", col, row, storm.storm_id)
         return True
 
     sdir = _storm_cache_dir(storm)
     lon_min, lat_min, lon_max, lat_max = _cell_bbox(col, row, storm)
-    print(f"[{storm.storm_id} cell {col},{row}] "
-          f"bbox=({lon_min:.2f},{lat_min:.2f})->({lon_max:.2f},{lat_max:.2f})")
+    logger.info("[%s cell %d,%d] bbox=(%.2f,%.2f)->(%.2f,%.2f)",
+                storm.storm_id, col, row, lon_min, lat_min, lon_max, lat_max)
 
     # 1. Surge raster
     raster_path = os.path.join(sdir, f"cell_{col}_{row}_depth.tif")
@@ -345,7 +374,7 @@ def _generate_cell_files(storm: StormEntry, col: int, row: int) -> bool:
         estimate_damage_from_raster(raster_path, buildings_path, damage_path)
 
     n = len(buildings_data.get("features", []))
-    print(f"  [{storm.storm_id} cell {col},{row}] {n} buildings processed")
+    logger.info("[%s cell %d,%d] %d buildings processed", storm.storm_id, col, row, n)
     return os.path.exists(damage_path) and os.path.exists(flood_path)
 
 
@@ -368,14 +397,14 @@ def _prewarm_storm(storm_id: str) -> None:
         return
     damage_path, flood_path = _cell_paths(storm, 0, 0)
     if os.path.exists(damage_path) and os.path.exists(flood_path):
-        print(f"[prewarm] {storm_id} already cached — skipping")
+        logger.debug("[prewarm] %s already cached — skipping", storm_id)
         return
-    print(f"[prewarm] Generating center cell for {storm.name} ({storm.year})…")
+    logger.info("[prewarm] Generating center cell for %s (%d)…", storm.name, storm.year)
     try:
         _generate_cell_files(storm, 0, 0)
-        print(f"[prewarm] {storm_id} done")
+        logger.info("[prewarm] %s done", storm_id)
     except Exception as e:
-        print(f"[prewarm] {storm_id} failed: {e}")
+        logger.error("[prewarm] %s failed: %s", storm_id, e)
 
 
 def _prewarm_worker(storm_id: str, delay: float) -> None:
@@ -515,9 +544,8 @@ async def surgedps_activate_storm(storm_id: str):
     storm_data["dps_adjustment"] = vdps["dps_adjustment"]
     storm_data["dps_adj_reason"] = vdps["dps_adj_reason"]
 
-    # Register in the per-storm state dict (thread-safe)
-    with _active_storms_lock:
-        _active_storms[storm_id] = (storm, exposure_region)
+    # Register in the per-storm state dict (thread-safe, with LRU eviction)
+    _register_active_storm(storm_id, storm, exposure_region)
     _last_activated_storm_id = storm_id
 
     if ok:
@@ -528,11 +556,11 @@ async def surgedps_activate_storm(storm_id: str):
             body = _build_activate_json(storm_data, damage_bytes, flood_bytes)
             return Response(content=body, media_type="application/json")
 
-    # Cell generation failed — tell the client (#2)
-    raise HTTPException(
-        status_code=500,
-        detail=f"Failed to generate center cell for {storm.name}. Data sources may be temporarily unavailable.",
-    )
+    # Cell generation failed — return storm metadata with empty cells + error flag
+    # so the map still flies to the landfall location and user can retry cells manually
+    logger.warning("Center cell generation failed for %s — returning empty data", storm.name)
+    storm_data["cell_error"] = "Center cell data unavailable — try loading cells manually."
+    return {"storm": storm_data, "center_cell": {"buildings": _empty_fc(), "flood": _empty_fc()}}
 
 
 @router.get("/cell")
