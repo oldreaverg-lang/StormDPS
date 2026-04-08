@@ -41,6 +41,9 @@ from typing import Optional
 import orjson
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
+from data_ingest.duckdb_cache import building_cache  # in-session spatial cache
+from storage.r2_client import r2                    # Cloudflare R2 (no-op if unconfigured)
+from data_ingest.duckdb_cache import building_cache  # DuckDB in-session cache
 
 logger = logging.getLogger("surgedps")
 
@@ -52,7 +55,8 @@ if _SURGEDPS_SRC not in sys.path:
 
 from damage_model.depth_damage import estimate_damage_from_raster  # type: ignore
 from data_ingest.building_fetcher import fetch_buildings  # type: ignore
-from tile_gen.pmtiles_builder import raster_to_geojson  # type: ignore
+from tile_gen.pmtiles_builder import raster_to_geojson, build_vector_pmtiles  # type: ignore
+from tile_gen.cog_builder import build_cog  # type: ignore
 from storm_catalog.catalog import (  # type: ignore
     StormEntry,
     CELL_WIDTH,
@@ -163,20 +167,23 @@ def _compute_confidence(storm_id: str) -> dict:
     if cached and (now - cached[1]) < _CONFIDENCE_TTL:
         return cached[0]
 
-    sdir = os.path.join(CACHE_DIR, storm_id)
-    if not os.path.isdir(sdir):
-        result = {"confidence": "unvalidated", "building_count": 0}
-        _confidence_cache[storm_id] = (result, now)
-        return result
-    total = 0
-    for fname in os.listdir(sdir):
-        if fname.endswith("_buildings.json"):
-            try:
-                with open(os.path.join(sdir, fname)) as f:
-                    data = json.load(f)
-                total += len(data.get("features", []))
-            except (json.JSONDecodeError, IOError, OSError) as exc:
-                logger.warning("Skipping %s during confidence calc: %s", fname, exc)
+    # Ask DuckDB instead of scanning the filesystem — O(1) vs O(n files)
+    total = building_cache.building_count()
+    if total == 0:
+        # DuckDB has nothing yet (cold start); fall back to filesystem scan
+        sdir = os.path.join(CACHE_DIR, storm_id)
+        if not os.path.isdir(sdir):
+            result = {"confidence": "unvalidated", "building_count": 0}
+            _confidence_cache[storm_id] = (result, now)
+            return result
+        for fname in os.listdir(sdir):
+            if fname.endswith("_buildings.json"):
+                try:
+                    with open(os.path.join(sdir, fname)) as f:
+                        data = json.load(f)
+                    total += len(data.get("features", []))
+                except (json.JSONDecodeError, IOError, OSError) as exc:
+                    logger.warning("Skipping %s during confidence calc: %s", fname, exc)
     level = "high" if total > 500 else ("medium" if total >= 50 else "low")
     result = {"confidence": level, "building_count": total}
     _confidence_cache[storm_id] = (result, now)
@@ -274,20 +281,62 @@ def _cell_bbox(col: int, row: int, storm: StormEntry) -> tuple[float, float, flo
 # Fast response helpers — no JSON parse for large files
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+def _r2_cell_key(storm: StormEntry, col: int, row: int, suffix: str) -> str:
+    """R2 object key for a cell file, e.g. surgedps/cells/ian2022/2_3_damage.geojson"""
+    safe_id = _sanitize_storm_id(storm.storm_id)
+    return f"surgedps/cells/{safe_id}/cell_{col}_{row}_{suffix}.geojson"
+
+
 def _read_cell_raw(storm: StormEntry, col: int, row: int) -> tuple[bytes, bytes] | None:
     """
     Read cached damage + flood files as raw bytes.
     Returns (damage_bytes, flood_bytes) or None if not cached.
+
+    Read order: local filesystem first (fastest), then R2 (survives deploys).
     Avoids json.load → json.dumps for the large building payload.
     """
     damage_path, flood_path = _cell_paths(storm, col, row)
+
+    # 1. Local filesystem (hot cache — present within the same Railway instance)
     if os.path.exists(damage_path) and os.path.exists(flood_path):
         with open(damage_path, "rb") as f:
             damage = f.read()
         with open(flood_path, "rb") as f:
             flood = f.read()
         return damage, flood
+
+    # 2. R2 (cold cache — survives redeploys; populate local copy for subsequent reads)
+    if r2.available:
+        damage = r2.download_bytes(_r2_cell_key(storm, col, row, "damage"))
+        flood  = r2.download_bytes(_r2_cell_key(storm, col, row, "flood"))
+        if damage and flood:
+            logger.info("[R2] Cache hit for cell %s:%d,%d — writing to local fs", storm.storm_id, col, row)
+            os.makedirs(os.path.dirname(damage_path), exist_ok=True)
+            with open(damage_path, "wb") as f:
+                f.write(damage)
+            with open(flood_path, "wb") as f:
+                f.write(flood)
+            return damage, flood
+
     return None
+
+
+def _write_cell_to_r2(storm: StormEntry, col: int, row: int) -> None:
+    """
+    After a cell is generated locally, push it to R2 for persistence.
+    Runs in the background — does not block the response.
+    """
+    if not r2.available:
+        return
+    damage_path, flood_path = _cell_paths(storm, col, row)
+    try:
+        with open(damage_path, "rb") as f:
+            r2.upload_bytes(_r2_cell_key(storm, col, row, "damage"), f.read(), "application/geo+json")
+        with open(flood_path, "rb") as f:
+            r2.upload_bytes(_r2_cell_key(storm, col, row, "flood"), f.read(), "application/geo+json")
+        logger.info("[R2] Persisted cell %s:%d,%d", storm.storm_id, col, row)
+    except Exception as exc:
+        logger.warning("[R2] Failed to persist cell %s:%d,%d: %s", storm.storm_id, col, row, exc)
 
 
 def _build_cell_json(damage_bytes: bytes, flood_bytes: bytes, meta: dict) -> bytes:
@@ -354,9 +403,41 @@ def _generate_cell_files(storm: StormEntry, col: int, row: int) -> bool:
             speed_kt=storm.speed_kt,
         )
 
+    # 1b. Cloud-Optimized GeoTIFF for range-request streaming from R2
+    cog_path = os.path.join(sdir, f"cell_{col}_{row}_depth_cog.tif")
+    if not os.path.exists(cog_path) and os.path.exists(raster_path):
+        try:
+            build_cog(raster_path, cog_path)
+            logger.info("[%s cell %d,%d] COG built: %s", storm.storm_id, col, row, cog_path)
+            if r2.available:
+                safe_id = _sanitize_storm_id(storm.storm_id)
+                r2.upload_file(
+                    f"surgedps/cogs/{safe_id}/cell_{col}_{row}.tif",
+                    cog_path,
+                )
+        except Exception as exc:
+            logger.warning("[%s cell %d,%d] COG build failed (non-fatal): %s",
+                           storm.storm_id, col, row, exc)
+
     # 2. Flood polygons
     if not os.path.exists(flood_path):
         raster_to_geojson(raster_path, flood_path)
+
+    # 2b. Vector PMTiles for efficient tile serving
+    pmtiles_path = os.path.join(sdir, f"cell_{col}_{row}_flood.pmtiles")
+    if not os.path.exists(pmtiles_path) and os.path.exists(flood_path):
+        try:
+            build_vector_pmtiles(flood_path, pmtiles_path)
+            logger.info("[%s cell %d,%d] PMTiles built: %s", storm.storm_id, col, row, pmtiles_path)
+            if r2.available:
+                safe_id = _sanitize_storm_id(storm.storm_id)
+                r2.upload_file(
+                    f"surgedps/pmtiles/{safe_id}/cell_{col}_{row}.pmtiles",
+                    pmtiles_path,
+                )
+        except Exception as exc:
+            logger.warning("[%s cell %d,%d] PMTiles build failed (non-fatal): %s",
+                           storm.storm_id, col, row, exc)
 
     # 3. OSM buildings (fetch_buildings handles its own caching)
     buildings_path = os.path.join(sdir, f"cell_{col}_{row}_buildings.json")
@@ -375,6 +456,21 @@ def _generate_cell_files(storm: StormEntry, col: int, row: int) -> bool:
 
     n = len(buildings_data.get("features", []))
     logger.info("[%s cell %d,%d] %d buildings processed", storm.storm_id, col, row, n)
+
+    # Persist to R2 so the cell survives Railway redeploys
+    if os.path.exists(damage_path) and os.path.exists(flood_path):
+        threading.Thread(
+            target=_write_cell_to_r2,
+            args=(storm, col, row),
+            daemon=True,
+        ).start()
+        # Update coverage manifest (data catalog)
+        threading.Thread(
+            target=_update_manifest,
+            args=(storm.storm_id, col, row, n),
+            daemon=True,
+        ).start()
+
     return os.path.exists(damage_path) and os.path.exists(flood_path)
 
 
@@ -636,5 +732,106 @@ async def surgedps_cell(
             detail="Building data temporarily unavailable — please try again in a moment.",
         )
     except Exception as e:
-        logger.exception("Unexpected error in cell (%d,%d)", col, row)
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Unexpected error in cell (%d,%d): %s", col, row, e)
+        raise HTTPException(status_code=500, detail="Internal error generating cell")
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Aggregate endpoint — Spatial SQL GROUP BY for emergency managers
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+@router.post("/aggregate")
+async def surgedps_aggregate(body: dict):
+    """
+    Aggregate building/damage stats within a GeoJSON polygon.
+
+    POST body: { "polygon": <GeoJSON Polygon geometry> }
+    Optional:  { "cell_key": "ian2022:2,3" }
+
+    Returns total buildings, total structure value, breakdowns by
+    occupancy type and HAZUS code.  Uses DuckDB spatial SQL (ST_Within)
+    when the spatial extension is available, otherwise filters by cell_key.
+    """
+    from shapely.geometry import shape
+
+    polygon_geojson = body.get("polygon")
+    cell_key = body.get("cell_key")
+    wkt = None
+
+    if polygon_geojson:
+        try:
+            geom = shape(polygon_geojson)
+            wkt = geom.wkt
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid polygon geometry: {exc}")
+
+    result = building_cache.aggregate(wkt_polygon=wkt, cell_key=cell_key)
+    return result
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Coverage manifest — data catalog for frontend
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+_MANIFEST_R2_KEY = "surgedps/manifest.json"
+
+
+def _update_manifest(storm_id: str, col: int, row: int, building_count: int) -> None:
+    """
+    Append a cell entry to the coverage manifest in R2.
+    The manifest is a JSON dict: { storm_id: { "col,row": { ... } } }
+    Read-modify-write with local fallback.
+    """
+    import time as _time
+
+    # Load existing manifest
+    manifest: dict = {}
+    if r2.available:
+        raw = r2.download_bytes(_MANIFEST_R2_KEY)
+        if raw:
+            try:
+                manifest = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                manifest = {}
+
+    safe_id = _sanitize_storm_id(storm_id)
+    if safe_id not in manifest:
+        manifest[safe_id] = {}
+
+    manifest[safe_id][f"{col},{row}"] = {
+        "building_count": building_count,
+        "computed_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
+    }
+
+    # Also write locally for filesystem-only mode
+    local_manifest = os.path.join(str(_DATA_DIR), "manifest.json")
+    with open(local_manifest, "w") as f:
+        json.dump(manifest, f)
+
+    if r2.available:
+        r2.upload_bytes(
+            _MANIFEST_R2_KEY,
+            json.dumps(manifest).encode(),
+            content_type="application/json",
+        )
+
+
+@router.get("/manifest")
+async def surgedps_manifest():
+    """
+    Return the coverage manifest: which cells have been computed for each storm.
+    Frontend uses this to shade pre-computed grid cells differently.
+    """
+    # Try R2 first, then local file
+    if r2.available:
+        raw = await asyncio.to_thread(r2.download_bytes, _MANIFEST_R2_KEY)
+        if raw:
+            return Response(content=raw, media_type="application/json")
+
+    local_manifest = os.path.join(str(_DATA_DIR), "manifest.json")
+    if os.path.exists(local_manifest):
+        with open(local_manifest, "rb") as f:
+            return Response(content=f.read(), media_type="application/json")
+
+    return {}

@@ -3,14 +3,26 @@ FROM python:3.12-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies + tippecanoe build deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    g++ \
+    make \
     libgomp1 \
     libexpat1 \
     libsqlite3-0 \
+    libsqlite3-dev \
     libcurl4 \
+    zlib1g-dev \
+    git \
     && rm -rf /var/lib/apt/lists/*
+
+# Build tippecanoe from source (vector tile generator for PMTiles)
+RUN git clone --depth 1 https://github.com/felt/tippecanoe.git /tmp/tippecanoe \
+    && cd /tmp/tippecanoe \
+    && make -j$(nproc) \
+    && cp tippecanoe tippecanoe-decode tippecanoe-enumerate tippecanoe-json-tool tile-join /usr/local/bin/ \
+    && rm -rf /tmp/tippecanoe
 
 # Copy requirements first for better Docker layer caching
 COPY requirements.txt .

@@ -174,6 +174,151 @@ def _polygon_area_sqft(geometry: List[Dict]) -> Optional[float]:
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Microsoft Building Footprints (international fallback)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Microsoft's Global ML Building Footprints dataset — free, worldwide
+# coverage derived from satellite imagery.  Available as GeoJSON per
+# geographic tile via the Planetary Computer STAC API.
+#
+# Useful for Caribbean / Central America hurricanes where NSI does
+# not exist and OSM building coverage is sparse.
+#
+# Source: https://planetarycomputer.microsoft.com/dataset/ms-buildings
+
+_MSFT_BUILDINGS_ENDPOINT = (
+    "https://planetarycomputer.microsoft.com/api/stac/v1/search"
+)
+_MSFT_TIMEOUT = 20
+
+
+def _fetch_microsoft_buildings(
+    lon_min: float,
+    lat_min: float,
+    lon_max: float,
+    lat_max: float,
+    output_path: str,
+) -> Optional[str]:
+    """
+    Fetch building footprints from Microsoft's Global ML Building Footprints
+    via the Planetary Computer STAC API.
+
+    Returns path to GeoJSON file, or None if unavailable.
+
+    The footprints are ML-derived from satellite imagery so they contain only
+    geometry (polygon) — no occupancy type, valuation, or height info.
+    All buildings are tagged as RES1-1SNB (residential default) with
+    source="MSFT".
+    """
+    # Check if the bbox is outside the US (NSI would have covered US)
+    # Simple heuristic: skip if entirely within CONUS bbox
+    if (lon_min > -125 and lon_max < -66 and lat_min > 24 and lat_max < 50):
+        return None  # US mainland — let OSM handle it instead
+
+    bbox_geojson = {
+        "type": "Polygon",
+        "coordinates": [[
+            [lon_min, lat_min], [lon_max, lat_min],
+            [lon_max, lat_max], [lon_min, lat_max],
+            [lon_min, lat_min],
+        ]],
+    }
+
+    try:
+        resp = requests.post(
+            _MSFT_BUILDINGS_ENDPOINT,
+            json={
+                "collections": ["ms-buildings"],
+                "intersects": bbox_geojson,
+                "limit": 1,
+            },
+            timeout=_MSFT_TIMEOUT,
+            headers={"User-Agent": "SurgeDPS/1.0 (flood-damage-model)"},
+        )
+        resp.raise_for_status()
+        stac_result = resp.json()
+    except Exception as exc:
+        logger.info("[MSFT] STAC query failed: %s", exc)
+        return None
+
+    items = stac_result.get("features", [])
+    if not items:
+        logger.info("[MSFT] No building footprint tiles found for this bbox")
+        return None
+
+    # Get the GeoJSON asset URL from the first matching tile
+    asset_url = None
+    for item in items:
+        assets = item.get("assets", {})
+        for key in ("data", "default"):
+            if key in assets:
+                asset_url = assets[key].get("href")
+                break
+        if asset_url:
+            break
+
+    if not asset_url:
+        logger.info("[MSFT] No downloadable GeoJSON asset in STAC result")
+        return None
+
+    # Download and filter to our bbox
+    try:
+        dl_resp = requests.get(asset_url, timeout=60,
+                                headers={"User-Agent": "SurgeDPS/1.0"})
+        dl_resp.raise_for_status()
+        msft_data = dl_resp.json()
+    except Exception as exc:
+        logger.info("[MSFT] Asset download failed: %s", exc)
+        return None
+
+    features = []
+    for feat in msft_data.get("features", []):
+        geom = feat.get("geometry", {})
+        # Get centroid from polygon
+        coords = geom.get("coordinates", [])
+        if not coords or not coords[0]:
+            continue
+        ring = coords[0]
+        avg_lon = sum(p[0] for p in ring) / len(ring)
+        avg_lat = sum(p[1] for p in ring) / len(ring)
+
+        # Filter to our exact bbox
+        if not (lon_min <= avg_lon <= lon_max and lat_min <= avg_lat <= lat_max):
+            continue
+
+        # Compute area from polygon
+        area_sqft = _polygon_area_sqft(
+            [{"lat": p[1], "lon": p[0]} for p in ring]
+        )
+
+        props: Dict = {
+            "id": f"msft_{len(features)}",
+            "type": "RES1-1SNB",   # conservative default — no type info
+            "source": "MSFT",
+        }
+        if area_sqft:
+            props["area_sqft"] = round(area_sqft, 1)
+
+        features.append({
+            "type": "Feature",
+            "properties": props,
+            "geometry": {"type": "Point", "coordinates": [avg_lon, avg_lat]},
+        })
+
+    if not features:
+        logger.info("[MSFT] No buildings within bbox after filtering")
+        return None
+
+    geojson = {"type": "FeatureCollection", "features": features}
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    with open(output_path, "w") as f:
+        json.dump(geojson, f)
+
+    logger.info("[MSFT] Wrote %d building footprints to %s", len(features), output_path)
+    return output_path
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Public Interface
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -206,7 +351,7 @@ def fetch_buildings(
     Returns:
         Path to the written GeoJSON file
     """
-    # ── Try NSI first ────────────────────────────────────────────
+    # ── Try NSI first (US only — best quality) ──────────────────
     from .nsi_fetcher import fetch_buildings_nsi
     nsi_result = fetch_buildings_nsi(lon_min, lat_min, lon_max, lat_max,
                                      output_path, cache=cache)
@@ -214,6 +359,15 @@ def fetch_buildings(
         return nsi_result
 
     print("  [buildings] NSI unavailable, falling back to OpenStreetMap")
+
+    # ── Try Microsoft Building Footprints (international coverage) ──
+    try:
+        msft_result = _fetch_microsoft_buildings(lon_min, lat_min, lon_max, lat_max, output_path)
+        if msft_result:
+            return msft_result
+    except Exception as exc:
+        logger.warning("[MSFT] Building footprints fetch failed: %s", exc)
+
     # ── OSM fallback below ────────────────────────────────────────
     if cache and os.path.exists(output_path):
         with open(output_path) as f:
@@ -283,6 +437,7 @@ def fetch_buildings(
         props: Dict = {
             "id": f"osm_{elem.get('id', len(features))}",
             "type": hazus_code,
+            "source": "OSM",
             # Preserve useful OSM metadata for tooltip enrichment
             "osm_name": tags.get("name", ""),
             "osm_levels": tags.get("building:levels", ""),
