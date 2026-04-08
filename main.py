@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -210,10 +210,10 @@ async def serve_surgedps():
 
 @app.get("/surgedps/{path:path}")
 async def serve_surgedps_spa(path: str, request: Request):
-    # Let /surgedps/api/* be handled by the router (already mounted above)
+    # API paths are handled by surgedps_router (mounted at /surgedps/api above).
+    # If we reach here for an api/ path, the router didn't match — return 404.
     if path.startswith("api/"):
-        from fastapi.responses import JSONResponse
-        return JSONResponse(status_code=404, content={"detail": "Not found"})
+        raise HTTPException(status_code=404, detail="Not found")
     # Static assets (js, css, svg, png …) — serve directly if present
     asset_file = SURGEDPS_FRONTEND_DIR / path
     if asset_file.is_file():

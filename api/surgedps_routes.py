@@ -41,18 +41,18 @@ from typing import Optional
 import orjson
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
-from data_ingest.duckdb_cache import building_cache  # in-session spatial cache
-from storage.r2_client import r2                    # Cloudflare R2 (no-op if unconfigured)
-from data_ingest.duckdb_cache import building_cache  # DuckDB in-session cache
 
 logger = logging.getLogger("surgedps")
 
 # ── Module path setup ───────────────────────────────────────────────────────
+# Must happen BEFORE any surgedps-internal imports
 _STORMDS_ROOT = Path(__file__).resolve().parent.parent  # StormDPS/
 _SURGEDPS_SRC = str(_STORMDS_ROOT / "surgedps")
 if _SURGEDPS_SRC not in sys.path:
     sys.path.insert(0, _SURGEDPS_SRC)
 
+from data_ingest.duckdb_cache import building_cache  # type: ignore  # DuckDB in-session cache
+from storage.r2_client import r2                     # type: ignore  # Cloudflare R2 (no-op if unconfigured)
 from damage_model.depth_damage import estimate_damage_from_raster  # type: ignore
 from data_ingest.building_fetcher import fetch_buildings  # type: ignore
 from tile_gen.pmtiles_builder import raster_to_geojson, build_vector_pmtiles  # type: ignore
@@ -708,6 +708,13 @@ async def surgedps_cell(
             "validated_dps": vdps["validated_dps"],
             "dps_adjustment": vdps["dps_adjustment"],
             "dps_adj_reason": vdps["dps_adj_reason"],
+            "provenance": {
+                "computed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "model_version": "hazus-fia-v1",
+                "nsi_api": "nsi.sec.usace.army.mil/nsiapi/structures",
+                "damage_curves": "FEMA HAZUS Flood Technical Manual Ch.5",
+                "adjustments": "building_adjuster_v1 (found_ht, med_yr_blt, num_story)",
+            },
         }
 
         if ok:
@@ -768,6 +775,37 @@ async def surgedps_aggregate(body: dict):
 
     result = building_cache.aggregate(wkt_polygon=wkt, cell_key=cell_key)
     return result
+
+
+@router.post("/near-miss")
+async def surgedps_near_miss(body: dict):
+    """
+    Find buildings in the "near miss" buffer zone — properties just outside
+    the flood boundary that would have flooded with slightly higher surge.
+
+    POST body:
+        polygon: GeoJSON Polygon geometry (the flood extent)
+        buffer_m: buffer distance in meters (default 100)
+
+    Returns a GeoJSON FeatureCollection of near-miss buildings,
+    each tagged with "near_miss": true in properties.
+    """
+    from shapely.geometry import shape
+
+    polygon_geojson = body.get("polygon")
+    buffer_m = float(body.get("buffer_m", 100))
+
+    if not polygon_geojson:
+        raise HTTPException(status_code=400, detail="polygon is required")
+
+    try:
+        geom = shape(polygon_geojson)
+        wkt = geom.wkt
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid polygon: {exc}")
+
+    features = building_cache.query_near_miss(wkt, buffer_meters=buffer_m)
+    return {"type": "FeatureCollection", "features": features}
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
