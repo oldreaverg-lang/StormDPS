@@ -409,6 +409,27 @@ def _generate_cell_files(storm: StormEntry, col: int, row: int) -> bool:
             speed_kt=storm.speed_kt,
         )
 
+    # ── Early exit: skip cells with negligible surge ──────────────────────
+    # If the max depth in the raster is < 0.1 m the cell has no meaningful
+    # impact.  Write empty GeoJSON files and return immediately — avoids
+    # the expensive building fetch + HAZUS pipeline entirely.
+    _MIN_SURGE_M = 0.1
+    try:
+        import rasterio as _rio
+        with _rio.open(raster_path) as _ds:
+            _max_depth = float(_ds.read(1).max())
+        if _max_depth < _MIN_SURGE_M:
+            logger.info("[%s cell %d,%d] max surge %.3f m < %.1f m — skipping (no impact)",
+                        storm.storm_id, col, row, _max_depth, _MIN_SURGE_M)
+            with open(damage_path, "w") as f:
+                json.dump(_empty_fc(), f)
+            with open(flood_path, "w") as f:
+                json.dump(_empty_fc(), f)
+            return True
+    except Exception as exc:
+        logger.warning("[%s cell %d,%d] surge threshold check failed (continuing): %s",
+                       storm.storm_id, col, row, exc)
+
     # 1b. Cloud-Optimized GeoTIFF for range-request streaming from R2
     cog_path = os.path.join(sdir, f"cell_{col}_{row}_depth_cog.tif")
     if not os.path.exists(cog_path) and os.path.exists(raster_path):
