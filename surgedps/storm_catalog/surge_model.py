@@ -33,6 +33,11 @@ from typing import Tuple
 
 import numpy as np
 
+# Increment this whenever the surge formula changes.
+# The pre-warm checks this version against what's stored in cached damage files
+# and automatically regenerates any cell that was built with an older formula.
+SURGE_MODEL_VERSION = "cubic-v2"
+
 
 def estimate_peak_surge_ft(max_wind_kt: int, min_pressure_mb: int) -> float:
     """

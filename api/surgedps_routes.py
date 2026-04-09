@@ -70,7 +70,7 @@ from storm_catalog.hurdat2_parser import (  # type: ignore
     search_storms,
     get_storm_by_id,
 )
-from storm_catalog.surge_model import generate_surge_raster  # type: ignore
+from storm_catalog.surge_model import generate_surge_raster, SURGE_MODEL_VERSION  # type: ignore
 
 # ── Data / cache paths ───────────────────────────────────────────────────────
 # Use Railway persistent volume when PERSISTENT_DATA_DIR is set; otherwise
@@ -474,15 +474,39 @@ def _generate_cell_files(storm: StormEntry, col: int, row: int) -> bool:
         buildings_data = json.load(f)
 
     if not buildings_data.get("features"):
-        # No buildings — write empty damage file
+        # No buildings — write empty damage file with version stamp
+        empty = _empty_fc()
+        empty["surge_model_version"] = SURGE_MODEL_VERSION
         with open(damage_path, "w") as f:
-            json.dump(_empty_fc(), f)
+            json.dump(empty, f)
     else:
         # 4. HAZUS damage model — writes damage_path itself
         estimate_damage_from_raster(raster_path, buildings_path, damage_path)
+        # Stamp surge model version into the damage file so stale cache is detectable
+        try:
+            with open(damage_path) as f:
+                dmg = json.load(f)
+            dmg["surge_model_version"] = SURGE_MODEL_VERSION
+            with open(damage_path, "w") as f:
+                json.dump(dmg, f)
+        except Exception:
+            pass  # version stamp is best-effort
 
     n = len(buildings_data.get("features", []))
     logger.info("[%s cell %d,%d] %d buildings processed", storm.storm_id, col, row, n)
+
+    # 5. Clean up intermediate files to conserve volume space.
+    #    depth.tif and buildings.json can be 30-100 MB each in dense urban areas.
+    #    Only damage.geojson + flood.geojson are needed for cached responses.
+    for tmp in (raster_path, buildings_path):
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+                logger.debug("[%s cell %d,%d] Removed intermediate file: %s",
+                             storm.storm_id, col, row, os.path.basename(tmp))
+        except OSError as exc:
+            logger.warning("[%s cell %d,%d] Could not remove %s: %s",
+                           storm.storm_id, col, row, os.path.basename(tmp), exc)
 
     # Persist to R2 so the cell survives Railway redeploys
     if os.path.exists(damage_path) and os.path.exists(flood_path):
@@ -514,6 +538,16 @@ _PREWARM_STORM_IDS = ["harvey_2017"]
 _PREWARM_CELLS = [(c, r) for r in range(-1, 2) for c in range(-1, 2)]
 
 
+def _cell_is_current(damage_path: str) -> bool:
+    """Return True if the cached damage file was built with the current surge model version."""
+    try:
+        with open(damage_path) as f:
+            data = json.load(f)
+        return data.get("surge_model_version") == SURGE_MODEL_VERSION
+    except Exception:
+        return False  # unreadable or missing → regenerate
+
+
 def _prewarm_storm(storm_id: str) -> None:
     """Pre-generate the full 3×3 grid for a historic storm."""
     storm = None
@@ -527,11 +561,22 @@ def _prewarm_storm(storm_id: str) -> None:
     cached = 0
     generated = 0
     failed = 0
+    stale = 0
     for col, row in _PREWARM_CELLS:
         damage_path, flood_path = _cell_paths(storm, col, row)
         if os.path.exists(damage_path) and os.path.exists(flood_path):
-            cached += 1
-            continue
+            if _cell_is_current(damage_path):
+                cached += 1
+                continue
+            # Stale — built with old surge formula. Delete and regenerate.
+            stale += 1
+            logger.info("[prewarm] %s cell (%d,%d) has stale surge model — regenerating",
+                        storm_id, col, row)
+            for f in (damage_path, flood_path):
+                try:
+                    os.remove(f)
+                except OSError:
+                    pass
         try:
             _generate_cell_files(storm, col, row)
             generated += 1
@@ -541,8 +586,8 @@ def _prewarm_storm(storm_id: str) -> None:
         # Small pause between cells to avoid overloading OSM/NSI APIs
         time.sleep(2)
 
-    logger.info("[prewarm] %s: %d cached, %d generated, %d failed (of %d cells)",
-                storm_id, cached, generated, failed, len(_PREWARM_CELLS))
+    logger.info("[prewarm] %s: %d cached, %d generated, %d stale→regen, %d failed (of %d cells)",
+                storm_id, cached, generated, stale, failed, len(_PREWARM_CELLS))
 
 
 def _prewarm_worker(storm_id: str, delay: float) -> None:
