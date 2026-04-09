@@ -97,6 +97,9 @@ _preload_cache_time = None
 _preload_lock = asyncio.Lock()
 _PRELOAD_CACHE_TTL = timedelta(minutes=5)
 
+# Persistent data directory — use Railway volume when PERSISTENT_DATA_DIR is set
+_PERSISTENT_DATA = Path(os.environ.get("PERSISTENT_DATA_DIR", str(Path(__file__).parent.parent / "data")))
+
 # Cache for global IBTrACS catalog to avoid repeated large downloads/parses.
 # We also persist a json cache file so restarts can reuse the catalog quickly.
 _GLOBAL_IBTRACS_CATALOG_CACHE = None
@@ -112,7 +115,6 @@ _GLOBAL_IBTRACS_CACHE_FILE = _PERSISTENT_DATA / "cache" / "ibtracs_catalog.json"
 # NOT on the DPS formula — DPS is computed client-side from cached IKE.
 # Cache key: storm_id + grid_resolution + skip_points
 # ------------------------------------------------------------------
-_PERSISTENT_DATA = Path(os.environ.get("PERSISTENT_DATA_DIR", str(Path(__file__).parent.parent / "data")))
 _IKE_CACHE_DIR = _PERSISTENT_DATA / "cache" / "ike"
 _IKE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
