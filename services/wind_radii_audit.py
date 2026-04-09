@@ -31,6 +31,7 @@ Persistence:
 
 import json
 import logging
+import os
 import sqlite3
 import threading
 import time
@@ -42,7 +43,9 @@ from typing import Any, Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 # Reuse the validation directory and DB from validation_log.py
-_VALIDATION_DIR = Path(__file__).parent.parent / "data" / "validation"
+_PERSISTENT_DATA = Path(os.environ.get("PERSISTENT_DATA_DIR", str(Path(__file__).parent.parent / "data")))
+_VALIDATION_DIR = _PERSISTENT_DATA / "validation"
+_VALIDATION_DIR.mkdir(parents=True, exist_ok=True)
 _DB_PATH = _VALIDATION_DIR / "validation.db"
 _db_lock = threading.Lock()
 

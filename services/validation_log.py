@@ -33,8 +33,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-# Base directory for all validation data
-_VALIDATION_DIR = Path(__file__).parent.parent / "data" / "validation"
+# Base directory for all validation data — use persistent volume if available
+_PERSISTENT_DATA = Path(os.environ.get("PERSISTENT_DATA_DIR", str(Path(__file__).parent.parent / "data")))
+_VALIDATION_DIR = _PERSISTENT_DATA / "validation"
+_VALIDATION_DIR.mkdir(parents=True, exist_ok=True)
 _DB_PATH = _VALIDATION_DIR / "validation.db"
 
 # Thread lock for SQLite reads (one writer at a time)

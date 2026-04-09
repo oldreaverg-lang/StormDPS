@@ -102,7 +102,7 @@ _PRELOAD_CACHE_TTL = timedelta(minutes=5)
 _GLOBAL_IBTRACS_CATALOG_CACHE = None
 _GLOBAL_IBTRACS_CATALOG_TIMESTAMP = None
 _GLOBAL_IBTRACS_CATALOG_TTL = timedelta(hours=6)
-_GLOBAL_IBTRACS_CACHE_FILE = Path(__file__).parent.parent / "data" / "cache" / "ibtracs_catalog.json"
+_GLOBAL_IBTRACS_CACHE_FILE = _PERSISTENT_DATA / "cache" / "ibtracs_catalog.json"
 
 # ------------------------------------------------------------------
 # Per-storm IKE result cache
@@ -112,7 +112,8 @@ _GLOBAL_IBTRACS_CACHE_FILE = Path(__file__).parent.parent / "data" / "cache" / "
 # NOT on the DPS formula — DPS is computed client-side from cached IKE.
 # Cache key: storm_id + grid_resolution + skip_points
 # ------------------------------------------------------------------
-_IKE_CACHE_DIR = Path(__file__).parent.parent / "data" / "cache" / "ike"
+_PERSISTENT_DATA = Path(os.environ.get("PERSISTENT_DATA_DIR", str(Path(__file__).parent.parent / "data")))
+_IKE_CACHE_DIR = _PERSISTENT_DATA / "cache" / "ike"
 _IKE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 # Bump this when the IKE wind model changes (e.g., Holland profile, quadrant method)
@@ -1133,7 +1134,7 @@ async def get_storm_track(
     #   - Global coverage (not just Atlantic/East Pacific)
     #   - HURDAT2 only does annual reanalysis; IBTrACS updates more frequently
     if not snapshots:
-        cache_dir = Path(__file__).parent.parent / "data" / "cache"
+        cache_dir = _PERSISTENT_DATA / "cache"
         async with NOAAClient(cache_dir=str(cache_dir)) as client:
             from services.source_health import SourceHealthMonitor
             _monitor = SourceHealthMonitor.instance()
@@ -1292,7 +1293,7 @@ PRESET_STORM_IDS = [
     "AL022024",  # Beryl
 ]
 
-_PRELOAD_BUNDLE_PATH = Path(__file__).parent.parent / "data" / "cache" / "preload_bundle.json"
+_PRELOAD_BUNDLE_PATH = _PERSISTENT_DATA / "cache" / "preload_bundle.json"
 
 
 def _build_preload_bundle_sync() -> dict:
@@ -1467,7 +1468,7 @@ async def _build_global_catalog() -> list[dict]:
 
         # Fetch from IBTrACS (may be slow on first run) but time out if it takes too long
         catalog = []
-        cache_dir = Path(__file__).parent.parent / "data" / "cache"
+        cache_dir = _PERSISTENT_DATA / "cache"
         async with NOAAClient(timeout=60.0, cache_dir=str(cache_dir)) as client:
             try:
                 catalog = await asyncio.wait_for(
