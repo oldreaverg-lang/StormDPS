@@ -70,7 +70,7 @@ from storm_catalog.hurdat2_parser import (  # type: ignore
     search_storms,
     get_storm_by_id,
 )
-from storm_catalog.surge_model import generate_surge_raster, SURGE_MODEL_VERSION  # type: ignore
+from storm_catalog.surge_model import generate_surge_raster, SURGE_MODEL_VERSION, validate_surge_model  # type: ignore
 
 # ── Data / cache paths ───────────────────────────────────────────────────────
 # Use Railway persistent volume when PERSISTENT_DATA_DIR is set; otherwise
@@ -619,6 +619,22 @@ def _start_prewarm() -> None:
         )
         t.start()
 
+
+# ── Startup surge formula sanity check ───────────────────────────────────────
+# Runs synchronously at import time (pure math, <1ms).  Logs calibration table
+# and raises RuntimeError if any reference storm deviates >35% from observed.
+# This catches formula regressions before any cells are generated or served.
+def _validate_surge_on_startup() -> None:
+    warnings = validate_surge_model()
+    if warnings:
+        for w in warnings:
+            logger.error("[surge_model] %s", w)
+        raise RuntimeError(
+            "Surge formula failed calibration check — deploy aborted. "
+            "Fix estimate_peak_surge_ft() in surge_model.py and redeploy."
+        )
+
+_validate_surge_on_startup()
 
 # Kick off pre-warming when the router module is imported
 _start_prewarm()
