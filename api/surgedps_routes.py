@@ -73,7 +73,11 @@ from storm_catalog.hurdat2_parser import (  # type: ignore
 from storm_catalog.surge_model import generate_surge_raster  # type: ignore
 
 # ── Data / cache paths ───────────────────────────────────────────────────────
-_DATA_DIR = _STORMDS_ROOT / "surgedps_data"
+# Use Railway persistent volume when PERSISTENT_DATA_DIR is set; otherwise
+# fall back to the local surgedps_data/ directory.  This ensures cell caches
+# survive across deploys instead of being wiped with the ephemeral filesystem.
+_PERSISTENT_ROOT = Path(os.environ.get("PERSISTENT_DATA_DIR", str(_STORMDS_ROOT / "surgedps_data")))
+_DATA_DIR = _PERSISTENT_ROOT / "surgedps"
 CACHE_DIR = str(_DATA_DIR / "cells")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
@@ -170,14 +174,16 @@ def _compute_confidence(storm_id: str) -> dict:
     # Ask DuckDB instead of scanning the filesystem — O(1) vs O(n files)
     total = building_cache.building_count()
     if total == 0:
-        # DuckDB has nothing yet (cold start); fall back to filesystem scan
+        # DuckDB has nothing yet (cold start); fall back to filesystem scan.
+        # Scan _damage.geojson files (always present after cell generation)
+        # rather than _buildings.json (intermediate file that may be cleaned up).
         sdir = os.path.join(CACHE_DIR, storm_id)
         if not os.path.isdir(sdir):
             result = {"confidence": "unvalidated", "building_count": 0}
             _confidence_cache[storm_id] = (result, now)
             return result
         for fname in os.listdir(sdir):
-            if fname.endswith("_buildings.json"):
+            if fname.endswith("_damage.geojson"):
                 try:
                     with open(os.path.join(sdir, fname)) as f:
                         data = json.load(f)
@@ -478,12 +484,16 @@ def _generate_cell_files(storm: StormEntry, col: int, row: int) -> bool:
 # Startup pre-warming
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-# Top 5 storms users are most likely to click first
-_PREWARM_STORM_IDS = ["ian_2022", "katrina_2005", "harvey_2017", "sandy_2012", "michael_2018"]
+# All curated historic storms — these are the storms users click most often.
+# Pre-warm the full 3×3 grid for each so activation is instant from cache.
+_PREWARM_STORM_IDS = [hs.storm_id for hs in HISTORICAL_STORMS]
+
+# 3×3 grid cells to pre-warm per storm (matches frontend activation pattern)
+_PREWARM_CELLS = [(c, r) for r in range(-1, 2) for c in range(-1, 2)]
 
 
 def _prewarm_storm(storm_id: str) -> None:
-    """Pre-generate center cell (0,0) for a historic storm in the background."""
+    """Pre-generate the full 3×3 grid for a historic storm."""
     storm = None
     for hs in HISTORICAL_STORMS:
         if hs.storm_id == storm_id:
@@ -491,16 +501,26 @@ def _prewarm_storm(storm_id: str) -> None:
             break
     if storm is None:
         return
-    damage_path, flood_path = _cell_paths(storm, 0, 0)
-    if os.path.exists(damage_path) and os.path.exists(flood_path):
-        logger.debug("[prewarm] %s already cached — skipping", storm_id)
-        return
-    logger.info("[prewarm] Generating center cell for %s (%d)…", storm.name, storm.year)
-    try:
-        _generate_cell_files(storm, 0, 0)
-        logger.info("[prewarm] %s done", storm_id)
-    except Exception as e:
-        logger.error("[prewarm] %s failed: %s", storm_id, e)
+
+    cached = 0
+    generated = 0
+    failed = 0
+    for col, row in _PREWARM_CELLS:
+        damage_path, flood_path = _cell_paths(storm, col, row)
+        if os.path.exists(damage_path) and os.path.exists(flood_path):
+            cached += 1
+            continue
+        try:
+            _generate_cell_files(storm, col, row)
+            generated += 1
+        except Exception as e:
+            failed += 1
+            logger.error("[prewarm] %s cell (%d,%d) failed: %s", storm_id, col, row, e)
+        # Small pause between cells to avoid overloading OSM/NSI APIs
+        time.sleep(2)
+
+    logger.info("[prewarm] %s: %d cached, %d generated, %d failed (of %d cells)",
+                storm_id, cached, generated, failed, len(_PREWARM_CELLS))
 
 
 def _prewarm_worker(storm_id: str, delay: float) -> None:
@@ -510,14 +530,23 @@ def _prewarm_worker(storm_id: str, delay: float) -> None:
 
 
 def _start_prewarm() -> None:
-    """Launch pre-warm threads at import time with a staggered start."""
+    """Launch pre-warm threads at import time with a staggered start.
+
+    Storms are warmed sequentially (one at a time) to stay within API rate
+    limits and Railway memory constraints.  Each storm is delayed by 120s
+    after the previous one starts, giving each ~2 min to finish its 9 cells
+    before the next storm begins.
+    """
     if os.environ.get("SURGEDPS_SKIP_PREWARM"):
         logger.info("Pre-warming skipped (SURGEDPS_SKIP_PREWARM set)")
         return
+    logger.info("[prewarm] Queuing %d storms × %d cells = %d total cells",
+                len(_PREWARM_STORM_IDS), len(_PREWARM_CELLS),
+                len(_PREWARM_STORM_IDS) * len(_PREWARM_CELLS))
     for i, sid in enumerate(_PREWARM_STORM_IDS):
         t = threading.Thread(
             target=_prewarm_worker,
-            args=(sid, i * 15),
+            args=(sid, i * 120),  # 2 min stagger between storms
             daemon=True,
             name=f"prewarm-{sid}",
         )
@@ -539,7 +568,8 @@ async def surgedps_health():
         "status": "ok",
         "active_storms": list(_active_storms.keys()),
         "last_activated": _last_activated_storm_id,
-        "prewarm_storms": _PREWARM_STORM_IDS,
+        "prewarm_storms": len(_PREWARM_STORM_IDS),
+        "prewarm_cells_per_storm": len(_PREWARM_CELLS),
     }
 
 
