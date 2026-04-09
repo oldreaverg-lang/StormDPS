@@ -407,6 +407,7 @@ def _generate_cell_files(storm: StormEntry, col: int, row: int) -> bool:
             min_pressure_mb=storm.min_pressure_mb,
             heading_deg=storm.heading_deg,
             speed_kt=storm.speed_kt,
+            storm_rmax_nm=storm.rmax_nm,
         )
 
     # ── Early exit: skip cells with negligible surge ──────────────────────
