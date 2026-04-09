@@ -484,9 +484,10 @@ def _generate_cell_files(storm: StormEntry, col: int, row: int) -> bool:
 # Startup pre-warming
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-# All curated historic storms — these are the storms users click most often.
-# Pre-warm the full 3×3 grid for each so activation is instant from cache.
-_PREWARM_STORM_IDS = [hs.storm_id for hs in HISTORICAL_STORMS]
+# Pre-warm only Harvey at startup to keep Railway costs low.
+# All other storms remain available on-demand — cells generate when users
+# activate them and are cached on the persistent volume for future hits.
+_PREWARM_STORM_IDS = ["harvey_2017"]
 
 # 3×3 grid cells to pre-warm per storm (matches frontend activation pattern)
 _PREWARM_CELLS = [(c, r) for r in range(-1, 2) for c in range(-1, 2)]
