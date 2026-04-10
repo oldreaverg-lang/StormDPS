@@ -625,17 +625,9 @@ class NOAAClient:
         Enhanced to extract full quadrant wind radii at 34, 50, and 64 kt
         thresholds from the extended data formats.
         """
-        try:
-            # Try EBTRK first (better historical data, especially for r34/r50/r64)
-            ebtrk_snapshots = await self._fetch_and_parse_ebtrk(storm_id)
-            if ebtrk_snapshots:
-                logger.info(f"Using EBTRK for {storm_id}: {len(ebtrk_snapshots)} snapshots")
-                return ebtrk_snapshots
-        except Exception as e:
-            logger.warning(f"EBTRK fetch failed for {storm_id}: {e}")
-        
-        # Fall back to HURDAT2
-        logger.debug(f"Using HURDAT2 for {storm_id} (EBTRK unavailable)")
+        # EBTRK URLs at Colorado State have been 404 since ~2018.
+        # Skip the attempt entirely to avoid noisy HTTP error logs.
+        # The EBTRK parser code is retained in case a mirror appears.
         hurdat_text = await self._fetch_hurdat2()
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._parse_hurdat2, hurdat_text, storm_id)

@@ -29,16 +29,7 @@ from fastapi.staticfiles import StaticFiles
 
 from api.routes import router, generate_preload_bundle
 from api.weather_routes import router as weather_router
-try:
-    from api.surgedps_routes import router as surgedps_router
-    _surgedps_available = True
-except Exception as _surgedps_import_err:
-    surgedps_router = None
-    _surgedps_available = False
-    import logging as _logging
-    _logging.getLogger(__name__).warning(
-        f"SurgeDPS router unavailable (import failed): {_surgedps_import_err}"
-    )
+# surgedps_routes was removed — SurgeDPS runs as its own service now
 from services.weather_data_service import WeatherDataService
 
 logger = logging.getLogger(__name__)
@@ -142,8 +133,7 @@ app.add_middleware(GZipMiddleware, minimum_size=500)
 
 app.include_router(router, prefix="/api/v1")
 app.include_router(weather_router, prefix="/api/v1")
-if _surgedps_available and surgedps_router is not None:
-    app.include_router(surgedps_router, prefix="/surgedps/api")
+# SurgeDPS API routes removed — SurgeDPS runs as its own service now
 
 
 @app.get("/health")
@@ -235,8 +225,7 @@ async def serve_surgedps():
 
 @app.get("/surgedps/{path:path}")
 async def serve_surgedps_spa(path: str, request: Request):
-    # API paths are handled by surgedps_router (mounted at /surgedps/api above).
-    # If we reach here for an api/ path, the router didn't match — return 404.
+    # SurgeDPS API is now a separate service — reject any stale API calls.
     if path.startswith("api/"):
         raise HTTPException(status_code=404, detail="Not found")
 
