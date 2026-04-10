@@ -92,6 +92,32 @@ def compute_storm_dps(
     # 6. Rainfall warning (feeds stall and rain_inland factors)
     rain_result = compute_rainfall_warning(snapshots, storm_name=storm_name)
 
+    # 6b. Ground-truth override: if we have an authoritative observed peak
+    # rainfall total (NHC TCR, NWS, NCEI, or MRMS), use it in place of the
+    # stall-hour heuristic. Observed data is always more accurate than any
+    # kinematic estimator we can build from wind/track alone.
+    from core import ground_truth as _gt
+    _truth = _gt.get(storm_id) or _gt.get_by_name_year(storm_name, storm_year)
+    _observed_rain_in: Optional[float] = None
+    if _truth is not None and _truth.peak_rainfall_in is not None:
+        _observed_rain_in = _truth.peak_rainfall_in
+        _observed_rain_mm = _truth.peak_rainfall_in * 25.4
+        # Observed peak-station accumulation is authoritative — replace the
+        # heuristic estimate. Keep warning_score consistent: scale relative to
+        # a 500mm reference (where 500mm ~ historic-class rainfall).
+        rain_result.estimated_total_mm = _observed_rain_mm
+        _rain_score_from_obs = min(100.0, (_observed_rain_mm / 500.0) * 100.0)
+        rain_result.warning_score = max(rain_result.warning_score, _rain_score_from_obs)
+        if rain_result.warning_score >= 80:
+            rain_result.warning_level = "HISTORIC"
+        elif rain_result.warning_score >= 60:
+            rain_result.warning_level = "EXTREME"
+        elif rain_result.warning_score >= 40:
+            rain_result.warning_level = "HIGH"
+        elif rain_result.warning_score >= 20:
+            rain_result.warning_level = "ELEVATED"
+        rain_result.is_anomalous = rain_result.warning_score >= 25
+
     # 7. Rainfall stall bonus (R7 + F2 + F11) — scaled by economic weight of stall location
     STALL_THRESHOLD_HOURS = 4
     STALL_BONUS_PER_HOUR = 0.01
@@ -280,6 +306,11 @@ def compute_storm_dps(
         # Per-snapshot DPS series — scaled to match adjusted peak so map markers
         # use the canonical cumulative values directly (no client-side rescaling).
         "dpi_timeseries": dpi_timeseries,
+        # Ground-truth reference values (NHC TCR / NCEI / OpenFEMA). Present only
+        # for storms we have curated observations for; frontend should treat as
+        # optional enrichment for the hero card and accordion.
+        "ground_truth": _truth.to_dict() if _truth is not None else None,
+        "observed_rainfall_in": _observed_rain_in,
     }
 
 
