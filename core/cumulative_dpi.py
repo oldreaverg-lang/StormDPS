@@ -65,8 +65,8 @@ COASTAL_REF_HOURS = 48.0   # Reference coastal exposure time
 DPI_THREAT_THRESHOLD = 25.0  # Min DPI to count as "meaningful threat"
                               # Lower than single-DPI threshold because weakened
                               # storms still cause flooding (Harvey post-landfall)
-DURATION_CAP = 0.25        # Max duration bonus (fraction of peak)  [R1: raised from 0.18]
-BREADTH_CAP = 0.25         # Max breadth bonus (fraction of peak)  [R1: raised from 0.15]
+DURATION_CAP = 0.10        # Max duration bonus (fraction of peak)  [v6: reduced from 0.15 to widen score spread]
+BREADTH_CAP = 0.10         # Max breadth bonus (fraction of peak)  [v6: reduced from 0.15 to widen score spread]
 
 # [F7] Per-zone weights for duration/breadth accumulation.
 # Caribbean island and near-miss hours count at a fraction of US mainland hours
@@ -413,8 +413,10 @@ def compute_cumulative_dpi(
     breadth_factor = min(BREADTH_CAP, breadth_raw)
 
     # ── Cumulative DPI ──
+    # [v6] Do NOT cap at 100 here — let the raw score reflect the storm's full
+    # cumulative power (Katrina ~126, Harvey ~95, Michael ~73). The compile_cache
+    # compression step maps this into 0-99 display range while preserving spread.
     cum_dpi = peak_dpi * (1.0 + duration_factor + breadth_factor)
-    cum_dpi = min(100.0, cum_dpi)
 
     return CumulativeDPIResult(
         cum_dpi=round(cum_dpi, 1),

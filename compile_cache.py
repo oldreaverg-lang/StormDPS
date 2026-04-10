@@ -334,7 +334,7 @@ def determine_wp_sub_basin(snapshots):
 # This means a storm that hits Tampa Bay AND rural FL Big Bend gets the
 # Tampa Bay weight (the worst-case landfall drives the score).
 
-EXPOSURE_CAP = 0.20  # [F3] Max exposure bonus: 20% of peak DPI (raised from 12%, trimmed from 25% to keep Katrina above Ian)
+EXPOSURE_CAP = 0.10  # [F3] Max exposure bonus: 10% of peak DPI (reduced from 20% — was over-inflating all major storms into 87-89 band)
 
 COASTAL_EXPOSURE_WEIGHTS = {
     # US metro corridors — highest density
@@ -447,7 +447,7 @@ def compute_exposure_factor(landfall_events):
 #   - Only activates if coastal_hours < 12 (truly perpendicular)
 #   - Capped at PERPENDICULAR_CAP
 
-PERPENDICULAR_CAP = 0.08  # Max perpendicular bonus: 8% of peak DPI
+PERPENDICULAR_CAP = 0.03  # Max perpendicular bonus: 3% of peak DPI (reduced from 8%)
 
 # US mainland regions that count for perpendicular bonus
 US_MAINLAND_REGIONS = {
@@ -546,15 +546,25 @@ def apply_basin_dps_adjustment(cum_dpi, basin, snapshots):
             adjusted_dps *= sub_multiplier
             adjustment_notes.append(f"×{sub_multiplier:.2f}({sub_basin})")
 
-    # [F1] Piecewise scaling: preserves scores below 80 unchanged, compresses
-    # 80-100+ into the 80-100 range using an asymptotic curve.
-    # This breaks the 11-way tie at 100 while keeping mid-range scores intact.
-    # Calibrated: raw=85→82, raw=100→88, raw=130→94, raw=150→96, raw=170→97.5
+    # [F1-v6] Sqrt compression: preserves scores below 60 unchanged, compresses
+    # 60+ into the 60-99 range using a square-root curve.
+    #
+    # The sqrt function preserves proportional spacing much better than the old
+    # exponential asymptote (which bunched 85-130 into a 5-point band).
+    #
+    # f(x) = T + S * sqrt(x - T)  where T=60 (threshold), S=4.0 (spread factor)
+    #
+    # Examples:  raw 70→73, raw 80→78, raw 90→82, raw 100→85, raw 110→88,
+    #            raw 120→91, raw 130→93, raw 140→95
+    #
+    # This gives ~20-point spread across the Cat 3-5 range while still
+    # compressing the theoretical maximum to ~99.
     import math as _m
-    if adjusted_dps > 80.0:
-        _K = 65.0  # Controls how fast scores approach 100
-        adjusted_dps = 80.0 + 20.0 * (1.0 - _m.exp(-(adjusted_dps - 80.0) / _K))
-    adjusted_dps = min(adjusted_dps, 100.0)  # Hard ceiling for safety
+    _T = 60.0   # Compression threshold (scores below this are untouched)
+    _S = 4.0    # Spread factor (higher = more generous to stronger storms)
+    if adjusted_dps > _T:
+        adjusted_dps = _T + _S * _m.sqrt(adjusted_dps - _T)
+    adjusted_dps = min(adjusted_dps, 99.0)  # Hard ceiling (no storm is "perfect 100")
 
     return adjusted_dps, coeffs["name"], ", ".join(adjustment_notes)
 
@@ -746,7 +756,7 @@ def compile():
         STALL_THRESHOLD_HOURS = 4
         STALL_BONUS_PER_HOUR = 0.01        # Full rate for stall hours (≤5 kt)
         SLOW_BONUS_PER_HOUR  = 0.005       # Half rate for slow hours (5–8 kt)  [F11]
-        STALL_BONUS_CAP = 0.10
+        STALL_BONUS_CAP = 0.05  # Reduced from 0.10 — was over-inflating stall storms
         effective_stall_hours = (
             rain_result.total_stall_hours +
             rain_result.total_slow_hours * 0.5  # [F11] half-weight slow hours
@@ -774,7 +784,7 @@ def compile():
         # R12 + [F2]: Rainfall inland damage extension — scaled by exposure econ weight
         RAIN_WARN_THRESHOLD = 30
         RAIN_MM_THRESHOLD = 250
-        RAIN_INLAND_CAP = 0.08
+        RAIN_INLAND_CAP = 0.04  # Reduced from 0.08
         if rain_result.warning_score > RAIN_WARN_THRESHOLD and rain_result.estimated_total_mm > RAIN_MM_THRESHOLD and cum_result.peak_dpi > 0:
             raw_rain_inland = min(rain_result.warning_score / 100.0 * 0.08, RAIN_INLAND_CAP)
             rain_econ = COASTAL_EXPOSURE_WEIGHTS.get(exposure_region, 0.20)
@@ -788,8 +798,8 @@ def compile():
         # Only counts snapshots: (a) post-landfall, (b) over continental land masses
         # (lat > 25°N, lon in US mainland range), (c) NOT in a named coastal box.
         # Scaled by exposure region economic weight to avoid over-crediting Caribbean.
-        INLAND_PEN_CAP = 0.15
-        INLAND_PEN_PER_SNAP = 0.015
+        INLAND_PEN_CAP = 0.04  # Reduced from 0.06 — was giving fast-crossing storms (Michael) too much credit
+        INLAND_PEN_PER_SNAP = 0.008  # Reduced from 0.015 — each inland snap worth less
         INLAND_MIN_WIND_MS = 18.0    # Slightly below TS force to catch weakening post-landfall
         inland_pen_factor = 0.0
         if landfall_events and cum_result.peak_dpi > 0:
@@ -822,11 +832,20 @@ def compile():
                 inland_pen_factor = min(INLAND_PEN_CAP, inland_ts_snaps * INLAND_PEN_PER_SNAP * rain_scale)
 
         # Combine exposure + perpendicular + stall + rainfall inland + inland penetration
+        # [v5] Cap the total combined boost at 10% to prevent all major storms
+        # from saturating at the same score. The cumulative DPI's duration and
+        # breadth factors already capture most of the stall/size effect.
         combined_boost = exposure_factor + perp_factor + stall_bonus + rain_inland_factor + inland_pen_factor
+        # [v6] No hard cap on combined boost — the individual factor caps
+        # (exposure 10%, perp 3%, stall 5%, rain 4%, inland 4%) already limit
+        # each component. A hard cap was forcing Sandy (EXP 8% + stall 1% + rain 3%)
+        # to score the same as Michael (EXP 4.5% + rain 1.4%) by flattening
+        # both to the same ceiling. Letting the natural sum play out means
+        # storms with more compound risk factors score proportionally higher.
+        # Max theoretical combined: 10+3+5+4+4 = 26% but in practice ≤15%.
         if combined_boost > 0 and cum_result.peak_dpi > 0:
             current_multiplier = cum_result.cum_dpi / cum_result.peak_dpi
             boosted = cum_result.peak_dpi * (current_multiplier + combined_boost)
-            # [F1] Don't hard-cap here — asymptotic scaling in apply_basin_dps_adjustment handles it
         else:
             boosted = cum_result.cum_dpi
 

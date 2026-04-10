@@ -1096,20 +1096,21 @@ function updateScoreContexts(dps, ias, ers) {
 // DPS is computed server-side for catalog storms; these are approximate
 // reference values for the preset list, recalculated when a storm is loaded.
 const PRESETS=[
-    {id:'AL122005',name:'Katrina',year:2005,cat:5,dps:100,ias:0,ers:0},
-    {id:'AL112017',name:'Irma',year:2017,cat:5,dps:100,ias:0,ers:0},
-    {id:'AL092008',name:'Ike',year:2008,cat:4,dps:100,ias:0,ers:0},
-    {id:'AL092022',name:'Ian',year:2022,cat:4,dps:100,ias:0,ers:0},
-    {id:'AL152017',name:'Maria',year:2017,cat:5,dps:100,ias:0,ers:0},
-    {id:'AL052019',name:'Dorian',year:2019,cat:5,dps:100,ias:0,ers:0},
-    {id:'AL182012',name:'Sandy',year:2012,cat:3,dps:98,ias:0,ers:0},
-    {id:'AL092017',name:'Harvey',year:2017,cat:4,dps:97,ias:0,ers:0},
-    {id:'AL142018',name:'Michael',year:2018,cat:5,dps:93,ias:0,ers:0},
-    {id:'AL142024',name:'Milton',year:2024,cat:5,dps:86,ias:0,ers:0},
-    {id:'AL022024',name:'Beryl',year:2024,cat:5,dps:83,ias:0,ers:0},
-    {id:'AL092024',name:'Helene',year:2024,cat:4,dps:81,ias:0,ers:0},
-    {id:'AL062018',name:'Florence',year:2018,cat:4,dps:77,ias:0,ers:0},
-    {id:'AL102023',name:'Idalia',year:2023,cat:3,dps:63,ias:0,ers:0},
+    // DPS values match compiled_bundle.json (v6 sqrt compression formula)
+    {id:'AL122005',name:'Katrina',year:2005,cat:5,dps:93,ias:0,ers:0},
+    {id:'AL112017',name:'Irma',year:2017,cat:5,dps:88,ias:0,ers:0},
+    {id:'AL092008',name:'Ike',year:2008,cat:4,dps:87,ias:0,ers:0},
+    {id:'AL092022',name:'Ian',year:2022,cat:4,dps:88,ias:0,ers:0},
+    {id:'AL152017',name:'Maria',year:2017,cat:5,dps:86,ias:0,ers:0},
+    {id:'AL052019',name:'Dorian',year:2019,cat:5,dps:88,ias:0,ers:0},
+    {id:'AL182012',name:'Sandy',year:2012,cat:3,dps:83,ias:0,ers:0},
+    {id:'AL092017',name:'Harvey',year:2017,cat:4,dps:83,ias:0,ers:0},
+    {id:'AL142018',name:'Michael',year:2018,cat:5,dps:82,ias:0,ers:0},
+    {id:'AL142024',name:'Milton',year:2024,cat:5,dps:83,ias:0,ers:0},
+    {id:'AL022024',name:'Beryl',year:2024,cat:5,dps:82,ias:0,ers:0},
+    {id:'AL092024',name:'Helene',year:2024,cat:4,dps:82,ias:0,ers:0},
+    {id:'AL062018',name:'Florence',year:2018,cat:4,dps:76,ias:0,ers:0},
+    {id:'AL102023',name:'Idalia',year:2023,cat:3,dps:71,ias:0,ers:0},
 ];
 
 function catColor(c){return['var(--td)','var(--cat1)','var(--cat2)','var(--cat3)','var(--cat4)','var(--cat5)'][c]||'var(--td)'}
@@ -1124,6 +1125,18 @@ function refreshPresetDPSFromPreload(){
     if(!preloadReady || Object.keys(PRELOAD_CACHE).length===0) return;
     let changed=false;
     PRESETS.forEach(p=>{
+        // [v6] Prefer compiled DPS (cumulative, pre-computed by compile_cache.py)
+        // over client-side per-snapshot calculateDPS() to eliminate score jumping.
+        // The compiled score accounts for duration, breadth, exposure, and stall
+        // factors that the per-snapshot formula cannot capture.
+        const compiled = getCompiledScore(p.id, p.name, p.year);
+        if (compiled && compiled.dps) {
+            const cDps = Math.round(compiled.dps);
+            if (cDps !== p.dps) { p.dps = cDps; changed = true; }
+            return; // Skip client-side calculation for this preset
+        }
+
+        // Fallback: client-side calculation (only for storms without compiled data)
         const data=PRELOAD_CACHE[p.id];
         if(!data||!data.length) return;
         let maxDps=0, maxIas=0, maxErs=0;
