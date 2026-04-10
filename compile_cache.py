@@ -602,7 +602,11 @@ def _load_catalog():
     global _CATALOG_CACHE
     if _CATALOG_CACHE is not None:
         return _CATALOG_CACHE
-    catalog_path = Path(__file__).parent / "data" / "cache" / "ibtracs_catalog.json"
+    
+    # Use Railway persistent volume when PERSISTENT_DATA_DIR is set
+    persistent_dir = Path(os.environ.get("PERSISTENT_DATA_DIR", str(Path(__file__).parent / "data")))
+    catalog_path = persistent_dir / "cache" / "ibtracs_catalog.json"
+    
     if catalog_path.exists():
         try:
             with open(catalog_path) as f:
