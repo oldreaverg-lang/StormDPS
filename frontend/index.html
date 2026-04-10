@@ -651,6 +651,39 @@ function getCompiledScore(stormId, stormName, stormYear) {
     return null;
 }
 
+// Ensure the canonical server-computed DPS bundle is available for the given
+// storm. Presets already live in COMPILED_SCORES via the compiled bundle; for
+// ad-hoc searches this fetches /api/v1/storms/{id}/dps once and stores the
+// result so the hero card, accordion, and map markers all read from the same
+// numbers. Returns the bundle (or null if the fetch fails).
+async function ensureCompiledBundle(stormId, stormName, stormYear) {
+    const existing = getCompiledScore(stormId, stormName, stormYear);
+    if (existing) return existing;
+    try {
+        const params = new URLSearchParams();
+        if (stormName) params.set('name', stormName);
+        if (stormYear) params.set('year', String(stormYear));
+        const url = `${API_BASE}/storms/${encodeURIComponent(stormId)}/dps` +
+                    (params.toString() ? `?${params.toString()}` : '');
+        const r = await fetch(url);
+        if (!r.ok) {
+            console.warn(`[DPS] unified endpoint failed for ${stormId}: ${r.status}`);
+            return null;
+        }
+        const bundle = await r.json();
+        if (!bundle || typeof bundle.dps !== 'number') return null;
+        COMPILED_SCORES[stormId] = bundle;
+        if (bundle.name && bundle.year) {
+            COMPILED_BY_NAME_YEAR[bundle.name.toUpperCase() + '_' + bundle.year] = bundle;
+        }
+        console.log(`[DPS] Fetched canonical bundle for ${stormId}: DPS ${Math.round(bundle.dps)}`);
+        return bundle;
+    } catch (e) {
+        console.warn(`[DPS] ensureCompiledBundle(${stormId}) error:`, e);
+        return null;
+    }
+}
+
 async function loadPreloadBundle() {
     // Try multiple paths: Railway serves at /frontend/, GitHub Pages at relative path
     const pathDir = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1);
@@ -2947,6 +2980,17 @@ async function fetchHistory(){
         window.stormData=data.sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp));
         window._lastFetchMs=fetchMs;
         if(!cacheHit) setLoadingStep('stepDPS');
+        // Fetch the canonical DPS bundle from the unified server pipeline.
+        // Presets already have it from compiled_bundle.json; ad-hoc searches
+        // hit /api/v1/storms/{id}/dps so hero/accordion/map stay consistent.
+        {
+            const _firstTs = window.stormData[0] && window.stormData[0].timestamp;
+            const _yr = _firstTs ? new Date(_firstTs).getFullYear() : null;
+            const _nm = (PRESETS.find(p=>p.id===usedId)||{}).name
+                     || (window.stormCatalog && (window.stormCatalog.find(s=>s.id===usedId)||{}).name)
+                     || usedId;
+            await ensureCompiledBundle(usedId, _nm, _yr);
+        }
         // Allow UI to repaint before heavy render
         await new Promise(r => setTimeout(r, 0));
         if(!cacheHit){ setLoadingStep('stepRender'); hideLoadingSkeleton(); }
@@ -2984,11 +3028,28 @@ function renderAll(stormId,data){
     const useNRI = !preset;
     data.forEach(d => { d.dps = calculateDPS(d); d.ias = calculateIAS(d); d.ers = calculateERS(d, useNRI); });
 
-    // Scale snapshot DPS to match compiled cumulative score (if available).
-    // This keeps per-point variation intact while ensuring the peak snapshot
-    // and all map markers reflect the cumulative assessment (duration/breadth bonuses).
+    // Prefer server-computed per-snapshot DPS series from the unified engine.
+    // This is the canonical source — same formula that drives the hero and
+    // accordion. Per-snapshot scores are matched to snapshots by timestamp.
+    // Falls back to legacy client-side scaling only when the bundle has no
+    // dpi_timeseries (e.g. very old cached bundles).
     const _compiledForScale = getCompiledScore(stormId, name, data[0] ? new Date(data[0].timestamp).getFullYear() : null);
-    if (_compiledForScale) {
+    if (_compiledForScale && Array.isArray(_compiledForScale.dpi_timeseries) && _compiledForScale.dpi_timeseries.length) {
+        const seriesByTs = {};
+        _compiledForScale.dpi_timeseries.forEach(pt => { if (pt && pt.t) seriesByTs[pt.t] = pt.dpi; });
+        data.forEach(d => {
+            const srv = seriesByTs[d.timestamp];
+            if (typeof srv === 'number') {
+                const s = Math.min(100, Math.round(srv));
+                d.dps = Object.assign({}, d.dps, {
+                    score: s,
+                    color: dpsColor(s),
+                    label: s >= 80 ? 'Catastrophic' : s >= 60 ? 'Extreme' : s >= 40 ? 'Severe' : s >= 20 ? 'Moderate' : s >= 10 ? 'Minor' : 'Minimal'
+                });
+            }
+        });
+    } else if (_compiledForScale) {
+        // Legacy fallback: scale client-computed scores to match compiled peak.
         const rawPeak = Math.max(...data.map(d => d.dps.score));
         const targetPeak = Math.round(_compiledForScale.dps);
         if (rawPeak > 0 && targetPeak !== rawPeak) {

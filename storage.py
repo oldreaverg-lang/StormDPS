@@ -44,9 +44,14 @@ PERSISTENT_DATA_DIR = Path(os.environ.get("PERSISTENT_DATA_DIR", _FALLBACK))
 # ── Subdirectory definitions ────────────────────────────────────────────────
 CACHE_DIR = PERSISTENT_DATA_DIR / "cache"
 IKE_CACHE_DIR = CACHE_DIR / "ike"
+DPS_CACHE_DIR = CACHE_DIR / "dps"  # Per-storm DPS bundles (one JSON per storm_id)
 IBTRACS_CACHE_FILE = CACHE_DIR / "ibtracs_catalog.json"
 HURDAT2_CACHE_FILE = CACHE_DIR / "hurdat2.txt"
 PRELOAD_BUNDLE_FILE = CACHE_DIR / "preload_bundle.json"
+# Compiled bundle on the persistent volume — served ahead of the frontend/
+# directory copy so redeploys don't drop the latest compiled scores until
+# compile_cache runs again.
+COMPILED_BUNDLE_FILE = CACHE_DIR / "compiled_bundle.json"
 
 VALIDATION_DIR = PERSISTENT_DATA_DIR / "validation"
 VALIDATION_DB = VALIDATION_DIR / "validation.db"
@@ -55,7 +60,7 @@ AUDIT_DIR = PERSISTENT_DATA_DIR / "audit"
 WIND_RADII_AUDIT_DIR = AUDIT_DIR / "wind_radii"
 
 # ── Create all directories on import ────────────────────────────────────────
-for _d in (IKE_CACHE_DIR, VALIDATION_DIR, WIND_RADII_AUDIT_DIR):
+for _d in (IKE_CACHE_DIR, DPS_CACHE_DIR, VALIDATION_DIR, WIND_RADII_AUDIT_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 logger.info("StormDPS storage root: %s", PERSISTENT_DATA_DIR)

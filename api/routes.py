@@ -101,9 +101,14 @@ _PRELOAD_CACHE_TTL = timedelta(minutes=5)
 from storage import (
     PERSISTENT_DATA_DIR as _PERSISTENT_DATA,
     IKE_CACHE_DIR as _IKE_CACHE_DIR,
+    DPS_CACHE_DIR as _DPS_CACHE_DIR,
     IBTRACS_CACHE_FILE as _GLOBAL_IBTRACS_CACHE_FILE_PATH,
     evict_ike_cache,
 )
+
+# Bump this when the unified DPS engine's formula changes so stale cached
+# bundles are automatically invalidated on the next request.
+_DPS_CACHE_VERSION = "v6-sqrt"
 
 # Cache for global IBTrACS catalog to avoid repeated large downloads/parses.
 # We also persist a json cache file so restarts can reuse the catalog quickly.
@@ -1246,6 +1251,172 @@ async def get_storm_track(
     logger.info(f"[CACHE MISS] {storm_id} — computed {len(results)} IKE results in {compute_ms:.0f}ms, saved to cache")
 
     return results
+
+
+# ------------------------------------------------------------------
+# Unified DPS endpoint — single source of truth for all DPS values
+# ------------------------------------------------------------------
+#
+# Every location the frontend shows DPS (hero card, accordion, map
+# marker colors, sparkline) must fetch from this endpoint so that the
+# hero, accordion, and map are derived from the exact same formula and
+# cached numbers. Presets load from compiled_bundle.json (built once
+# at deploy time); ad-hoc searches hit this endpoint on demand and the
+# result is cached to the persistent volume for subsequent loads.
+
+def _dps_cache_path(storm_id: str) -> Path:
+    safe = "".join(c for c in storm_id if c.isalnum() or c in "_-")
+    return _DPS_CACHE_DIR / f"{safe}_{_DPS_CACHE_VERSION}.json"
+
+
+def _load_dps_cache(storm_id: str) -> Optional[dict]:
+    fp = _dps_cache_path(storm_id)
+    if not fp.exists():
+        return None
+    try:
+        return json.loads(fp.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _save_dps_cache(storm_id: str, bundle: dict) -> None:
+    try:
+        _dps_cache_path(storm_id).write_text(json.dumps(bundle, separators=(",", ":")))
+    except OSError as e:
+        logger.warning(f"[DPS CACHE] Failed to save {storm_id}: {e}")
+
+
+def _ike_responses_to_engine_snapshots(responses: list) -> list[dict]:
+    """
+    Convert /storms/{id}/track output (IKEResponse objects or dicts) into the
+    plain-dict shape that core.dps_engine.compute_storm_dps expects.
+    """
+    out: list[dict] = []
+    for r in responses:
+        d = r if isinstance(r, dict) else _ike_response_to_dict(r)
+        out.append({
+            "timestamp": d.get("timestamp", ""),
+            "lat": d.get("lat") or 0.0,
+            "lon": d.get("lon") or 0.0,
+            "max_wind_ms": d.get("max_wind_ms") or 0.0,
+            "min_pressure_hpa": d.get("min_pressure_hpa") or 1013.0,
+            "r34_nm": d.get("r34_nm") or 0.0,
+            "r64_nm": d.get("r64_nm") or 0.0,
+            "rmw_nm": d.get("rmw_nm") or 0.0,
+            "forward_speed_knots": d.get("forward_speed_knots") or 0.0,
+            "ike_total_tj": d.get("ike_total_tj") or 0.0,
+            "r34_quadrants": d.get("r34_quadrants"),
+        })
+    return out
+
+
+@router.get("/storms/{storm_id}/dps")
+async def get_storm_dps(
+    storm_id: str,
+    name: Optional[str] = Query(None, description="Display name (e.g. Katrina). Used for cumulative DPI era adjustments."),
+    year: Optional[int] = Query(None, description="Year for era adjustments (defaults to storm_id year if ATCF)"),
+    grid_resolution_km: float = Query(15.0, ge=1.0, le=50.0),
+    skip_points: int = Query(1, ge=0, le=10),
+    force: bool = Query(False, description="Bypass the DPS cache and recompute."),
+):
+    """
+    Return the canonical DPS bundle for a single storm.
+
+    Cache order:
+      1. Persistent-volume DPS cache (cache/dps/<id>_<version>.json)
+      2. Compute: fetch snapshots via get_storm_track() → compute_storm_dps()
+      3. Save to persistent volume and return
+
+    The returned dict matches the per-storm schema of compiled_bundle.json,
+    so the frontend can use it identically for presets and ad-hoc storms.
+    """
+    # 1) Cache hit
+    if not force:
+        cached = _load_dps_cache(storm_id)
+        if cached:
+            return JSONResponse(content=cached)
+
+    # 2) Fetch snapshots via the unified track endpoint (which itself caches IKE).
+    # Pass explicit ints — when called internally (not as a FastAPI route) the
+    # default Query() sentinels are not resolved, so comparisons fail.
+    try:
+        track_results = await get_storm_track(
+            storm_id,
+            grid_resolution_km=float(grid_resolution_km),
+            skip_points=int(skip_points),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"[DPS] track fetch failed for {storm_id}: {e}")
+        raise HTTPException(status_code=502, detail=f"Failed to fetch track for {storm_id}")
+
+    # get_storm_track may return a JSONResponse (cache hit) or a list of IKEResponse.
+    if isinstance(track_results, JSONResponse):
+        try:
+            raw = json.loads(track_results.body)
+        except Exception:
+            raw = []
+    else:
+        raw = track_results
+
+    engine_snaps = _ike_responses_to_engine_snapshots(raw)
+    if not engine_snaps:
+        raise HTTPException(status_code=404, detail=f"No snapshots available for {storm_id}")
+
+    # Resolve name + year. For ATCF IDs (AL122005) we can derive year from the ID.
+    derived_year = year
+    if derived_year is None and len(storm_id) == 8 and storm_id[:2].upper() in ("AL", "EP"):
+        try:
+            derived_year = int(storm_id[4:])
+        except ValueError:
+            derived_year = 0
+    if derived_year is None:
+        derived_year = 0
+    storm_name = name or storm_id
+
+    # 3) Compute via the unified engine (same code path as compile_cache.py)
+    from core.dps_engine import compute_storm_dps
+    try:
+        bundle = compute_storm_dps(
+            storm_id=storm_id,
+            snapshots=engine_snaps,
+            storm_name=storm_name,
+            storm_year=int(derived_year),
+        )
+    except Exception as e:
+        logger.exception(f"[DPS] engine failed for {storm_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"DPS computation failed: {e}")
+
+    bundle["_cache_version"] = _DPS_CACHE_VERSION
+    _save_dps_cache(storm_id, bundle)
+    return JSONResponse(content=bundle)
+
+
+@router.delete("/cache/dps/{storm_id}")
+async def clear_storm_dps_cache(storm_id: str):
+    """Clear the cached DPS bundle for a single storm (forces recomputation)."""
+    cleared = 0
+    for f in _DPS_CACHE_DIR.glob(f"{storm_id}_*.json"):
+        try:
+            f.unlink()
+            cleared += 1
+        except OSError:
+            pass
+    return {"cleared": cleared, "storm_id": storm_id}
+
+
+@router.delete("/cache/dps")
+async def clear_all_dps_cache():
+    """Clear the entire DPS cache (forces full recomputation on next request)."""
+    cleared = 0
+    for f in _DPS_CACHE_DIR.glob("*.json"):
+        try:
+            f.unlink()
+            cleared += 1
+        except OSError:
+            pass
+    return {"cleared": cleared, "message": "All DPS cache cleared"}
 
 
 # ------------------------------------------------------------------

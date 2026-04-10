@@ -724,221 +724,32 @@ def compile():
 
         print(f"  Computing {name} ({year})...", end=" ", flush=True)
 
-        # Compute cumulative DPI (aka DPS)
-        cum_result = compute_cumulative_dpi(snapshots, storm_name=name, storm_year=year)
-
-        # Detect landfall events (needed for exposure factor)
-        landfall_events = detect_landfall_events(snapshots)
-
-        # Detect basin and apply basin-specific adjustments
-        basin = detect_basin(snapshots)
-
-        # Apply population exposure factor (R3)
-        # Uses landfall regions to boost DPS for dense metro corridors
-        exposure_factor, exposure_region = compute_exposure_factor(landfall_events)
-        # Apply perpendicular surge factor (R4)
-        perp_factor, us_lf_count = compute_perpendicular_factor(
-            landfall_events, cum_result.total_coastal_hours
+        # Delegate the entire per-storm DPS computation to the unified engine.
+        # This is THE single source of truth — also called by api/routes.py for
+        # ad-hoc storms, guaranteeing hero/accordion/map all see identical numbers.
+        from core.dps_engine import compute_storm_dps
+        bundle = compute_storm_dps(
+            storm_id=storm_id,
+            snapshots=snapshots,
+            storm_name=name,
+            storm_year=year,
+            category_hint=cat,
         )
+        compiled_storms[storm_id] = bundle
 
-        # Compute rainfall warning (needed before stall bonus)
-        rain_result = compute_rainfall_warning(snapshots, storm_name=name)
-
-        # R7 + [F2]: Rainfall stall bonus — scaled by economic weight of STALL LOCATION
-        # (not exposure region). Dorian stalled over Bahamas (0.08) not NE Florida (0.65).
-        #
-        # [F11] Partial slow-hour credit: slow-moving storms (5–8 kt near land) receive
-        # half-rate stall credit. A storm creeping at 5.8 kt for 36 hours generates surge
-        # and rainfall accumulation that is forecastable pre-landfall and nearly as
-        # destructive as a true stall. Previously only true stall (≤5 kt) hours counted,
-        # causing storms like Sally (36 slow-hours, 6 stall-hours) to be significantly
-        # underscored despite the slow approach being well-predicted before landfall.
-        STALL_THRESHOLD_HOURS = 4
-        STALL_BONUS_PER_HOUR = 0.01        # Full rate for stall hours (≤5 kt)
-        SLOW_BONUS_PER_HOUR  = 0.005       # Half rate for slow hours (5–8 kt)  [F11]
-        STALL_BONUS_CAP = 0.05  # Reduced from 0.10 — was over-inflating stall storms
-        effective_stall_hours = (
-            rain_result.total_stall_hours +
-            rain_result.total_slow_hours * 0.5  # [F11] half-weight slow hours
-        )
-        if effective_stall_hours > STALL_THRESHOLD_HOURS and cum_result.peak_dpi > 0:
-            raw_stall = min(
-                rain_result.total_stall_hours * STALL_BONUS_PER_HOUR +
-                rain_result.total_slow_hours  * SLOW_BONUS_PER_HOUR,   # [F11]
-                STALL_BONUS_CAP
-            )
-            # [F2] Find WHERE the stall happened (slowest forward speed snapshot)
-            slowest_snap = min(snapshots, key=lambda s: (s.get("forward_speed_knots", 99) or 99))
-            stall_lat = slowest_snap.get("lat", 0)
-            stall_lon = slowest_snap.get("lon", 0)
-            stall_region = "Coast"
-            for lat_min, lat_max, lon_min, lon_max, rname in COASTAL_REGIONS:
-                if lat_min <= stall_lat <= lat_max and lon_min <= stall_lon <= lon_max:
-                    stall_region = rname
-                    break
-            stall_econ = COASTAL_EXPOSURE_WEIGHTS.get(stall_region, 0.20)
-            stall_bonus = raw_stall * max(stall_econ, 0.10)
-        else:
-            stall_bonus = 0.0
-
-        # R12 + [F2]: Rainfall inland damage extension — scaled by exposure econ weight
-        RAIN_WARN_THRESHOLD = 30
-        RAIN_MM_THRESHOLD = 250
-        RAIN_INLAND_CAP = 0.04  # Reduced from 0.08
-        if rain_result.warning_score > RAIN_WARN_THRESHOLD and rain_result.estimated_total_mm > RAIN_MM_THRESHOLD and cum_result.peak_dpi > 0:
-            raw_rain_inland = min(rain_result.warning_score / 100.0 * 0.08, RAIN_INLAND_CAP)
-            rain_econ = COASTAL_EXPOSURE_WEIGHTS.get(exposure_region, 0.20)
-            rain_inland_factor = raw_rain_inland * max(rain_econ, 0.15)
-        else:
-            rain_inland_factor = 0.0
-
-        # [F5] Inland flood penetration factor
-        # Storms like Helene (2024) maintained TS-force winds 300+ miles inland,
-        # causing catastrophic inland flooding the coastal-centric formula misses.
-        # Only counts snapshots: (a) post-landfall, (b) over continental land masses
-        # (lat > 25°N, lon in US mainland range), (c) NOT in a named coastal box.
-        # Scaled by exposure region economic weight to avoid over-crediting Caribbean.
-        INLAND_PEN_CAP = 0.04  # Reduced from 0.06 — was giving fast-crossing storms (Michael) too much credit
-        INLAND_PEN_PER_SNAP = 0.008  # Reduced from 0.015 — each inland snap worth less
-        INLAND_MIN_WIND_MS = 18.0    # Slightly below TS force to catch weakening post-landfall
-        inland_pen_factor = 0.0
-        if landfall_events and cum_result.peak_dpi > 0:
-            # Only count US mainland landfalls for first-LF index
-            us_lf_events = [e for e in landfall_events if e.get("region", "") in US_MAINLAND_REGIONS]
-            if us_lf_events:
-                first_lf_idx = min(e.get("snapshot_idx", len(snapshots)) for e in us_lf_events)
-            else:
-                first_lf_idx = min(e.get("snapshot_idx", len(snapshots)) for e in landfall_events)
-            inland_ts_snaps = 0
-            for snap in snapshots[first_lf_idx:]:
-                wind = snap.get("max_wind_ms", 0) or 0
-                lat, lon = snap.get("lat", 0), snap.get("lon", 0)
-                # Must be over continental land: US mainland lat band, correct longitude
-                if not (25.0 <= lat <= 48.0 and -100.0 <= lon <= -66.0):
-                    continue
-                near_coast = False
-                for lat_min, lat_max, lon_min, lon_max, _ in COASTAL_REGIONS:
-                    if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
-                        near_coast = True
-                        break
-                if wind >= INLAND_MIN_WIND_MS and not near_coast:
-                    inland_ts_snaps += 1
-            if inland_ts_snaps >= 2:
-                # Scale by rainfall severity
-                rain_scale = min(1.0, max(rain_result.warning_score, rain_result.estimated_total_mm / 10.0) / 50.0)
-                # Inland penetration measures non-coastal damage (Helene: FL Big Bend
-                # landfall but catastrophic damage in GA/TN/NC 500km inland). Do NOT
-                # scale by coastal econ_weight — the damage IS the inland path.
-                inland_pen_factor = min(INLAND_PEN_CAP, inland_ts_snaps * INLAND_PEN_PER_SNAP * rain_scale)
-
-        # Combine exposure + perpendicular + stall + rainfall inland + inland penetration
-        # [v5] Cap the total combined boost at 10% to prevent all major storms
-        # from saturating at the same score. The cumulative DPI's duration and
-        # breadth factors already capture most of the stall/size effect.
-        combined_boost = exposure_factor + perp_factor + stall_bonus + rain_inland_factor + inland_pen_factor
-        # [v6] No hard cap on combined boost — the individual factor caps
-        # (exposure 10%, perp 3%, stall 5%, rain 4%, inland 4%) already limit
-        # each component. A hard cap was forcing Sandy (EXP 8% + stall 1% + rain 3%)
-        # to score the same as Michael (EXP 4.5% + rain 1.4%) by flattening
-        # both to the same ceiling. Letting the natural sum play out means
-        # storms with more compound risk factors score proportionally higher.
-        # Max theoretical combined: 10+3+5+4+4 = 26% but in practice ≤15%.
-        if combined_boost > 0 and cum_result.peak_dpi > 0:
-            current_multiplier = cum_result.cum_dpi / cum_result.peak_dpi
-            boosted = cum_result.peak_dpi * (current_multiplier + combined_boost)
-        else:
-            boosted = cum_result.cum_dpi
-
-        # Apply basin-specific adjustment on the boosted value
-        adjusted_dps, basin_name, adjustment_notes = apply_basin_dps_adjustment(
-            boosted, basin, snapshots
-        )
-
-        # Find peak snapshot data for quick display
-        peak_wind = max((s.get("max_wind_ms", 0) or 0) for s in snapshots)
-        peak_ike = max((s.get("ike_total_tj", 0) or 0) for s in snapshots)
-        min_pressure = min((s.get("min_pressure_hpa", 1013) or 1013) for s in snapshots)
-
-        # [F4] Use wind at strongest landfall for category (not lifetime peak).
-        # This matches NHC convention where the public sees the landfall category.
-        # Falls back to lifetime peak if no landfalls detected (fish storms).
-        if landfall_events:
-            lf_peak_wind_ms = max(e.get("max_wind_ms", 0) for e in landfall_events)
-            lf_peak_kt = lf_peak_wind_ms / 0.514444
-            landfall_cat = _wind_kt_to_category(lf_peak_kt)
-        else:
-            landfall_cat = cat  # No landfalls — use metadata category
-        lifetime_cat = cat  # Preserve for reference
-
-        # Recategorize with basin-adjusted DPS
-        basin_adjusted_category = categorize_dpi(adjusted_dps)
-
-        compiled_storms[storm_id] = {
-            "name": name,
-            "year": year,
-            "category": landfall_cat,      # [F4] Landfall category (NHC convention)
-            "category_lifetime": lifetime_cat,  # [F4] Lifetime peak category for reference
-            # Core DPS (Destructive Power Score) — the hero number (BASIN-ADJUSTED)
-            "dps": adjusted_dps,
-            "dps_label": basin_adjusted_category,
-            "peak_dps": cum_result.peak_dpi,
-            # Basin information for UI display
-            "basin": basin,
-            "basin_name": basin_name,
-            "dps_original": cum_result.cum_dpi,  # Keep original for reference
-            # Population exposure (R3)
-            "exposure_factor": exposure_factor,
-            "exposure_region": exposure_region,
-            # Perpendicular surge factor (R4)
-            "perp_factor": perp_factor,
-            "us_landfall_count": us_lf_count,
-            # Rainfall stall bonus (R7)
-            "stall_bonus": stall_bonus,
-            "stall_hours": rain_result.total_stall_hours,
-            # Rainfall inland factor (R12)
-            "rain_inland_factor": rain_inland_factor,
-            # Inland flood penetration (F5)
-            "inland_pen_factor": inland_pen_factor,
-            # Breakdown factors
-            "duration_factor": cum_result.duration_factor,
-            "breadth_factor": cum_result.breadth_factor,
-            "coastal_hours": cum_result.total_coastal_hours,
-            "track_hours": cum_result.total_track_hours,
-            "peak_ike_tj": cum_result.peak_ike_tj,
-            # Rainfall warning (red bar)
-            "rainfall_warning": rain_result.warning_score,
-            "rainfall_level": rain_result.warning_level,
-            "rainfall_text": rain_result.warning_text,
-            "rainfall_anomalous": rain_result.is_anomalous,
-            "rainfall_stall_hours": rain_result.total_stall_hours,
-            "rainfall_est_mm": rain_result.estimated_total_mm,
-            # Quick stats for display
-            "peak_wind_ms": round(peak_wind, 1),
-            "peak_wind_kt": round(peak_wind / 0.514444, 0),
-            "min_pressure_hpa": round(min_pressure, 0),
-            "peak_ike": round(peak_ike, 1),
-            "snapshot_count": len(snapshots),
-            # Landfall events (ocean→coast transitions)
-            "landfalls": landfall_events,
-            # DPI timeseries for sparkline (just score + timestamp)
-            "dpi_timeseries": [
-                {"t": s.get("timestamp", ""), "dpi": round(s["dpi"], 1)}
-                for s in cum_result.dpi_timeseries
-                if s["dpi"] > 0
-            ],
-        }
-
-        rain_flag = " RAIN-WARN" if rain_result.is_anomalous else ""
-        adj_details = f" [{adjustment_notes}]" if adjustment_notes else ""
-        adj_note = f" (was {cum_result.cum_dpi:.0f})" if abs(adjusted_dps - cum_result.cum_dpi) > 1 else ""
-        exp_note = f" EXP:+{exposure_factor:.1%}({exposure_region})" if exposure_factor > 0 else ""
-        perp_note = f" PERP:+{perp_factor:.1%}(LF:{us_lf_count})" if perp_factor > 0 else ""
-        stall_note = f" STALL:+{stall_bonus:.1%}({rain_result.total_stall_hours:.0f}h)" if stall_bonus > 0 else ""
-        rain_inland_note = f" RAIN-INLAND:+{rain_inland_factor:.1%}(warn:{rain_result.warning_score:.0f},mm:{rain_result.estimated_total_mm:.0f})" if rain_inland_factor > 0 else ""
-        inland_note = f" INLAND:+{inland_pen_factor:.1%}" if inland_pen_factor > 0 else ""
-        lf_info = f" LF:{len(landfall_events)}({', '.join(e['region'] for e in landfall_events)})" if landfall_events else " LF:0(fish)"
-        cat_note = f" Cat:{landfall_cat}" + (f"(life:{lifetime_cat})" if landfall_cat != lifetime_cat else "")
-        print(f"DPS {adjusted_dps:.1f} (peak {cum_result.peak_dpi:.0f}){adj_note}{adj_details}{exp_note}{perp_note}{stall_note}{rain_inland_note}{inland_note}{rain_flag}{cat_note}{lf_info}")
+        # Log line (pull values from the returned bundle)
+        rain_flag = " RAIN-WARN" if bundle["rainfall_anomalous"] else ""
+        adj_details = f" [{bundle['adjustment_notes']}]" if bundle.get("adjustment_notes") else ""
+        adj_note = f" (was {bundle['dps_original']:.0f})" if abs(bundle["dps"] - bundle["dps_original"]) > 1 else ""
+        exp_note = f" EXP:+{bundle['exposure_factor']:.1%}({bundle['exposure_region']})" if bundle["exposure_factor"] > 0 else ""
+        perp_note = f" PERP:+{bundle['perp_factor']:.1%}(LF:{bundle['us_landfall_count']})" if bundle["perp_factor"] > 0 else ""
+        stall_note = f" STALL:+{bundle['stall_bonus']:.1%}({bundle['stall_hours']:.0f}h)" if bundle["stall_bonus"] > 0 else ""
+        rain_inland_note = f" RAIN-INLAND:+{bundle['rain_inland_factor']:.1%}(warn:{bundle['rainfall_warning']:.0f},mm:{bundle['rainfall_est_mm']:.0f})" if bundle["rain_inland_factor"] > 0 else ""
+        inland_note = f" INLAND:+{bundle['inland_pen_factor']:.1%}" if bundle["inland_pen_factor"] > 0 else ""
+        lf_events = bundle["landfalls"]
+        lf_info = f" LF:{len(lf_events)}({', '.join(e['region'] for e in lf_events)})" if lf_events else " LF:0(fish)"
+        cat_note = f" Cat:{bundle['category']}" + (f"(life:{bundle['category_lifetime']})" if bundle['category'] != bundle['category_lifetime'] else "")
+        print(f"DPS {bundle['dps']:.1f} (peak {bundle['peak_dps']:.0f}){adj_note}{adj_details}{exp_note}{perp_note}{stall_note}{rain_inland_note}{inland_note}{rain_flag}{cat_note}{lf_info}")
 
     # Build output
     output = {

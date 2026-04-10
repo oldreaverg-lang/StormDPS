@@ -267,5 +267,36 @@ async def serve_sitemap():
     return FileResponse(FRONTEND_DIR / "sitemap.xml", media_type="application/xml")
 
 
+# ---------------------------------------------------------------------------
+# Compiled bundle — served from the persistent volume with fallback.
+#
+# Redeploys ship with the frontend/compiled_bundle.json baked into the image,
+# but compile_cache.py can also write a newer copy to the Railway persistent
+# volume. When present, the volume copy takes precedence so the hero card,
+# accordion, and map all see the freshest scores without waiting for another
+# image build. The frontend fetches /frontend/compiled_bundle.json; this
+# explicit route wins over the StaticFiles mount below.
+# ---------------------------------------------------------------------------
+
+from storage import COMPILED_BUNDLE_FILE as _VOLUME_COMPILED_BUNDLE
+
+@app.get("/frontend/compiled_bundle.json")
+async def serve_compiled_bundle():
+    if _VOLUME_COMPILED_BUNDLE.exists():
+        return FileResponse(
+            _VOLUME_COMPILED_BUNDLE,
+            media_type="application/json",
+            headers={"Cache-Control": "public, max-age=60"},
+        )
+    baked = FRONTEND_DIR / "compiled_bundle.json"
+    if baked.exists():
+        return FileResponse(
+            baked,
+            media_type="application/json",
+            headers={"Cache-Control": "public, max-age=60"},
+        )
+    raise HTTPException(status_code=404, detail="compiled_bundle.json not found")
+
+
 # Serve any other static assets from the frontend folder
 app.mount("/frontend", StaticFiles(directory=FRONTEND_DIR), name="frontend")
