@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 # NOAA API endpoints
-NHC_ACTIVE_STORMS_URL = "https://www.nhc.noaa.gov/CurrentSummaries.json"
+NHC_ACTIVE_STORMS_URL = "https://www.nhc.noaa.gov/CurrentStorms.json"
 NHC_GIS_BASE_URL = "https://www.nhc.noaa.gov/gis"
 HURDAT2_URL = "https://www.nhc.noaa.gov/data/hurdat/hurdat2-1851-2024-040425.txt"
 

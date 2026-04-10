@@ -168,15 +168,33 @@ FRONTEND_DIR = Path(__file__).parent / "frontend"
 
 @app.exception_handler(404)
 async def not_found_handler(request: Request, exc):
-    if request.url.path.startswith("/api/"):
+    path = request.url.path
+
+    # ── Security: block probes for sensitive files ──
+    # Bots routinely probe for .env, .git, wp-admin, etc.
+    # Return a hard 404 — never serve content for these paths.
+    _blocked_patterns = (
+        ".env", ".git", ".aws", ".ssh", ".docker",
+        "wp-admin", "wp-login", "phpinfo", ".php",
+        "/.htaccess", "/server-status", "/debug",
+        "/config", "/credentials", "/secret",
+    )
+    path_lower = path.lower()
+    if any(p in path_lower for p in _blocked_patterns):
+        return JSONResponse(status_code=404, content={"detail": "Not found"})
+
+    if path.startswith("/api/"):
         return JSONResponse(
             status_code=404,
             content={"detail": "Endpoint not found"},
         )
     # For non-API paths, try to serve the legacy frontend
-    frontend_file = FRONTEND_DIR / "index.html"
-    if frontend_file.exists():
-        return FileResponse(frontend_file)
+    # Only for paths that look like client-side routes (no file extension
+    # or known frontend extensions) — NOT arbitrary file probes.
+    if not "." in path.split("/")[-1] or path.endswith((".html", ".htm")):
+        frontend_file = FRONTEND_DIR / "index.html"
+        if frontend_file.exists():
+            return FileResponse(frontend_file)
     return JSONResponse(status_code=404, content={"detail": "Not found"})
 
 
@@ -214,8 +232,25 @@ async def serve_surgedps_spa(path: str, request: Request):
     # If we reach here for an api/ path, the router didn't match — return 404.
     if path.startswith("api/"):
         raise HTTPException(status_code=404, detail="Not found")
+
+    # ── Security: block sensitive file probes ──
+    path_lower = path.lower()
+    if any(p in path_lower for p in (".env", ".git", ".aws", ".php", ".htaccess", "wp-")):
+        raise HTTPException(status_code=404, detail="Not found")
+
+    # ── Path traversal protection ──
+    # Reject paths with ".." or absolute path components
+    if ".." in path or path.startswith("/"):
+        raise HTTPException(status_code=404, detail="Not found")
+
     # Static assets (js, css, svg, png …) — serve directly if present
     asset_file = SURGEDPS_FRONTEND_DIR / path
+    # Verify resolved path stays within the frontend directory
+    try:
+        asset_file.resolve().relative_to(SURGEDPS_FRONTEND_DIR.resolve())
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Not found")
+
     if asset_file.is_file():
         response = FileResponse(asset_file)
         # Vite hashed assets are immutable — cache aggressively

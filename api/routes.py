@@ -1193,6 +1193,21 @@ async def get_storm_track(
                 except (NOAAClientError, Exception):
                     snapshots = []
 
+            # 6) Name-based fallback: if storm_id looks like a plain name
+            #    (e.g. "KATRINA", "MICHAEL"), search IBTrACS by name.
+            #    Handles requests like /storms/KATRINA/track that don't match
+            #    any ATCF ID or SID pattern.
+            if not snapshots and storm_id.isalpha():
+                try:
+                    snapshots = await client.get_ibtracs_by_name(
+                        storm_id.upper(), basin=None
+                    )
+                    if snapshots:
+                        source = "ibtracs"
+                        logger.info(f"[TRACK] Name-based fallback matched {storm_id} → {len(snapshots)} points")
+                except (NOAAClientError, Exception):
+                    snapshots = []
+
     if not snapshots:
         raise HTTPException(
             status_code=404,
