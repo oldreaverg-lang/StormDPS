@@ -16,6 +16,8 @@ data/cache/ibtracs_recent.csv
 data/cache/ibtracs_catalog.json
 # NOTE: data/cache/ike/ is committed so pre-computed IKE files ship with
 # the Docker image and Railway deploys don't recompute from scratch.
+# DPS per-storm cache is runtime-only (written to persistent volume at runtime)
+data/cache/dps/
 
 # Debug/analysis scripts (one-off)
 analyze_*.py
