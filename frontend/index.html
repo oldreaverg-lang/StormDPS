@@ -371,9 +371,10 @@
         .breakdown-panel{position:absolute;inset:0;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;z-index:10;opacity:0;transition:opacity .15s;box-shadow:0 4px 16px rgba(0,0,0,.5);font-size:.72rem;pointer-events:none;display:flex;flex-direction:column;justify-content:center}
         .breakdown-wrap:hover .breakdown-panel{opacity:1;pointer-events:auto}
         .dps-hero-card{overflow:visible!important}
-        .breakdown-panel-row{display:flex;align-items:center;gap:6px;padding:2px 0;white-space:nowrap}
+        .breakdown-panel-row{display:flex;align-items:flex-start;gap:6px;padding:2px 0;white-space:nowrap}
         .breakdown-panel-swatch{width:8px;height:8px;border-radius:2px;flex-shrink:0}
-        .breakdown-panel-label{color:var(--text-dim);flex:1}
+        .breakdown-panel-label{color:var(--text-dim);flex:1;display:flex;flex-direction:column;gap:1px}
+        .breakdown-panel-detail{font-size:.6rem;opacity:.6;white-space:normal;line-height:1.2}
         .breakdown-panel-val{font-weight:700;font-variant-numeric:tabular-nums}
         .breakdown-panel-pct{color:var(--text-dim);font-size:.65rem;margin-left:2px}
         @media(max-width:600px){.stat-value{font-size:1.5rem!important}.chart-panel{min-height:320px!important}.chart-tabbed{min-height:320px!important}.scrubber-bar{flex-wrap:wrap;gap:.4rem}.modal-box{padding:1rem}}
@@ -913,7 +914,7 @@ function renderBreakdownBar(barId, panelId, segments, score) {
     panel.innerHTML = segments.map(seg =>
         `<div class="breakdown-panel-row">` +
         `<div class="breakdown-panel-swatch" style="background:${seg.color}"></div>` +
-        `<div class="breakdown-panel-label">${seg.label}</div>` +
+        `<div class="breakdown-panel-label">${seg.label}${seg.detail ? `<span class="breakdown-panel-detail">${seg.detail}</span>` : ''}</div>` +
         `<div class="breakdown-panel-val" style="color:${seg.color}">${seg.display}</div>` +
         `<div class="breakdown-panel-pct">${seg.pct}</div>` +
         `</div>`
@@ -1032,21 +1033,77 @@ function buildDpsSegments(dpsObj, basin) {
     ];
 }
 
-function updateBreakdownBars(heroDPS, peakDpsObj, _unused, peakIasObj, peakErsObj, basin) {
+function updateBreakdownBars(heroDPS, peakDpsObj, _unused, peakIasObj, peakErsObj, basin, compiledBundle) {
     const coeffs = BASIN_COEFFICIENTS[basin] || BASIN_COEFFICIENTS.ATLANTIC;
-    // DPS Hero card — weighted component contributions
-    if (peakDpsObj && peakDpsObj.components) {
+
+    // ── DPS Hero card breakdown ──────────────────────────────────────────────
+    // When a server-computed compiled bundle is available, derive the breakdown
+    // from the actual formula factors so the segments sum to heroDPS exactly.
+    //
+    // The server formula: cumDPI = peakDPI × (1 + duration_factor + breadth_factor)
+    //   then boosted with regional factors, then sqrt-compressed to final DPS.
+    // We attribute the final DPS proportionally across four contributions:
+    //   • Peak Intensity  — base IKE/wind peak (share = 1 / total_mult)
+    //   • Size Bonus      — wind-field breadth  (share = breadth_factor / total_mult)
+    //   • Duration Bonus  — coastal persistence (share = duration_factor / total_mult)
+    //   • Regional Boost  — exposure, surge geo, stall, rainfall, inland flood
+    //                       (share = combined_regional / total_mult)
+    // This guarantees the four bars sum to exactly heroDPS.
+    if (compiledBundle && typeof compiledBundle.duration_factor === 'number') {
+        const df = compiledBundle.duration_factor || 0;
+        const bf = compiledBundle.breadth_factor  || 0;
+        const regional = (compiledBundle.exposure_factor   || 0)
+                       + (compiledBundle.perp_factor        || 0)
+                       + (compiledBundle.stall_bonus        || 0)
+                       + (compiledBundle.rain_inland_factor || 0)
+                       + (compiledBundle.inland_pen_factor  || 0);
+        const totalMult = 1 + df + bf + regional || 1;
+
+        const intensityVal = heroDPS * (1          / totalMult);
+        const sizeVal      = heroDPS * (bf         / totalMult);
+        const durationVal  = heroDPS * (df         / totalMult);
+        const regionalVal  = heroDPS * (regional   / totalMult);
+
+        // Tooltip detail lines for the Regional Factors segment
+        const regionalDetail = [
+            compiledBundle.exposure_factor   > 0 ? `Pop. Exposure: +${(compiledBundle.exposure_factor*100).toFixed(1)}` : '',
+            compiledBundle.perp_factor       > 0 ? `Surge Geometry: +${(compiledBundle.perp_factor*100).toFixed(1)}`    : '',
+            compiledBundle.stall_bonus       > 0 ? `Stall Bonus: +${(compiledBundle.stall_bonus*100).toFixed(1)}`       : '',
+            compiledBundle.rain_inland_factor> 0 ? `Rain/Inland: +${(compiledBundle.rain_inland_factor*100).toFixed(1)}` : '',
+            compiledBundle.inland_pen_factor > 0 ? `Inland Pen: +${(compiledBundle.inland_pen_factor*100).toFixed(1)}`  : '',
+        ].filter(Boolean).join(' · ') || 'Minimal regional amplification';
+
+        renderBreakdownBar('breakdownDPS', 'panelDPS', [
+            { label: 'Peak Intensity',  value: intensityVal, color: BREAKDOWN_COLORS.surge,
+              display: Math.round(intensityVal), pct: Math.round(intensityVal/heroDPS*100)+'%',
+              detail: `IKE + peak wind/pressure at storm maximum` },
+            { label: 'Size Bonus',      value: sizeVal,      color: BREAKDOWN_COLORS.windField,
+              display: Math.round(sizeVal),      pct: Math.round(sizeVal/heroDPS*100)+'%',
+              detail: `Wind-field breadth (r34/r64 radius accumulation)` },
+            { label: 'Duration Bonus',  value: durationVal,  color: BREAKDOWN_COLORS.duration,
+              display: Math.round(durationVal),  pct: Math.round(durationVal/heroDPS*100)+'%',
+              detail: `${compiledBundle.coastal_hours || '?'}h near-coast persistence` },
+            { label: 'Regional Boost',  value: regionalVal,  color: BREAKDOWN_COLORS.windSpeed,
+              display: Math.round(regionalVal),  pct: Math.round(regionalVal/heroDPS*100)+'%',
+              detail: regionalDetail },
+        ], heroDPS);
+
+    } else if (peakDpsObj && peakDpsObj.components) {
+        // Fallback for active storms without a compiled bundle: use the
+        // per-snapshot client-side formula components. These are proportional
+        // to the snapshot score, not the cumulative heroDPS, but it's the
+        // best decomposition available without server data.
         const c = peakDpsObj.components;
-        const sW = coeffs.surge_weight * c.S * 100;
-        const wfW = coeffs.wind_field_weight * c.Wf * 100;
-        const vW = coeffs.wind_speed_weight * c.V * 100;
-        const fW = coeffs.forward_speed_weight * c.F * 100;
+        const sW  = coeffs.surge_weight         * c.S  * 100;
+        const wfW = coeffs.wind_field_weight    * c.Wf * 100;
+        const vW  = coeffs.wind_speed_weight    * c.V  * 100;
+        const fW  = coeffs.forward_speed_weight * c.F  * 100;
         const tot = sW + wfW + vW + fW || 1;
         renderBreakdownBar('breakdownDPS', 'panelDPS', [
-            { label: 'Storm Surge', value: sW, color: BREAKDOWN_COLORS.surge, display: Math.round(sW), pct: Math.round(sW/tot*100)+'%' },
-            { label: 'Wind Field', value: wfW, color: BREAKDOWN_COLORS.windField, display: Math.round(wfW), pct: Math.round(wfW/tot*100)+'%' },
-            { label: 'Wind Speed', value: vW, color: BREAKDOWN_COLORS.windSpeed, display: Math.round(vW), pct: Math.round(vW/tot*100)+'%' },
-            { label: 'Duration', value: fW, color: BREAKDOWN_COLORS.duration, display: Math.round(fW), pct: Math.round(fW/tot*100)+'%' }
+            { label: 'Storm Surge', value: sW,  color: BREAKDOWN_COLORS.surge,      display: Math.round(sW),  pct: Math.round(sW/tot*100)+'%' },
+            { label: 'Wind Field',  value: wfW, color: BREAKDOWN_COLORS.windField,  display: Math.round(wfW), pct: Math.round(wfW/tot*100)+'%' },
+            { label: 'Wind Speed',  value: vW,  color: BREAKDOWN_COLORS.windSpeed,  display: Math.round(vW),  pct: Math.round(vW/tot*100)+'%' },
+            { label: 'Duration',    value: fW,  color: BREAKDOWN_COLORS.duration,   display: Math.round(fW),  pct: Math.round(fW/tot*100)+'%' }
         ], heroDPS);
     }
     // Peak Snapshot bar is now handled by the snapshot tab system (applySnapshotTab)
@@ -3138,7 +3195,7 @@ function renderAll(stormId,data){
     }
 
     // Breakdown bars — component composition for all 4 score cards
-    updateBreakdownBars(heroDPS, peakDpsObj, peakDpsObj, peakIasObj, peakErsObj, peakDpsObj.basin || 'ATLANTIC');
+    updateBreakdownBars(heroDPS, peakDpsObj, peakDpsObj, peakIasObj, peakErsObj, peakDpsObj.basin || 'ATLANTIC', compiled);
 
     // Rainfall Red Bar Warning
     const rainBar = document.getElementById('rainfallBar');
