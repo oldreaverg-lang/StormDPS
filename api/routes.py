@@ -1420,6 +1420,181 @@ async def clear_all_dps_cache():
 
 
 # ------------------------------------------------------------------
+# Active Storm context — aggregates live government APIs into one
+# payload for the Active Storm view. Combines:
+#   * NHC GIS (authoritative track, cone, wind radii)
+#   * NWS Alerts (hurricane/surge/flood warnings)
+#   * NOMADS GFS (forecast intensity trend)
+#   * USGS STN (post-event HWMs, if the storm has already struck)
+# ------------------------------------------------------------------
+
+@router.get("/storms/active-context")
+async def get_active_storm_context(
+    storm_name: Optional[str] = Query(None, description="Storm name for STN lookup"),
+    storm_year: Optional[int] = Query(None, description="Storm year for STN disambiguation"),
+    radius_deg: float = Query(2.0, description="Alert bounding-box radius in degrees"),
+):
+    """
+    Aggregate live authoritative data for active/just-past tropical cyclones.
+
+    Pulls (in parallel where possible):
+      * Active NHC advisories — current position, forecast track, cone,
+        wind radii for every live tropical system.
+      * NWS alerts — Hurricane/Storm Surge/Flash Flood warnings filtered
+        to each storm's track envelope.
+      * GFS point forecast — intensity trend at each storm's current
+        position out to ~120h.
+      * USGS STN high water marks — for a named storm, the post-event
+        peak flood observations (if the STN event exists).
+
+    This endpoint is safe to call during the off-season; it returns an
+    empty ``storms`` list when no systems are active.
+    """
+    import asyncio as _asyncio
+    from services.nhc_gis import NHCGISClient
+    from services.nws_alerts import NWSAlertsClient
+    from services.nomads_models import NOMADSClient
+    from services.usgs_stn import USGSSTNClient
+
+    nhc = NHCGISClient()
+    alerts_client = NWSAlertsClient()
+    nomads = NOMADSClient()
+
+    # Step 1: active NHC advisories
+    try:
+        active_storms = await nhc.get_active_storms()
+    except Exception as e:
+        logger.warning(f"[active-context] NHC fetch failed: {e}")
+        active_storms = []
+
+    # Step 2: pull the alert feed once for the whole country
+    try:
+        all_alerts = await alerts_client.fetch_active()
+    except Exception as e:
+        logger.warning(f"[active-context] NWS alerts fetch failed: {e}")
+        all_alerts = []
+
+    payload_storms: list[dict] = []
+
+    async def _enrich(storm):
+        # Per-storm enrichment — GFS forecast trend + filtered alerts
+        track_points: list[dict] = []
+        if storm.position:
+            track_points.append({"lat": storm.position[0], "lon": storm.position[1]})
+        for lat, lon in storm.track:
+            track_points.append({"lat": lat, "lon": lon})
+
+        forecast_task = (
+            nomads.forecast_intensity_trend(storm.position[0], storm.position[1])
+            if storm.position
+            else _asyncio.sleep(0, result=[])
+        )
+        forecast_points = await forecast_task
+
+        # Filter alerts by bounding box around this storm's track
+        if track_points:
+            lats = [p["lat"] for p in track_points]
+            lons = [p["lon"] for p in track_points]
+            lat_min, lat_max = min(lats) - radius_deg, max(lats) + radius_deg
+            lon_min, lon_max = min(lons) - radius_deg, max(lons) + radius_deg
+
+            def _alert_in_range(a):
+                if not a.geometry:
+                    return True
+                coords = a.geometry.get("coordinates")
+                if not coords:
+                    return True
+                stack = [coords]
+                while stack:
+                    c = stack.pop()
+                    if isinstance(c, (list, tuple)):
+                        if len(c) == 2 and all(isinstance(v, (int, float)) for v in c):
+                            if lat_min <= c[1] <= lat_max and lon_min <= c[0] <= lon_max:
+                                return True
+                        else:
+                            stack.extend(c)
+                return False
+
+            storm_alerts = [a for a in all_alerts if _alert_in_range(a)]
+        else:
+            storm_alerts = all_alerts
+
+        return {
+            "storm_id": storm.storm_id,
+            "name": storm.name,
+            "advisory_number": storm.advisory_number,
+            "category": storm.category,
+            "position": {"lat": storm.position[0], "lon": storm.position[1]} if storm.position else None,
+            "intensity_kt": storm.intensity_kt,
+            "min_pressure_mb": storm.min_pressure_mb,
+            "motion": storm.motion,
+            "advisory_time_utc": storm.advisory_time_utc,
+            "forecast_track": [{"lat": lat, "lon": lon} for lat, lon in storm.track],
+            "cone_geometry": storm.cone,
+            "wind_radii": storm.wind_radii,
+            "forecast_trend": [
+                {
+                    "lead_hours": p.lead_hours,
+                    "wind_kt": p.wind_kt,
+                    "pressure_mb": p.pressure_mb,
+                    "valid_time_utc": p.valid_time_utc,
+                }
+                for p in forecast_points
+            ],
+            "alerts": [
+                {
+                    "id": a.id,
+                    "event": a.event,
+                    "severity": a.severity,
+                    "urgency": a.urgency,
+                    "headline": a.headline,
+                    "areas": a.areas,
+                    "expires": a.expires,
+                }
+                for a in storm_alerts[:50]  # cap for payload size
+            ],
+            "alert_count": len(storm_alerts),
+        }
+
+    try:
+        payload_storms = await _asyncio.gather(*(_enrich(s) for s in active_storms))
+    except Exception as e:
+        logger.warning(f"[active-context] enrichment failed: {e}")
+        payload_storms = []
+
+    # Step 4: optional USGS STN post-event HWMs if caller specified a name
+    historical_hwms: list[dict] = []
+    if storm_name:
+        try:
+            stn = USGSSTNClient()
+            top = await stn.top_hwms_for_storm(storm_name, year=storm_year, n=10)
+            historical_hwms = [
+                {
+                    "hwm_id": h.hwm_id,
+                    "elev_ft": h.elev_ft,
+                    "lat": h.latitude,
+                    "lon": h.longitude,
+                    "location": h.location_description,
+                    "state": h.state,
+                    "county": h.county,
+                    "quality": h.hwm_quality,
+                    "environment": h.hwm_environment,
+                }
+                for h in top
+            ]
+        except Exception as e:
+            logger.warning(f"[active-context] STN lookup failed: {e}")
+
+    return {
+        "active_count": len(payload_storms),
+        "storms": payload_storms,
+        "total_alerts": len(all_alerts),
+        "historical_hwms": historical_hwms,
+        "query": {"storm_name": storm_name, "storm_year": storm_year},
+    }
+
+
+# ------------------------------------------------------------------
 # IKE Cache management endpoints
 # ------------------------------------------------------------------
 
