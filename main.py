@@ -156,6 +156,13 @@ async def health_check():
     }
 
 
+@app.get("/health/storage")
+async def storage_health():
+    """Return persistent volume usage breakdown for monitoring."""
+    from storage import storage_summary
+    return storage_summary()
+
+
 # ---------------------------------------------------------------------------
 # Legacy web frontend (still served for backward compatibility)
 # ---------------------------------------------------------------------------

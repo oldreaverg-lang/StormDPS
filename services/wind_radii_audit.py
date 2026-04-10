@@ -42,11 +42,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-# Reuse the validation directory and DB from validation_log.py
-_PERSISTENT_DATA = Path(os.environ.get("PERSISTENT_DATA_DIR", str(Path(__file__).parent.parent / "data")))
-_VALIDATION_DIR = _PERSISTENT_DATA / "validation"
-_VALIDATION_DIR.mkdir(parents=True, exist_ok=True)
-_DB_PATH = _VALIDATION_DIR / "validation.db"
+# Paths centralised in storage.py
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).parent.parent))
+from storage import VALIDATION_DIR as _VALIDATION_DIR, VALIDATION_DB as _DB_PATH
 _db_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------

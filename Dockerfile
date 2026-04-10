@@ -44,11 +44,14 @@ ENV PORT=8080
 # Expose the port
 EXPOSE ${PORT}
 
-# Run with gunicorn + uvicorn workers for production
+# --preload loads the app in the master process before forking, so IBTrACS
+# data (~100MB) is shared via copy-on-write instead of duplicated per worker.
+# --workers 1 prevents OOM on 512MB Railway containers.
 CMD gunicorn main:app \
     --worker-class uvicorn.workers.UvicornWorker \
     --bind 0.0.0.0:${PORT} \
-    --workers 2 \
+    --workers 1 \
+    --preload \
     --timeout 120 \
     --graceful-timeout 30 \
     --access-logfile - \
