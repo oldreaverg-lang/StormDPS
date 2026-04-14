@@ -38,6 +38,8 @@ rasterio>=1.3,<2.0
 # (/api/rainfall_tile). Serves PNG tiles reprojected from the MRMS GeoTIFF.
 rio-tiler>=6,<8
 shapely>=2.0,<3.0
+# networkx — E6 time-to-access reachability (Dijkstra over OSM roads).
+networkx>=3,<4
 duckdb>=1.1
 boto3>=1.34               # Cloudflare R2 storage (S3-compatible); no-op if env vars absent
 
