@@ -2540,7 +2540,22 @@ async def _fetch_track_with_cache(sid: str, *, force: bool = False):
 
     try:
         async with NOAAClient() as client:
-            snaps = await client.get_ibtracs_track(sid)
+            # Dispatch on ID format:
+            #   - IBTrACS SID (starts with digit, e.g. "2005236N23285") → SID lookup
+            #   - ATCF ID    (starts with letter, e.g. "AL092017")      → USA_ATCF_ID lookup
+            snaps: list = []
+            if sid and sid[0].isdigit():
+                snaps = await client.get_ibtracs_track(sid)
+            else:
+                # ATCF format — search IBTrACS CSV by USA_ATCF_ID column.
+                for use_recent in (True, False):
+                    csv_text = await client._fetch_ibtracs(use_recent=use_recent)
+                    loop = asyncio.get_event_loop()
+                    snaps = await loop.run_in_executor(
+                        None, _search_ibtracs_by_atcf_id, client, csv_text, sid
+                    )
+                    if snaps:
+                        break
     except Exception as e:
         # NOAA failed — try the stale cache as a last resort.
         fallback = _load_track_cache(sid, max_age=None)
