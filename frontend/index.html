@@ -499,24 +499,37 @@
             <button class="btn btn-secondary" onclick="toggleAnimation()" id="scrubPlay" style="padding:.35rem .7rem;gap:.4rem;font-size:.8rem;font-weight:600;"><svg id="scrubPlayIcon" width="14" height="14" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg><span id="scrubPlayLabel">Play animation</span></button>
             <span class="speed-label">Speed:</span><select id="speedSelect" style="width:65px;font-size:.75rem;padding:.3rem .4rem;background:var(--bg-input);border:1px solid var(--border);color:var(--text-main);border-radius:var(--radius);cursor:pointer;" onchange="setSpeed(this.value)"><option value="2000">0.5x</option><option value="1000" selected>1x</option><option value="500">2x</option><option value="250">4x</option></select>
             <span class="scrubber-time" id="scrubTime">--</span>
+            <span id="syncedSatTs" style="display:none;font-size:.65rem;color:#94a3b8;font-variant-numeric:tabular-nums;white-space:nowrap" title="Closest available satellite frame for the current timeline position">sat: --</span>
             <input type="range" id="scrubSlider" min="0" max="100" value="0" step="1" oninput="onScrub(this.value)">
         </div>
         <div id="vizArea" class="viz-area">
             <div class="map-panel" style="position:relative;">
                 <div id="map"></div>
                 <button class="map-legend-toggle" id="mapLegendToggle" onclick="toggleMapLegend()">Legend &#9660;</button>
-                <!-- Satellite imagery time slider — only shown for active storms.
-                     Populated by initSatelliteLayer() once frame list returns. -->
-                <div id="satelliteSlider" style="display:none;position:absolute;bottom:8px;right:8px;z-index:501;background:rgba(10,14,26,.92);backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:var(--radius);padding:.4rem .55rem;min-width:230px;max-width:300px;font-size:.65rem;color:var(--text-muted)">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.25rem;gap:.5rem">
-                        <div style="font-weight:700;color:#e2e8f0;font-size:.7rem">Satellite</div>
-                        <div id="satelliteFrameLabel" style="font-variant-numeric:tabular-nums;color:#cbd5e1;font-weight:600;font-size:.65rem">--</div>
+                <!-- Active-storm overlay controls. Sits top-right under the
+                     Leaflet zoom buttons. Storm Timeline drives the satellite
+                     layer (and wind, when toggled), so no Play here. -->
+                <div id="satelliteSlider" style="display:none;position:absolute;top:78px;right:8px;z-index:501;background:rgba(10,14,26,.92);backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:var(--radius);padding:.45rem .6rem;width:175px;font-size:.65rem;color:var(--text-muted)">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.3rem;gap:.5rem">
+                        <div style="font-weight:700;color:#e2e8f0;font-size:.7rem;letter-spacing:.04em">OVERLAYS</div>
+                        <button id="eyeZoomBtn" onclick="zoomToStormEye()" title="Zoom to current storm center" style="background:rgba(59,130,246,.18);border:1px solid rgba(59,130,246,.4);color:#93c5fd;padding:.1rem .4rem;border-radius:3px;cursor:pointer;font-size:.6rem;font-weight:600;font-family:inherit">&#x25CE; Eye</button>
                     </div>
-                    <input type="range" id="satelliteSliderInput" min="0" max="0" value="0" step="1" style="width:100%;cursor:pointer" oninput="onSatelliteFrameScrub(this.value)">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:.25rem;gap:.5rem">
-                        <button id="satellitePlayBtn" onclick="toggleSatellitePlay()" style="background:rgba(59,130,246,.18);border:1px solid rgba(59,130,246,.4);color:#93c5fd;padding:.15rem .55rem;border-radius:4px;cursor:pointer;font-size:.62rem;font-weight:600;font-family:inherit">&#9658; Play</button>
-                        <button id="windToggleBtn" onclick="toggleWindLayer()" style="background:rgba(100,116,139,.18);border:1px solid rgba(100,116,139,.4);color:#94a3b8;padding:.15rem .55rem;border-radius:4px;cursor:pointer;font-size:.62rem;font-weight:600;font-family:inherit">Wind</button>
-                        <div id="satelliteName" style="font-size:.6rem;text-transform:uppercase;letter-spacing:.5px;color:#64748b">--</div>
+                    <!-- Hidden but kept in DOM so setSatelliteFrame() can update it -->
+                    <input type="hidden" id="satelliteSliderInput" value="0">
+                    <button id="satellitePlayBtn" style="display:none"></button>
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:.4rem">
+                        <button id="windToggleBtn" onclick="toggleWindLayer()" style="flex:1;background:rgba(100,116,139,.18);border:1px solid rgba(100,116,139,.4);color:#94a3b8;padding:.2rem .4rem;border-radius:3px;cursor:pointer;font-size:.62rem;font-weight:600;font-family:inherit">Wind: Off</button>
+                        <div id="satelliteName" style="font-size:.55rem;text-transform:uppercase;letter-spacing:.5px;color:#64748b;text-align:right">--</div>
+                    </div>
+                    <!-- Wind speed color legend (visible when wind layer is on) -->
+                    <div id="windLegend" style="display:none;margin-top:.4rem;padding-top:.35rem;border-top:1px solid rgba(148,163,184,.18)">
+                        <div style="display:flex;justify-content:space-between;font-size:.55rem;color:#94a3b8;margin-bottom:.1rem"><span>0</span><span>Wind (mph)</span><span>134+</span></div>
+                        <div style="height:6px;border-radius:3px;background:linear-gradient(90deg,#3b82f6 0%,#22d3ee 17%,#a3e635 33%,#facc15 50%,#f97316 67%,#ef4444 83%,#ec4899 100%)"></div>
+                    </div>
+                    <!-- Frame timestamp readout (synced with storm timeline) -->
+                    <div style="display:flex;justify-content:space-between;margin-top:.35rem;font-size:.55rem;color:#64748b">
+                        <span>Frame:</span>
+                        <span id="satelliteFrameLabel" style="font-variant-numeric:tabular-nums;color:#cbd5e1;font-weight:600">--</span>
                     </div>
                 </div>
                 <div class="map-legend" id="mapLegend" style="display:none;">
@@ -3653,9 +3666,26 @@ function setSatelliteFrame(idx) {
     if (lbl) lbl.textContent = formatSatelliteFrameLabel(ts);
     const slider = document.getElementById('satelliteSliderInput');
     if (slider && parseInt(slider.value,10) !== idx) slider.value = idx;
+    // Echo the snapped frame on the storm-timeline bar so users can see
+    // exactly which satellite frame the current timeline position resolved to.
+    const syncEl = document.getElementById('syncedSatTs');
+    if (syncEl) {
+        syncEl.style.display = 'inline-block';
+        syncEl.textContent = 'sat: ' + formatSatelliteFrameLabel(ts);
+    }
     // Sync the wind layer (no-op if disabled or same hour)
     if (window._windState && window._windState.enabled) setWindFrame(ts);
 }
+
+// Recenter the map on the storm's most-recent (eye) position. Useful when the
+// satellite + wind overlays make the dot harder to spot at a glance.
+window.zoomToStormEye = function() {
+    if (!window.stormData || !window.stormData.length || !currentMap) return;
+    const last = window.stormData[window.stormData.length - 1];
+    if (last && last.lat != null && last.lon != null) {
+        currentMap.setView([last.lat, last.lon], Math.max(currentMap.getZoom(), 6), {animate: true});
+    }
+};
 
 function onSatelliteFrameScrub(value) {
     setSatelliteFrame(parseInt(value, 10));
@@ -3692,8 +3722,8 @@ function teardownSatelliteLayer() {
     st.currentIdx = 0;
     const slider = document.getElementById('satelliteSlider');
     if (slider) slider.style.display = 'none';
-    const btn = document.getElementById('satellitePlayBtn');
-    if (btn) btn.innerHTML = '&#9658; Play';
+    const syncEl = document.getElementById('syncedSatTs');
+    if (syncEl) syncEl.style.display = 'none';
     // Tear down the wind layer too — its bbox is tied to the satellite session.
     const w = window._windState;
     if (w) {
@@ -3825,6 +3855,17 @@ async function setWindFrame(satelliteTs) {
         return;
     }
     if (token !== st.fetchToken || !st.enabled) return;  // superseded
+    // Flip button + show legend once we have data in hand
+    const _wbtn = document.getElementById('windToggleBtn');
+    const _wleg = document.getElementById('windLegend');
+    if (_wbtn) {
+        _wbtn.style.background = 'rgba(34,211,238,.22)';
+        _wbtn.style.borderColor = 'rgba(34,211,238,.5)';
+        _wbtn.style.color = '#67e8f9';
+        _wbtn.textContent = 'Wind: On';
+        _wbtn.disabled = false;
+    }
+    if (_wleg) _wleg.style.display = 'block';
     if (st.layer) {
         try { st.layer.setData(payload); } catch (e) { console.warn('[WIND] setData failed:', e); }
     } else {
@@ -3832,10 +3873,11 @@ async function setWindFrame(satelliteTs) {
             displayValues: false,
             data: payload,
             maxVelocity: 60,        // m/s — saturates the colormap at hurricane wind
-            velocityScale: 0.012,
-            particleAge: 64,
-            lineWidth: 1.2,
-            particleMultiplier: 0.0015,
+            velocityScale: 0.010,
+            particleAge: 56,
+            lineWidth: 1.0,
+            particleMultiplier: 0.0011,
+            opacity: 0.55,          // soften so storm-track dots stay readable
             colorScale: ['#3b82f6','#22d3ee','#a3e635','#facc15','#f97316','#ef4444','#ec4899'],
         }).addTo(currentMap);
         try { st.layer.setZIndex && st.layer.setZIndex(250); } catch(e) {}
@@ -3878,6 +3920,7 @@ window.syncOverlaysToTimestampMs = function(tsMs) {
 function toggleWindLayer() {
     const st = window._windState;
     const btn = document.getElementById('windToggleBtn');
+    const legend = document.getElementById('windLegend');
     if (st.enabled) {
         st.enabled = false;
         if (st.layer && currentMap) {
@@ -3889,17 +3932,24 @@ function toggleWindLayer() {
             btn.style.background = 'rgba(100,116,139,.18)';
             btn.style.borderColor = 'rgba(100,116,139,.4)';
             btn.style.color = '#94a3b8';
+            btn.textContent = 'Wind: Off';
+            btn.disabled = false;
         }
+        if (legend) legend.style.display = 'none';
     } else {
         if (!window._satelliteState || !window._satelliteState.frames.length || !st.bbox) {
             console.warn('[WIND] cannot enable — satellite slider not initialized');
             return;
         }
         st.enabled = true;
+        // Show "Loading…" until the first wind frame is rendered. setWindFrame
+        // flips the button to "On" via its own callback (added below).
         if (btn) {
-            btn.style.background = 'rgba(34,211,238,.22)';
-            btn.style.borderColor = 'rgba(34,211,238,.5)';
-            btn.style.color = '#67e8f9';
+            btn.style.background = 'rgba(250,204,21,.18)';
+            btn.style.borderColor = 'rgba(250,204,21,.4)';
+            btn.style.color = '#fde047';
+            btn.textContent = 'Wind: Loading…';
+            btn.disabled = true;
         }
         const satTs = window._satelliteState.frames[window._satelliteState.currentIdx];
         setWindFrame(satTs);
