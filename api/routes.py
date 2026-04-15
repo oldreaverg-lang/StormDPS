@@ -129,7 +129,8 @@ _GLOBAL_IBTRACS_CACHE_FILE = _GLOBAL_IBTRACS_CACHE_FILE_PATH
 
 # Bump this when the IKE wind model changes (e.g., Holland profile, quadrant method)
 # DPS formula changes do NOT require a version bump — DPS is client-side.
-_IKE_CACHE_VERSION = "v2"
+# v3: JTWC T+0 parser fix + JMA central-pressure enrichment for WP storms
+_IKE_CACHE_VERSION = "v3"
 
 # Eviction policy: keep at most this many cache files.  When exceeded, the
 # oldest files by mtime are purged.  A typical hurricane season has ~20
@@ -1144,13 +1145,21 @@ async def get_storm_track(
     - skip_points: Skip N points between IKE calculations (0-10, default 0 for all)
       Setting to 1 means calculate every other point (2x faster), 2 = every third (3x faster)
     """
-    # --- Check IKE cache FIRST — skip all network I/O if already computed ---
-    cached = _load_ike_cache(storm_id, grid_resolution_km, skip_points)
-    if cached:
-        logger.info(f"[CACHE HIT] {storm_id} — returning {len(cached)} cached IKE results")
-        return JSONResponse(content=cached)
-
     prefix = storm_id[:2].upper()
+
+    # --- Check IKE cache FIRST — skip all network I/O if already computed ---
+    # Exception: in-season JTWC ATCF IDs (WP/IO/SH with 8-char IDs) are active
+    # storms whose track updates every 6 hours as new warnings come in. Bypass
+    # the disk cache for those so the UI never serves a stale advisory.
+    _is_live_jtwc = prefix in ("WP", "IO", "SH") and len(storm_id) == 8
+    if not _is_live_jtwc:
+        cached = _load_ike_cache(storm_id, grid_resolution_km, skip_points)
+        if cached:
+            logger.info(f"[CACHE HIT] {storm_id} — returning {len(cached)} cached IKE results")
+            return JSONResponse(content=cached)
+
+    snapshots = []
+    source = None
     snapshots = []
     source = None
 
@@ -1313,14 +1322,19 @@ async def get_storm_track(
     results = [_ike_to_response(ike, snap) for ike, snap in ike_batch]
 
     # --- Save to cache for future requests ---
+    # Skip for live JTWC storms — they change every 6 hours and serving a
+    # cached copy would hide the next advisory.
     compute_ms = (time.time() - t0) * 1000
-    _save_ike_cache(
-        storm_id, grid_resolution_km, skip_points,
-        [_ike_response_to_dict(r) for r in results],
-        source=source or "unknown",
-        compute_ms=compute_ms,
-    )
-    logger.info(f"[CACHE MISS] {storm_id} — computed {len(results)} IKE results in {compute_ms:.0f}ms, saved to cache")
+    if not _is_live_jtwc:
+        _save_ike_cache(
+            storm_id, grid_resolution_km, skip_points,
+            [_ike_response_to_dict(r) for r in results],
+            source=source or "unknown",
+            compute_ms=compute_ms,
+        )
+        logger.info(f"[CACHE MISS] {storm_id} — computed {len(results)} IKE results in {compute_ms:.0f}ms, saved to cache")
+    else:
+        logger.info(f"[LIVE JTWC] {storm_id} — computed {len(results)} IKE results in {compute_ms:.0f}ms (cache bypassed)")
 
     return results
 

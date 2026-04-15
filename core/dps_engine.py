@@ -24,7 +24,17 @@ before being replaced by compiled scores.
 from __future__ import annotations
 
 import math
+import os
+import sys
 from typing import Any, Dict, List, Optional
+
+# compile_cache.py lives at the repo root, not inside a package. Under
+# gunicorn --preload the repo root isn't always on sys.path at request time
+# (only at boot), which breaks the deferred import below with
+# ModuleNotFoundError: No module named 'compile_cache'. Add it explicitly.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 
 # Public API — the only function callers should import.
