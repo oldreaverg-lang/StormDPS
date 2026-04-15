@@ -3721,9 +3721,19 @@ async function initSatelliteLayer(data) {
     const last = data[data.length - 1];
     const sat = chooseSatelliteForLatLon(last.lat, last.lon);
 
+    // Cover the entire storm window so the timeline scrubber can drive the
+    // satellite layer for every observation point — not just the last 24h.
+    // Cap at 14 days (GIBS GeoColor archive depth) and use 60-min cadence
+    // for older spans, 30-min when the storm is very young.
+    const firstTs = new Date(data[0].timestamp).getTime();
+    const nowTs = Date.now();
+    const spanH = Math.max(24, Math.ceil((nowTs - firstTs) / 3600000) + 6);
+    const hoursParam = Math.min(spanH, 336);
+    const cadenceParam = (hoursParam <= 36) ? 30 : 60;
+
     let frames = [];
     try {
-        const r = await fetch(`${API_BASE}/satellite/frames/${sat}?hours=24&cadence_min=30`);
+        const r = await fetch(`${API_BASE}/satellite/frames/${sat}?hours=${hoursParam}&cadence_min=${cadenceParam}`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const body = await r.json();
         frames = body.frames || [];
@@ -3760,6 +3770,13 @@ async function initSatelliteLayer(data) {
     if (wrap) wrap.style.display = 'block';
     const lbl = document.getElementById('satelliteFrameLabel');
     if (lbl) lbl.textContent = formatSatelliteFrameLabel(frames[st.currentIdx]);
+
+    // Snap to whatever the storm timeline is currently showing so the layers
+    // line up on first paint (timeline starts at index 0 = first observation).
+    const idx0 = (window.currentAnimIndex != null) ? Math.floor(window.currentAnimIndex) : 0;
+    if (data[idx0] && data[idx0].timestamp) {
+        syncOverlaysToTimestampMs(new Date(data[idx0].timestamp).getTime());
+    }
 
     // Cache the storm bbox on the wind state so the wind layer can fetch
     // matching frames without re-deriving it. ±5° padding gives the wind
@@ -3823,6 +3840,39 @@ async function setWindFrame(satelliteTs) {
         }).addTo(currentMap);
         try { st.layer.setZIndex && st.layer.setZIndex(250); } catch(e) {}
     }
+}
+
+// Convert a JS timestamp (ms) to the YYYYMMDDTHHMM string the satellite
+// frames are keyed by. Used to find the closest frame for a given storm
+// observation when the storm timeline scrubs.
+function _tsMsToSatTsString(ms) {
+    const d = new Date(ms);
+    const pad = n => String(n).padStart(2, '0');
+    return d.getUTCFullYear() + pad(d.getUTCMonth()+1) + pad(d.getUTCDate())
+         + 'T' + pad(d.getUTCHours()) + pad(d.getUTCMinutes());
+}
+
+function _satTsToMs(ts) {
+    // 'YYYYMMDDTHHMM' → epoch ms (UTC)
+    if (!ts || ts.length < 13) return NaN;
+    const Y = +ts.slice(0,4), M = +ts.slice(4,6)-1, D = +ts.slice(6,8);
+    const h = +ts.slice(9,11), m = +ts.slice(11,13);
+    return Date.UTC(Y, M, D, h, m);
+}
+
+// Drive the satellite (and wind, if enabled) overlay from a storm-timeline
+// timestamp (epoch ms). Snaps to the nearest available satellite frame.
+// No-op when the satellite layer hasn't initialized (non-active storms).
+function syncOverlaysToTimestampMs(tsMs) {
+    const st = window._satelliteState;
+    if (!st || !st.frames || !st.frames.length) return;
+    // Binary-ish: linear search is fine for ≤350 frames.
+    let bestIdx = 0, bestDiff = Infinity;
+    for (let i = 0; i < st.frames.length; i++) {
+        const diff = Math.abs(_satTsToMs(st.frames[i]) - tsMs);
+        if (diff < bestDiff) { bestDiff = diff; bestIdx = i; }
+    }
+    if (bestIdx !== st.currentIdx) setSatelliteFrame(bestIdx);
 }
 
 function toggleWindLayer() {
@@ -4109,6 +4159,11 @@ function syncVisualization(fi,snap){
 
         // Update wind field overlay
         updateWindField(bi);
+
+        // Drive satellite + wind layers from the storm timeline (active only)
+        if (window._isActiveStorm && d1 && d1.timestamp && window.syncOverlaysToTimestampMs) {
+            syncOverlaysToTimestampMs(new Date(d1.timestamp).getTime());
+        }
 
         // Update chart highlights
         if(currentChart&&!snap){
