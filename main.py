@@ -40,6 +40,7 @@ from api.weather_routes import router as weather_router
 from api.satellite_routes import router as satellite_router
 from api.wind_routes import router as wind_router
 from api.pressure_routes import router as pressure_router
+from api.precip_routes import router as precip_router
 # surgedps_routes was removed — SurgeDPS runs as its own service now
 from services.weather_data_service import WeatherDataService
 
@@ -213,6 +214,7 @@ app.include_router(weather_router, prefix="/api/v1")
 app.include_router(satellite_router, prefix="/api/v1")
 app.include_router(wind_router, prefix="/api/v1")
 app.include_router(pressure_router, prefix="/api/v1")
+app.include_router(precip_router, prefix="/api/v1")
 # SurgeDPS API routes removed — SurgeDPS runs as its own service now
 
 

@@ -553,6 +553,9 @@
                     <div style="display:flex;align-items:center;gap:.4rem;margin-top:.3rem">
                         <button id="pressureToggleBtn" onclick="togglePressureLayer()" disabled title="Loading satellite frames…" style="flex:1;background:rgba(100,116,139,.10);border:1px solid rgba(100,116,139,.25);color:#64748b;padding:.2rem .4rem;border-radius:3px;cursor:not-allowed;font-size:.62rem;font-weight:600;font-family:inherit;opacity:.6">Pressure: Off</button>
                     </div>
+                    <div style="display:flex;align-items:center;gap:.4rem;margin-top:.3rem">
+                        <button id="precipToggleBtn" onclick="togglePrecipLayer()" disabled title="Loading satellite frames…" style="flex:1;background:rgba(100,116,139,.10);border:1px solid rgba(100,116,139,.25);color:#64748b;padding:.2rem .4rem;border-radius:3px;cursor:not-allowed;font-size:.62rem;font-weight:600;font-family:inherit;opacity:.6">Precip: Off</button>
+                    </div>
                     <!-- Wind speed color legend (visible when wind layer is on) -->
                     <div id="windLegend" style="display:none;margin-top:.4rem;padding-top:.35rem;border-top:1px solid rgba(148,163,184,.18)">
                         <div style="font-size:.55rem;color:#94a3b8;margin-bottom:.15rem;text-align:center;letter-spacing:.04em">Wind speed (mph)</div>
@@ -602,6 +605,29 @@
                         <label style="display:flex;align-items:center;gap:.3rem;margin-top:.25rem;font-size:.55rem;color:#94a3b8;cursor:pointer">
                             <input type="checkbox" id="pressureStationsToggle" checked onchange="togglePressureStations(this.checked)" style="margin:0;cursor:pointer">
                             <span>Show station obs</span>
+                        </label>
+                    </div>
+                    <!-- Precipitation color legend (visible when precip layer is on) -->
+                    <div id="precipLegend" style="display:none;margin-top:.4rem;padding-top:.35rem;border-top:1px solid rgba(148,163,184,.18)">
+                        <div style="font-size:.55rem;color:#94a3b8;margin-bottom:.15rem;text-align:center;letter-spacing:.04em">Rain (mm/hr)</div>
+                        <!-- Stops: 0.1 / 1 / 4 / 10 / 25 mm/hr → light blue → blue → yellow → orange → magenta -->
+                        <div style="position:relative;height:6px;border-radius:3px;background:linear-gradient(90deg,#bfdbfe 0%,#60a5fa 22%,#2563eb 45%,#facc15 65%,#f97316 82%,#e11d48 100%)"></div>
+                        <div style="position:relative;height:.85rem;font-size:.5rem;color:#94a3b8;font-variant-numeric:tabular-nums;margin-top:.1rem">
+                            <span style="position:absolute;left:0">Light</span>
+                            <span style="position:absolute;left:45%;transform:translateX(-50%)">Mod</span>
+                            <span style="position:absolute;left:75%;transform:translateX(-50%)">Heavy</span>
+                            <span style="position:absolute;right:0">Severe</span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:.35rem;margin-top:.25rem">
+                            <span style="font-size:.5rem;color:#64748b;letter-spacing:.04em">DIM</span>
+                            <input type="range" id="precipOpacityInput" min="10" max="95" value="75" step="5"
+                                   oninput="setPrecipOpacity(this.value)"
+                                   style="flex:1;height:3px;accent-color:#60a5fa;cursor:pointer">
+                            <span id="precipOpacityLabel" style="font-size:.5rem;color:#94a3b8;font-variant-numeric:tabular-nums;min-width:1.6rem;text-align:right">75%</span>
+                        </div>
+                        <label style="display:flex;align-items:center;gap:.3rem;margin-top:.25rem;font-size:.55rem;color:#94a3b8;cursor:pointer">
+                            <input type="checkbox" id="precipCloudToggle" checked onchange="togglePrecipCloud(this.checked)" style="margin:0;cursor:pointer">
+                            <span>Cloud cover background</span>
                         </label>
                     </div>
                     <!-- Frame timestamp readout (synced with storm timeline) -->
@@ -3760,6 +3786,8 @@ function setSatelliteFrame(idx) {
     if (window._windState && window._windState.enabled) setWindFrame(ts);
     // Sync the pressure layer (no-op if disabled or same hour)
     if (window._pressureState && window._pressureState.enabled) setPressureFrame(ts);
+    // Sync the precip layer (no-op if disabled or same hour)
+    if (window._precipState && window._precipState.enabled) setPrecipFrame(ts);
 }
 
 // Recenter the map on the storm's most-recent (eye) position. Useful when the
@@ -3839,6 +3867,30 @@ function teardownSatelliteLayer() {
         const pleg = document.getElementById('pressureLegend');
         if (pleg) pleg.style.display = 'none';
     }
+    // Tear down the precip layer.
+    const pp = window._precipState;
+    if (pp) {
+        ['cloudLayer','precipLayer'].forEach(k => {
+            if (pp[k] && currentMap) { try { currentMap.removeLayer(pp[k]); } catch(e) {} }
+            pp[k] = null;
+        });
+        pp.enabled = false;
+        pp.bbox = null;
+        pp.currentTs = null;
+        const ppbtn = document.getElementById('precipToggleBtn');
+        if (ppbtn) {
+            ppbtn.disabled = true;
+            ppbtn.title = 'Loading satellite frames…';
+            ppbtn.style.cursor = 'not-allowed';
+            ppbtn.style.opacity = '.6';
+            ppbtn.style.background = 'rgba(100,116,139,.10)';
+            ppbtn.style.borderColor = 'rgba(100,116,139,.25)';
+            ppbtn.style.color = '#64748b';
+            ppbtn.textContent = 'Precip: Off';
+        }
+        const ppleg = document.getElementById('precipLegend');
+        if (ppleg) ppleg.style.display = 'none';
+    }
 }
 
 async function initSatelliteLayer(data) {
@@ -3917,6 +3969,16 @@ async function initSatelliteLayer(data) {
         _pbtnReady.style.borderColor = 'rgba(100,116,139,.4)';
         _pbtnReady.style.color = '#94a3b8';
     }
+    const _ppbtnReady = document.getElementById('precipToggleBtn');
+    if (_ppbtnReady) {
+        _ppbtnReady.disabled = false;
+        _ppbtnReady.title = 'Toggle precipitation rate + cloud cover';
+        _ppbtnReady.style.cursor = 'pointer';
+        _ppbtnReady.style.opacity = '1';
+        _ppbtnReady.style.background = 'rgba(100,116,139,.18)';
+        _ppbtnReady.style.borderColor = 'rgba(100,116,139,.4)';
+        _ppbtnReady.style.color = '#94a3b8';
+    }
     const lbl = document.getElementById('satelliteFrameLabel');
     if (lbl) lbl.textContent = formatSatelliteFrameLabel(frames[st.currentIdx]);
 
@@ -3945,6 +4007,13 @@ async function initSatelliteLayer(data) {
         Math.max(-180, Math.min(...lons) - 8),
         Math.min( 60, Math.max(...lats) + 8),
         Math.min( 180, Math.max(...lons) + 8),
+    ];
+    // Precip uses the same pad as wind — focused on the storm itself.
+    window._precipState.bbox = [
+        Math.max(-60, Math.min(...lats) - 5),
+        Math.max(-180, Math.min(...lons) - 5),
+        Math.min( 60, Math.max(...lats) + 5),
+        Math.min( 180, Math.max(...lons) + 5),
     ];
 }
 
@@ -4467,6 +4536,260 @@ function togglePressureLayer() {
         }
         const satTs = window._satelliteState.frames[window._satelliteState.currentIdx];
         setPressureFrame(satTs);
+    }
+}
+
+// ── Precipitation + cloud-cover layer ─────────────────────────────────────
+// Two co-registered canvas overlays:
+//   - cloudLayer : greyscale alpha (cloud cover %) underneath
+//   - precipLayer: multi-stop color ramp (Light → Severe mm/hr) on top
+// Both fetched in one /precip/field call backed by Open-Meteo. Driven by
+// the satellite scrub via setPrecipFrame, debounced 200 ms.
+window._precipState = {
+    cloudLayer:    null,
+    precipLayer:   null,
+    enabled:       false,
+    showCloud:     true,
+    bbox:          null,
+    currentTs:     null,
+    fetchToken:    0,
+    debounceTimer: null,
+    pendingTs:     null,
+};
+
+function _precipButtonReset() {
+    const btn = document.getElementById('precipToggleBtn');
+    const legend = document.getElementById('precipLegend');
+    if (btn) {
+        btn.style.background  = 'rgba(100,116,139,.18)';
+        btn.style.borderColor = 'rgba(100,116,139,.4)';
+        btn.style.color       = '#94a3b8';
+        btn.textContent       = 'Precip: Off';
+        btn.disabled          = false;
+    }
+    if (legend) legend.style.display = 'none';
+}
+
+// Precip color ramp: maps mm/hr → [r,g,b,a]. Anchored to the legend gradient
+// (light blue 0.1 → blue 1 → yellow 4 → orange 10 → magenta/red 25+).
+function _precipColor(mm) {
+    if (mm == null || mm < 0.1) return [0, 0, 0, 0]; // transparent below threshold
+    // Stops: (mm, [r,g,b])
+    const stops = [
+        [0.1, [191, 219, 254]],  // #bfdbfe light blue
+        [1.0, [ 96, 165, 250]],  // #60a5fa medium blue
+        [4.0, [ 37,  99, 235]],  // #2563eb deep blue
+        [10.0,[250, 204,  21]],  // #facc15 yellow
+        [25.0,[249, 115,  22]],  // #f97316 orange
+        [50.0,[225,  29,  72]],  // #e11d48 magenta-red
+    ];
+    let lo = stops[0], hi = stops[stops.length - 1];
+    if (mm >= hi[0]) {
+        return [hi[1][0], hi[1][1], hi[1][2], 230];
+    }
+    for (let i = 0; i < stops.length - 1; i++) {
+        if (mm >= stops[i][0] && mm < stops[i+1][0]) {
+            lo = stops[i]; hi = stops[i+1]; break;
+        }
+    }
+    const t = (mm - lo[0]) / (hi[0] - lo[0]);
+    const r = Math.round(lo[1][0] + (hi[1][0] - lo[1][0]) * t);
+    const g = Math.round(lo[1][1] + (hi[1][1] - lo[1][1]) * t);
+    const b = Math.round(lo[1][2] + (hi[1][2] - lo[1][2]) * t);
+    // Fade in the alpha from threshold so light drizzle isn't a sharp edge.
+    const a = Math.min(230, 90 + Math.round(140 * Math.min(1, mm / 5)));
+    return [r, g, b, a];
+}
+
+function _renderPrecipFillCanvas(precipRows) {
+    const ny = precipRows.length;
+    const nx = precipRows[0].length;
+    const c = document.createElement('canvas');
+    c.width = nx; c.height = ny;
+    const ctx = c.getContext('2d');
+    const img = ctx.createImageData(nx, ny);
+    for (let j = 0; j < ny; j++) {
+        const row = precipRows[j];
+        for (let i = 0; i < nx; i++) {
+            const [r, g, b, a] = _precipColor(row[i]);
+            const k = (j * nx + i) * 4;
+            img.data[k]   = r;
+            img.data[k+1] = g;
+            img.data[k+2] = b;
+            img.data[k+3] = a;
+        }
+    }
+    ctx.putImageData(img, 0, 0);
+    return c.toDataURL('image/png');
+}
+
+function _renderCloudCanvas(cloudRows) {
+    const ny = cloudRows.length;
+    const nx = cloudRows[0].length;
+    const c = document.createElement('canvas');
+    c.width = nx; c.height = ny;
+    const ctx = c.getContext('2d');
+    const img = ctx.createImageData(nx, ny);
+    for (let j = 0; j < ny; j++) {
+        const row = cloudRows[j];
+        for (let i = 0; i < nx; i++) {
+            // Cloud cover 0..100 → white with alpha 0..150 (≈59%).
+            const pct = Math.max(0, Math.min(100, row[i] || 0));
+            const a = Math.round(pct * 1.5);
+            const k = (j * nx + i) * 4;
+            img.data[k]   = 235;
+            img.data[k+1] = 240;
+            img.data[k+2] = 245;
+            img.data[k+3] = a;
+        }
+    }
+    ctx.putImageData(img, 0, 0);
+    return c.toDataURL('image/png');
+}
+
+function setPrecipFrame(satelliteTs) {
+    const st = window._precipState;
+    if (!st.enabled || !st.bbox || !currentMap) return;
+    st.pendingTs = satelliteTs;
+    if (st.debounceTimer) clearTimeout(st.debounceTimer);
+    st.debounceTimer = setTimeout(() => {
+        st.debounceTimer = null;
+        const ts = st.pendingTs;
+        st.pendingTs = null;
+        if (ts) _setPrecipFrameNow(ts);
+    }, 200);
+}
+
+async function _setPrecipFrameNow(satelliteTs) {
+    const st = window._precipState;
+    if (!st.enabled || !st.bbox || !currentMap) return;
+    // Round satellite ts (e.g. "20260413T1130") to the hour the model sample lives at.
+    const m = String(satelliteTs).match(/^(\d{4})(\d{2})(\d{2})T(\d{2})/);
+    if (!m) return;
+    const ts = `${m[1]}${m[2]}${m[3]}T${m[4]}`;
+    if (st.currentTs === ts) return;
+
+    const token = ++st.fetchToken;
+    const bbox  = st.bbox.map(v => v.toFixed(2)).join(',');
+    const url   = `/api/v1/precip/field?bbox=${bbox}&ts=${ts}&res=0.5`;
+
+    const btn = document.getElementById('precipToggleBtn');
+    const leg = document.getElementById('precipLegend');
+    if (btn) btn.textContent = 'Precip: Loading…';
+
+    let payload;
+    try {
+        const r = await fetch(url);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        payload = await r.json();
+    } catch (e) {
+        if (token !== st.fetchToken) return;
+        console.warn('[PRECIP] fetch failed:', e);
+        if (btn) {
+            btn.textContent = 'Precip: Error';
+            btn.style.background  = 'rgba(220,38,38,.18)';
+            btn.style.borderColor = 'rgba(220,38,38,.4)';
+            btn.style.color       = '#fca5a5';
+        }
+        return;
+    }
+    if (token !== st.fetchToken || !st.enabled) return;
+
+    const bounds = [[payload.la2, payload.lo1], [payload.la1, payload.lo2]];
+
+    // Cloud cover (background, lower z-index)
+    if (st.cloudLayer && currentMap) { try { currentMap.removeLayer(st.cloudLayer); } catch(e) {} st.cloudLayer = null; }
+    if (st.showCloud) {
+        const cloudUrl = _renderCloudCanvas(payload.cloud);
+        st.cloudLayer = L.imageOverlay(cloudUrl, bounds, {
+            opacity: 0.5, interactive: false, className: 'precip-cloud-overlay',
+        }).addTo(currentMap);
+        if (st.cloudLayer.getElement) {
+            const el = st.cloudLayer.getElement();
+            if (el && el.style) {
+                el.style.zIndex = 215;
+                el.style.imageRendering = 'auto';
+            }
+        }
+    }
+
+    // Precipitation rate (foreground)
+    if (st.precipLayer && currentMap) { try { currentMap.removeLayer(st.precipLayer); } catch(e) {} st.precipLayer = null; }
+    const opIn = document.getElementById('precipOpacityInput');
+    const op   = opIn ? (parseInt(opIn.value, 10) / 100) : 0.75;
+    const dataUrl = _renderPrecipFillCanvas(payload.precip);
+    st.precipLayer = L.imageOverlay(dataUrl, bounds, {
+        opacity: op, interactive: false, className: 'precip-fill-overlay',
+    }).addTo(currentMap);
+    if (st.precipLayer.getElement) {
+        const el = st.precipLayer.getElement();
+        if (el && el.style) {
+            el.style.zIndex = 218;
+            el.style.imageRendering = 'auto';
+        }
+    }
+
+    st.currentTs = ts;
+    if (btn) {
+        btn.textContent       = 'Precip: On';
+        btn.style.background  = 'rgba(96,165,250,.20)';
+        btn.style.borderColor = 'rgba(96,165,250,.45)';
+        btn.style.color       = '#bfdbfe';
+        btn.disabled          = false;
+    }
+    if (leg) leg.style.display = 'block';
+}
+
+window.setPrecipOpacity = function(value) {
+    const lbl = document.getElementById('precipOpacityLabel');
+    if (lbl) lbl.textContent = value + '%';
+    const st = window._precipState;
+    if (!st || !st.precipLayer) return;
+    try { st.precipLayer.setOpacity(parseInt(value, 10) / 100); } catch(e) {}
+};
+
+window.togglePrecipCloud = function(checked) {
+    const st = window._precipState;
+    if (!st) return;
+    st.showCloud = !!checked;
+    if (!st.enabled) return;
+    if (!checked && st.cloudLayer && currentMap) {
+        try { currentMap.removeLayer(st.cloudLayer); } catch(e) {}
+        st.cloudLayer = null;
+    } else if (checked && st.currentTs) {
+        // Force a re-fetch+render to repopulate the cloud overlay
+        const wasTs = st.currentTs;
+        st.currentTs = null;
+        _setPrecipFrameNow(wasTs);
+    }
+};
+
+function togglePrecipLayer() {
+    const st = window._precipState;
+    const btn = document.getElementById('precipToggleBtn');
+    if (st.enabled) {
+        st.enabled = false;
+        ['cloudLayer','precipLayer'].forEach(k => {
+            if (st[k] && currentMap) { try { currentMap.removeLayer(st[k]); } catch(e) {} }
+            st[k] = null;
+        });
+        st.currentTs = null;
+        _precipButtonReset();
+    } else {
+        if (!window._satelliteState || !window._satelliteState.frames.length || !st.bbox) {
+            console.warn('[PRECIP] cannot enable — satellite slider not initialized');
+            return;
+        }
+        st.enabled = true;
+        if (btn) {
+            btn.style.background  = 'rgba(250,204,21,.18)';
+            btn.style.borderColor = 'rgba(250,204,21,.4)';
+            btn.style.color       = '#fde047';
+            btn.textContent       = 'Precip: Loading…';
+            btn.disabled          = true;
+        }
+        const satTs = window._satelliteState.frames[window._satelliteState.currentIdx];
+        setPrecipFrame(satTs);
     }
 }
 

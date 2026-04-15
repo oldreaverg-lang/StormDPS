@@ -81,9 +81,14 @@ PRESSURE_CACHE_DIR = CACHE_DIR / "pressure"
 # update hourly. Layout: METAR_CACHE_DIR/<bbox_key>.json
 METAR_CACHE_DIR = CACHE_DIR / "metar"
 
+# Precipitation + cloud-cover field JSON cache — gridded precipitation_mm and
+# cloudcover_% values from Open-Meteo. Layout: PRECIP_CACHE_DIR/<bbox_key>/<YYYYMMDDTHH>.json
+# Eviction: 48h TTL via precip_routes.evict_old_precip_frames.
+PRECIP_CACHE_DIR = CACHE_DIR / "precip"
+
 # ── Create all directories on import ────────────────────────────────────────
 for _d in (IKE_CACHE_DIR, DPS_CACHE_DIR, TRACK_CACHE_DIR, SATELLITE_CACHE_DIR,
-           WIND_CACHE_DIR, PRESSURE_CACHE_DIR, METAR_CACHE_DIR,
+           WIND_CACHE_DIR, PRESSURE_CACHE_DIR, METAR_CACHE_DIR, PRECIP_CACHE_DIR,
            VALIDATION_DIR, WIND_RADII_AUDIT_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
@@ -159,6 +164,7 @@ def storage_summary() -> dict:
         "wind_cache": WIND_CACHE_DIR,
         "pressure_cache": PRESSURE_CACHE_DIR,
         "metar_cache": METAR_CACHE_DIR,
+        "precip_cache": PRECIP_CACHE_DIR,
     }.items():
         sz = _dir_size(path)
         total_bytes += sz
