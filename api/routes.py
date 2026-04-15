@@ -108,7 +108,17 @@ from storage import (
 
 # Bump this when the unified DPS engine's formula changes so stale cached
 # bundles are automatically invalidated on the next request.
-_DPS_CACHE_VERSION = "v6-sqrt"
+# v6-sqrt: initial sqrt compression (T=60, S=4), flat RI bonus +15.
+# v7-audit: WP formula audit — sub-basin mult before bonuses (was after, compounded
+#           the ceiling); RI bonus scaled 5–20 by 24h magnitude (was flat +15);
+#           no-landfall ×0.60 dampener (was no penalty for open-ocean Cat 5s);
+#           compression retuned (T=70, S=2.5) — restores 90–98 discrimination
+#           that v6 collapsed to 99 for every major WP storm.
+# v8-audit-rainfall (2026-04): rec #5 — rainfall-footprint proxy adds
+#           +6 × duration × breadth pts for rainfall-prone WP sub-basins
+#           (JP / S.China / VN / TW). Separates Doksuri-class slow-broad
+#           inland-flood storms from Goni-class small-intense ones.
+_DPS_CACHE_VERSION = "v8-audit-rainfall"
 
 # Cache for global IBTrACS catalog to avoid repeated large downloads/parses.
 # We also persist a json cache file so restarts can reuse the catalog quickly.
@@ -1573,6 +1583,140 @@ async def clear_all_dps_cache():
         except OSError:
             pass
     return {"cleared": cleared, "message": "All DPS cache cleared"}
+
+
+# ------------------------------------------------------------------
+# DPS cache pre-warming
+#
+# Called from main.py lifespan at startup (plus an hourly refresh loop
+# for the subset that represents live tropics). On Railway the cache
+# files land on the persistent volume at $PERSISTENT_DATA_DIR/cache/dps/
+# so a fresh deploy rehydrates instantly without a cold fetch for every
+# preset. Only storms missing a cache file at the current version are
+# (re)computed — noop if everything is already warmed.
+# ------------------------------------------------------------------
+
+async def _warm_one_dps(storm_id: str, *, force: bool = False) -> str:
+    """Compute + persist a single storm's DPS bundle. Returns status tag."""
+    if not force:
+        fp = _dps_cache_path(storm_id)
+        if fp.exists():
+            return "cached"
+    try:
+        track_results = await get_storm_track(storm_id, grid_resolution_km=15.0, skip_points=1)
+    except Exception as e:
+        logger.warning(f"[DPS WARM] track fetch failed for {storm_id}: {e}")
+        return "failed"
+
+    if isinstance(track_results, JSONResponse):
+        try:
+            raw = json.loads(track_results.body)
+        except Exception:
+            raw = []
+    else:
+        raw = track_results
+
+    engine_snaps = _ike_responses_to_engine_snapshots(raw)
+    if not engine_snaps:
+        return "no_snapshots"
+
+    derived_year = 0
+    if len(storm_id) == 8 and storm_id[:2].upper() in ("AL", "EP"):
+        try:
+            derived_year = int(storm_id[4:])
+        except ValueError:
+            derived_year = 0
+
+    try:
+        from core.dps_engine import compute_storm_dps
+        bundle = compute_storm_dps(
+            storm_id=storm_id,
+            snapshots=engine_snaps,
+            storm_name=storm_id,
+            storm_year=int(derived_year),
+        )
+    except Exception as e:
+        logger.warning(f"[DPS WARM] engine failed for {storm_id}: {e}")
+        return "failed"
+
+    bundle["_cache_version"] = _DPS_CACHE_VERSION
+    _save_dps_cache(storm_id, bundle)
+    return "computed"
+
+
+async def _collect_active_storm_ids(app_state) -> list[str]:
+    """Pull NHC active-storm IDs (ATCF format) without going through FastAPI DI."""
+    shared_client = getattr(app_state, "http_client", None)
+    try:
+        async with NOAAClient(http_client=shared_client) as client:
+            storms = await asyncio.wait_for(client.get_active_storms(), timeout=5.0)
+    except Exception as e:
+        logger.warning(f"[DPS WARM] active-storms fetch failed: {e}")
+        return []
+    ids: list[str] = []
+    for s in storms or []:
+        sid = (s.get("id") or "").strip()
+        if sid:
+            ids.append(sid)
+    return ids
+
+
+async def warm_dps_cache(app_state=None, *, include_active: bool = True) -> dict:
+    """
+    Pre-warm DPS bundles for all preset storms (one-time on deploy) and any
+    currently-active storms (refreshed periodically). Throttled to 3 concurrent
+    computes so we don't hammer NOAA on cold start.
+    """
+    targets: list[str] = list(PRESET_STORM_IDS)
+    if include_active and app_state is not None:
+        active_ids = await _collect_active_storm_ids(app_state)
+        for sid in active_ids:
+            if sid not in targets:
+                targets.append(sid)
+
+    sem = asyncio.Semaphore(3)
+    stats = {"cached": 0, "computed": 0, "failed": 0, "no_snapshots": 0}
+
+    async def _one(sid: str):
+        async with sem:
+            tag = await _warm_one_dps(sid)
+            stats[tag] = stats.get(tag, 0) + 1
+
+    await asyncio.gather(*[_one(sid) for sid in targets], return_exceptions=True)
+    logger.info(
+        f"[DPS WARM] {len(targets)} storms — "
+        f"cached={stats.get('cached',0)} computed={stats.get('computed',0)} "
+        f"failed={stats.get('failed',0)} no_snapshots={stats.get('no_snapshots',0)}"
+    )
+    return stats
+
+
+async def refresh_active_dps_loop(app_state, interval_seconds: int = 3600):
+    """
+    Periodically recompute DPS for currently-active storms so hero-card values
+    stay fresh as a live system intensifies. Runs forever until the task is
+    cancelled on shutdown. `force=True` because active-storm tracks change
+    each advisory cycle.
+    """
+    while True:
+        try:
+            await asyncio.sleep(interval_seconds)
+            active_ids = await _collect_active_storm_ids(app_state)
+            if not active_ids:
+                continue
+            sem = asyncio.Semaphore(2)
+
+            async def _one(sid: str):
+                async with sem:
+                    await _warm_one_dps(sid, force=True)
+
+            await asyncio.gather(*[_one(sid) for sid in active_ids], return_exceptions=True)
+            logger.info(f"[DPS WARM] hourly active refresh: {len(active_ids)} storms")
+        except asyncio.CancelledError:
+            logger.info("[DPS WARM] refresh loop cancelled")
+            raise
+        except Exception as e:
+            logger.warning(f"[DPS WARM] refresh loop error (will retry): {e}")
 
 
 # ------------------------------------------------------------------

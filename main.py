@@ -27,7 +27,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from api.routes import router, generate_preload_bundle
+from api.routes import router, generate_preload_bundle, warm_dps_cache, refresh_active_dps_loop
 from api.weather_routes import router as weather_router
 # surgedps_routes was removed — SurgeDPS runs as its own service now
 from services.weather_data_service import WeatherDataService
@@ -78,7 +78,35 @@ async def lifespan(app: FastAPI):
 
     # Run in background so the server starts accepting requests immediately
     asyncio.create_task(warm_preload())
+
+    # --- STARTUP: warm the DPS cache (persistent volume) ---
+    # Pre-computes DPS bundles for preset + active storms and writes them to
+    # $PERSISTENT_DATA_DIR/cache/dps/. Lets first visitors hit the catalog
+    # and hero card without waiting for on-demand engine runs.
+    async def warm_dps():
+        try:
+            await warm_dps_cache(app.state, include_active=True)
+        except Exception as e:
+            logger.warning(f"[DPS WARM] startup warm failed (non-fatal): {e}")
+
+    asyncio.create_task(warm_dps())
+
+    # --- STARTUP: hourly refresh for live tropics ---
+    # Keeps active-storm DPS fresh between deploys. Loop cancels on shutdown.
+    app.state.dps_refresh_task = asyncio.create_task(
+        refresh_active_dps_loop(app.state, interval_seconds=3600)
+    )
+
     yield
+    # --- SHUTDOWN: cancel DPS refresh loop ---
+    task = getattr(app.state, "dps_refresh_task", None)
+    if task is not None:
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
+
     # --- SHUTDOWN: close shared httpx.AsyncClient ---
     try:
         await app.state.http_client.aclose()

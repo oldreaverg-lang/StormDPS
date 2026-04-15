@@ -231,7 +231,9 @@ def compute_storm_dps(
 
     # 11. Basin-specific adjustment + sqrt compression
     adjusted_dps, basin_name, adjustment_notes = apply_basin_dps_adjustment(
-        boosted, basin, snapshots
+        boosted, basin, snapshots,
+        duration_factor=getattr(cum_result, "duration_factor", None),
+        breadth_factor=getattr(cum_result, "breadth_factor", None),
     )
 
     # 12. Peak snapshot stats for display

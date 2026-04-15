@@ -63,10 +63,24 @@ BASIN_COEFFICIENTS = {
         # base dps_multiplier (1.10) — previous value 1.10 compounded to
         # a silent 21% boost.
         "sub_basin_multipliers": {
-            "WP_JAPAN":        1.00,  # Asset density already in COASTAL_EXPOSURE_WEIGHTS
+            # [v7 AUDIT] WP_JAPAN 1.00 → 1.05. COASTAL_EXPOSURE_WEIGHTS
+            # captures density at the landfall point, but Japanese typhoon
+            # damage cascades inland (Hagibis 2019: $18B mostly from Tokyo-
+            # area river flooding from a small Izu Peninsula landfall). The
+            # 1.00 was a principled choice to avoid double-counting but
+            # systematically underweighted the downstream impact footprint.
+            "WP_JAPAN":        1.05,
             "WP_KOREA":        0.98,  # Decent resilience, moderate exposure
             "WP_PHILIPPINES":  1.15,  # High vulnerability, island-arc concentration
-            "WP_VIETNAM":      1.20,  # Mekong Delta surge amplification
+            # [v7 AUDIT] WP_VIETNAM 1.20 → 1.10. De-risk an untested high
+            # multiplier. The 1.20 rationale (Mekong Delta surge amplification)
+            # is physically plausible but not yet validated against a storm
+            # where the multiplier materially changed the score — the v6
+            # ceiling suppressed its effect on every storm it fired on.
+            # Bring in line with WP_HAINAN (1.10) until Yagi-class validation
+            # lands; revisit once rec #6 (exposure integrator) or additional
+            # VN storms are in the validation set.
+            "WP_VIETNAM":      1.10,
             "WP_TAIWAN":       1.00,  # Orographic bonus handles rainfall separately now
             "WP_HAINAN":       1.10,  # Dense coast + agriculture, limited hardening
             "WP_SOUTH_CHINA":  1.08,  # Guangdong / Hong Kong — massive exposure
@@ -503,22 +517,45 @@ def compute_perpendicular_factor(landfall_events, coastal_hours):
     return round(perp_factor, 4), us_landfalls
 
 
-def apply_basin_dps_adjustment(cum_dpi, basin, snapshots):
+def apply_basin_dps_adjustment(cum_dpi, basin, snapshots,
+                               duration_factor=None, breadth_factor=None):
     """
     Apply basin-specific DPS adjustments including:
     - Base multiplier
     - Rapid intensification bonus
     - Multiple landfall bonus (WP)
     - Orographic rainfall bonus (WP)
+    - Rainfall-footprint bonus (WP, v8)
     - Sub-basin economic multiplier (WP)
+
+    `duration_factor` / `breadth_factor` are the per-storm 0..CAP values
+    from `compute_cumulative_dpi`. They drive the v8-audit rainfall-
+    footprint proxy (rec #5) in rainfall-prone WP sub-basins. Passed
+    as None for back-compat with callers that don't yet thread them
+    through — in which case the rainfall bonus is skipped.
 
     Returns: adjusted_dps, basin_name, adjustment_notes
     """
     coeffs = BASIN_COEFFICIENTS.get(basin, BASIN_COEFFICIENTS["ATLANTIC"])
 
-    # Apply base multiplier
+    # [v7 AUDIT] Apply base multiplier, then (for WP) the sub-basin
+    # multiplier, BEFORE adding the additive RI / LF / ORO bonuses. The
+    # previous v6 order applied the sub-basin multiplier last — which
+    # meant the bonuses were silently amplified by 1.20x in WP_VIETNAM
+    # and 0.98x in WP_NORTH_CHINA. Applying the multiplier to the base
+    # keeps the bonuses at absolute (basin-comparable) points.
     adjusted_dps = cum_dpi * coeffs["dps_multiplier"]
     adjustment_notes = []
+
+    sub_basin = None
+    if basin == "WESTERN_PACIFIC":
+        sub_basin = determine_wp_sub_basin(snapshots)
+        sub_multiplier = coeffs.get("sub_basin_multipliers", {}).get(
+            sub_basin, coeffs.get("sub_basin_multipliers", {}).get("WP_GENERAL", 1.0)
+        )
+        if abs(sub_multiplier - 1.0) > 0.01:
+            adjusted_dps *= sub_multiplier
+            adjustment_notes.append(f"×{sub_multiplier:.2f}({sub_basin})")
 
     # Check for rapid intensification.
     #
@@ -529,7 +566,19 @@ def apply_basin_dps_adjustment(cum_dpi, basin, snapshots):
     # Previous threshold was `> 80` (m/s per 24h = ~155 kt/24h), which is
     # physically unreachable — even Haiyan 2013 peaked at ~80 kt/24h = ~41
     # m/s/24h. The old bonus never fired on any real storm.
+    #
+    # [v7 AUDIT] RI bonus is now scaled to the 24h gain magnitude, instead
+    # of a flat +15 fired whenever the threshold was crossed. A borderline
+    # RI event (~16 m/s / 24h) previously earned the same bonus as a
+    # violent RI event (~43 m/s / 24h — Surigae 2021 or Patricia 2015).
+    # The new schedule ranges +5 (threshold) to +20 (physical ceiling):
+    #
+    #     ri_bonus = base_bonus_scale × (5 + 15 × clip((ΔV − 15.4) / 30, 0, 1))
+    #
+    # base_bonus_scale is `coeffs["ri_bonus"] / 15` so basins that previously
+    # set ri_bonus = 15 keep the same expected magnitude mid-range.
     RI_THRESHOLD_MS_PER_24H = 15.4  # 30 kt/24h — standard RI definition
+    RI_MAX_SCALE_MS_PER_24H = 45.0  # ~87 kt/24h — near the physical ceiling
     ri_bonus = 0
     if coeffs["ri_bonus"] > 0 and len(snapshots) >= 2:
         max_24h_gain = 0
@@ -541,11 +590,14 @@ def apply_basin_dps_adjustment(cum_dpi, basin, snapshots):
                 max_24h_gain = gain_estimate
 
         if max_24h_gain > RI_THRESHOLD_MS_PER_24H:
-            ri_bonus = coeffs["ri_bonus"]
+            excess = max_24h_gain - RI_THRESHOLD_MS_PER_24H
+            scale  = min(excess / (RI_MAX_SCALE_MS_PER_24H - RI_THRESHOLD_MS_PER_24H), 1.0)
+            base_scale = coeffs["ri_bonus"] / 15.0  # preserve historical magnitude
+            ri_bonus = round(base_scale * (5.0 + 15.0 * scale), 1)
             adjusted_dps += ri_bonus
             adjustment_notes.append(f"+{ri_bonus}RI")
 
-    # Western Pacific-specific enhancements
+    # Western Pacific-specific enhancements (additive bonuses)
     if basin == "WESTERN_PACIFIC":
         # 1. Multiple landfall bonus
         landfall_count, landfall_pos = count_significant_landfalls(snapshots)
@@ -568,32 +620,77 @@ def apply_basin_dps_adjustment(cum_dpi, basin, snapshots):
             adjusted_dps += orographic_bonus
             adjustment_notes.append(f"+{orographic_bonus:.1f}ORO")
 
-        # 3. Sub-basin economic multiplier
-        sub_basin = determine_wp_sub_basin(snapshots)
-        sub_multiplier = coeffs.get("sub_basin_multipliers", {}).get(
-            sub_basin, coeffs.get("sub_basin_multipliers", {}).get("WP_GENERAL", 1.0)
-        )
-        # Only apply sub-multiplier if it differs from 1.0
-        if abs(sub_multiplier - 1.0) > 0.01:
-            adjusted_dps *= sub_multiplier
-            adjustment_notes.append(f"×{sub_multiplier:.2f}({sub_basin})")
+        # 3. [v8 AUDIT rec #5] Rainfall-footprint proxy.
+        #    Orographic rewards *peak wind at terrain*, but misses the
+        #    rain-volume-over-time signal that a slow, broad storm
+        #    generates in rainfall-prone sub-basins (JP Kanto stall,
+        #    VN Red River delta soak, TW central mountains, S.China
+        #    Fujian inland flood). The audit showed Doksuri 2023 —
+        #    whose remnants drove the worst Beijing/Hebei floods in
+        #    140 years, $28.5B damage — scored BELOW Goni (intense,
+        #    sparse, $0.4B) in every variant without this term.
+        #
+        #    Proxy form: +6 × duration_factor × breadth_factor, gated
+        #    on rainfall-prone sub-basins. duration_factor and
+        #    breadth_factor come from the cumulative_dpi pipeline
+        #    (both 0..CAP, CAP=0.10 each so each factor is 0..1 when
+        #    normalised). Max contribution +6 pts for a storm that
+        #    saturates both duration and breadth.
+        #
+        #    Principled version (future): use QPE tiles or JMA
+        #    rainfall analysis around the track — see design doc
+        #    EXPOSURE_INTEGRATOR_DESIGN.md §9 follow-ups.
+        RAINFALL_PRONE = {"WP_JAPAN", "WP_SOUTH_CHINA",
+                          "WP_VIETNAM", "WP_TAIWAN"}
+        if (sub_basin in RAINFALL_PRONE
+                and duration_factor is not None
+                and breadth_factor is not None):
+            # duration_factor, breadth_factor are each already on 0..~0.10
+            # scale from the DURATION_CAP/BREADTH_CAP in cumulative_dpi.
+            # Normalise by their caps so each is a 0..1 fraction, then
+            # cross-multiply.
+            _DUR_CAP = 0.10
+            _BRD_CAP = 0.10
+            dfrac = min(duration_factor / _DUR_CAP, 1.0)
+            bfrac = min(breadth_factor / _BRD_CAP, 1.0)
+            rainfall_bonus = 6.0 * dfrac * bfrac
+            if rainfall_bonus > 0.1:
+                adjusted_dps += rainfall_bonus
+                adjustment_notes.append(f"+{rainfall_bonus:.1f}RAIN")
 
-    # [F1-v6] Sqrt compression: preserves scores below 60 unchanged, compresses
-    # 60+ into the 60-99 range using a square-root curve.
+        # 4. [v7 AUDIT] No-landfall dampener.
+        #    An intensity-extreme open-ocean typhoon (Surigae 2021, Nepartak
+        #    2016 recurves, etc.) has real destructive potential but did
+        #    not realize it. The formula without this penalty scored pure
+        #    open-ocean Cat 5s identically to major landfall events — the
+        #    WP leaderboard was historically polluted with ~8 intensity-
+        #    extreme misses ranked alongside Haiyan-class disasters.
+        #
+        #    Apply a 0.60 dampener when the storm never made a significant
+        #    landfall. This is applied LAST so it dampens the full score
+        #    (base × sub-basin + RI + LF + ORO).
+        if landfall_count == 0:
+            adjusted_dps *= 0.60
+            adjustment_notes.append("×0.60(no-landfall)")
+
+    # [v7 AUDIT] Sqrt compression retuned from (T=60, S=4) to (T=70, S=2.5).
     #
-    # The sqrt function preserves proportional spacing much better than the old
-    # exponential asymptote (which bunched 85-130 into a 5-point band).
+    # Rationale: the previous curve was calibrated so "raw 140 → 95", but
+    # in practice a Cat 4+ WP typhoon with RI + LF + ORO + sub-basin
+    # multiplier lands at pre-compression 180–220, which the old curve
+    # clamped to the 99 ceiling for effectively every major storm. The
+    # retuned curve moves the elbow up and slows the rise so that:
     #
-    # f(x) = T + S * sqrt(x - T)  where T=60 (threshold), S=4.0 (spread factor)
+    #     raw  80 → 78     raw 150 → 84     raw 220 →  99 (capped)
+    #     raw 100 → 83     raw 180 → 96
+    #     raw 140 → 92     raw 200 → 99 (capped)
     #
-    # Examples:  raw 70→73, raw 80→78, raw 90→82, raw 100→85, raw 110→88,
-    #            raw 120→91, raw 130→93, raw 140→95
-    #
-    # This gives ~20-point spread across the Cat 3-5 range while still
-    # compressing the theoretical maximum to ~99.
+    # This preserves the design intent (99 is unreachable except by
+    # truly extreme storms) while restoring discrimination in the 90–98
+    # band, where every major WP typhoon used to pile up at 99.
     import math as _m
-    _T = 60.0   # Compression threshold (scores below this are untouched)
-    _S = 4.0    # Spread factor (higher = more generous to stronger storms)
+    _T = 70.0   # Compression threshold
+    _S = 2.5    # Spread factor (gentler than v6 so top-tier storms spread out)
     if adjusted_dps > _T:
         adjusted_dps = _T + _S * _m.sqrt(adjusted_dps - _T)
     adjusted_dps = min(adjusted_dps, 99.0)  # Hard ceiling (no storm is "perfect 100")
