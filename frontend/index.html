@@ -3548,6 +3548,21 @@ async function fetchAndRenderSST(data){
         sstTab.classList.remove('sst-loading');
         if(_ph)_ph.style.display='none';
 
+        // Attach SST to each snapshot so hover popups can render it.
+        // sstData is returned in the same order as the posted points.
+        for(let i=0;i<data.length && i<sstData.length;i++){
+            data[i].sst_c=sstData[i]?sstData[i].sst_c:null;
+        }
+        // Rebind popups on existing markers so the SST field populates
+        // without the user needing to reload the map.
+        if(window.mapMarkers && window._buildSnapshotPopup){
+            window.mapMarkers.forEach(m=>{
+                if(m._trackData){
+                    m.setPopupContent(window._buildSnapshotPopup(m._trackData));
+                }
+            });
+        }
+
         // If SST tab is currently active, render immediately
         if(document.getElementById('tabSST').classList.contains('active')){
             renderSSTChart(data,sstData);
@@ -3599,33 +3614,40 @@ function renderMap(data){
 
     // Small dot markers at each observation
     window.mapMarkers=[];
-    data.forEach((d,i)=>{
-        const c=dpsColor(d.dps?d.dps.score:0);
+    // Build per-point popup with 6 fields: Wind Energy, Storm Surge, Barometric
+    // Pressure, Wind Speed, Sea Surface Temp, DPS. SST may still be loading when
+    // the map renders — rebuildSnapshotPopup() handles the async refresh below.
+    window._buildSnapshotPopup=function(d){
         const ts=new Date(d.timestamp);
         const tStr=ts.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' '+String(ts.getHours()).padStart(2,'0')+'Z';
-        
-        const estSurge = calculateSurgeParametric(d);
-        const surgeTxt = estSurge > 0 ? `${estSurge.toFixed(1)} ft` : 'N/A';
-
-        const fwdMph = d.forward_speed_knots ? (d.forward_speed_knots * 1.15078).toFixed(0) : null;
-        const iasObj = d.ias || {score:0,color:'#94a3b8'};
-        const ersObj = d.ers || {score:0,color:'#94a3b8'};
-        const popup=`<div style="font-family:Inter,sans-serif;font-size:11px;line-height:1.6;width:210px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        const estSurge=calculateSurgeParametric(d);
+        const surgeTxt=estSurge>0?`${estSurge.toFixed(1)} ft`:'N/A';
+        const windMph=d.max_wind_ms?(d.max_wind_ms*2.237).toFixed(0)+' mph':'—';
+        const presTxt=d.min_pressure_hpa?d.min_pressure_hpa+' mb':'—';
+        const ikeTxt=(d.ike_total_tj!=null)?d.ike_total_tj.toFixed(1)+' TJ':'—';
+        const sstTxt=(d.sst_c!=null)?d.sst_c.toFixed(1)+' °C':(window._sstReady?'—':'…');
+        const dpsScore=d.dps?d.dps.score:0;
+        const dpsColorHex=d.dps?d.dps.color:'#94a3b8';
+        const row=(label,value,color)=>`<div style="display:flex;justify-content:space-between;gap:8px;padding:1px 0"><span style="color:${color}">${label}</span><b style="color:#f1f5f9">${value}</b></div>`;
+        return `<div style="font-family:Inter,sans-serif;font-size:11px;line-height:1.5;width:200px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;border-bottom:1px solid #334155;padding-bottom:3px">
                 <div style="font-weight:700;font-size:12px;">${tStr}</div>
-                <div style="display:flex;gap:2px;flex-wrap:wrap">
-                    <div style="background:${d.dps.color};color:#fff;padding:1px 4px;border-radius:4px;font-weight:bold;font-size:8px;">DPS ${d.dps.score}</div>
-                    <div style="background:${iasObj.color};color:#fff;padding:1px 4px;border-radius:4px;font-weight:bold;font-size:8px;">IAS ${iasObj.score}</div>
-                    <div style="background:${ersObj.color};color:#fff;padding:1px 4px;border-radius:4px;font-weight:bold;font-size:8px;">ERS ${ersObj.score}</div>
-                </div>
+                <div style="background:${dpsColorHex};color:#fff;padding:1px 6px;border-radius:4px;font-weight:bold;font-size:9px;">DPS ${dpsScore}</div>
             </div>
-            <div style="color:#a78bfa">Wind Energy: <b style="float:right">${d.ike_total_tj.toFixed(1)} TJ</b></div>
-            <div style="color:#60a5fa">Surge Potential: <b style="float:right">${surgeTxt}</b></div>
-            <div style="color:#fca5a5">Max Wind: <b style="float:right">${d.max_wind_ms ? (d.max_wind_ms*2.237).toFixed(0)+' mph' : '?'}</b></div>
-            <div style="color:#94a3b8;margin-top:4px;font-size:10px;border-top:1px solid #334155;padding-top:2px;">Pressure: ${d.min_pressure_hpa ? d.min_pressure_hpa+' mb' : '?'} | Moving: ${fwdMph ? fwdMph+' mph' : '?'}</div>
+            ${row('Wind Energy',ikeTxt,'#a78bfa')}
+            ${row('Storm Surge',surgeTxt,'#60a5fa')}
+            ${row('Barometric Pressure',presTxt,'#94a3b8')}
+            ${row('Wind Speed',windMph,'#fca5a5')}
+            ${row('Sea Surface Temp',sstTxt,'#fbbf24')}
+            ${row('DPS',dpsScore,'#f472b6')}
         </div>`;
+    };
+    data.forEach((d,i)=>{
+        const c=dpsColor(d.dps?d.dps.score:0);
         const m=L.circleMarker([d.lat,d.lon],{radius:6,fillColor:c,color:'rgba(255,255,255,.35)',weight:1.5,fillOpacity:.85}).addTo(currentMap);
-        m.bindPopup(popup,{closeButton:false,offset:L.point(0,-4)});
+        m._trackIndex=i;
+        m._trackData=d;
+        m.bindPopup(window._buildSnapshotPopup(d),{closeButton:false,offset:L.point(0,-4)});
         m.on('mouseover',function(){this.openPopup();syncVisualization(i,true)});
         m.on('mouseout',function(){this.closePopup()});
         window.mapMarkers.push(m);
