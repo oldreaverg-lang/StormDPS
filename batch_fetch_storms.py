@@ -1,19 +1,27 @@
 #!/usr/bin/env python3
 """
-Batch-fetch IKE data for all Atlantic storms via the local API.
+Batch-fetch IKE data for historical storms via the local API.
 
 Hits GET /api/v1/storms/{storm_id}/track for each storm,
 which triggers the server to fetch from IBTrACS/HURDAT2, compute IKE,
 and cache the results to data/cache/ike/.
+
+Covers both:
+  * Atlantic basin (AL…) — original scope
+  * Western Pacific basin (WP…) — added to support JTWC storms
+    such as Typhoon Sinlaku (WP262025).
 
 After running this, run:
     python build_preload.py --all
     python compile_cache.py
 
 Usage:
-    python batch_fetch_storms.py
+    python batch_fetch_storms.py              # all basins
+    python batch_fetch_storms.py --basin WP   # Western Pacific only
+    python batch_fetch_storms.py --basin AL   # Atlantic only
 """
 
+import argparse
 import json
 import sys
 import time
@@ -86,6 +94,58 @@ ATLANTIC_STORM_IDS = [
 ]
 
 
+# Western Pacific storm IDs (JTWC-tracked) worth pre-caching.
+# Covers notable recent typhoons + current-season WP storms. Storm numbers
+# follow the JTWC convention (NN = sequential basin index, YYYY = year).
+# Typhoon Sinlaku (WP262025) is explicitly included so the live pipeline
+# has historical context to attach when it appears on the active feed.
+WESTERN_PACIFIC_STORM_IDS = [
+    # 2013
+    "WP302013",  # Haiyan (Yolanda)
+    # 2018
+    "WP262018",  # Yutu
+    "WP312018",  # Mangkhut
+    # 2020
+    "WP222020",  # Goni (record-strength landfall)
+    "WP232020",  # Vamco
+    # 2021
+    "WP242021",  # Rai (Odette)
+    # 2022
+    "WP032022",  # Malakas
+    "WP162022",  # Nanmadol
+    "WP252022",  # Nalgae
+    # 2023
+    "WP022023",  # Mawar
+    "WP072023",  # Doksuri
+    "WP092023",  # Khanun
+    "WP142023",  # Saola
+    # 2024
+    "WP012024", "WP022024", "WP032024", "WP042024", "WP052024",
+    "WP062024", "WP072024", "WP082024", "WP092024", "WP102024",
+    "WP112024",  # Yagi (devastating landfall in Vietnam/China)
+    "WP122024", "WP132024", "WP142024", "WP152024", "WP162024",
+    "WP172024", "WP182024", "WP192024", "WP202024", "WP212024",
+    "WP222024", "WP232024", "WP242024", "WP252024",
+    # 2025
+    "WP012025", "WP022025", "WP032025", "WP042025", "WP052025",
+    "WP062025", "WP072025", "WP082025", "WP092025", "WP102025",
+    "WP112025", "WP122025", "WP132025", "WP142025", "WP152025",
+    "WP162025", "WP172025", "WP182025", "WP192025", "WP202025",
+    "WP212025", "WP222025", "WP232025", "WP242025", "WP252025",
+    "WP262025",  # Sinlaku
+    "WP272025", "WP282025", "WP292025", "WP302025",
+    # 2026 (current season — fill in as storms develop)
+    "WP012026", "WP022026", "WP032026", "WP042026", "WP052026",
+    "WP062026", "WP072026", "WP082026", "WP092026", "WP102026",
+]
+
+# Master per-basin catalog so main() can select subsets cleanly.
+STORM_IDS_BY_BASIN = {
+    "AL": ATLANTIC_STORM_IDS,
+    "WP": WESTERN_PACIFIC_STORM_IDS,
+}
+
+
 def is_cached(storm_id: str) -> bool:
     """Check if IKE cache file already exists for this storm."""
     matches = list(CACHE_DIR.glob(f"{storm_id}_*.json"))
@@ -111,7 +171,23 @@ def fetch_storm(storm_id: str) -> tuple[str, bool, str]:
 
 
 def main():
-    print(f"Batch-fetching IKE data for {len(ATLANTIC_STORM_IDS)} Atlantic storms")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--basin",
+        choices=sorted(STORM_IDS_BY_BASIN.keys()) + ["ALL"],
+        default="ALL",
+        help="Which basin to fetch (default: ALL)",
+    )
+    args = parser.parse_args()
+
+    if args.basin == "ALL":
+        storm_ids = [sid for ids in STORM_IDS_BY_BASIN.values() for sid in ids]
+        label = f"{len(storm_ids)} storms across all basins"
+    else:
+        storm_ids = STORM_IDS_BY_BASIN[args.basin]
+        label = f"{len(storm_ids)} {args.basin} storms"
+
+    print(f"Batch-fetching IKE data for {label}")
     print(f"API: {API_BASE}")
     print(f"Cache: {CACHE_DIR}")
     print()
@@ -119,7 +195,7 @@ def main():
     # Check which storms are already cached
     to_fetch = []
     already_cached = []
-    for sid in ATLANTIC_STORM_IDS:
+    for sid in storm_ids:
         if is_cached(sid):
             already_cached.append(sid)
         else:

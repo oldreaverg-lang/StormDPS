@@ -401,34 +401,88 @@ class NOAAClient:
     #  ACTIVE STORMS
     # ==================================================================
 
-    async def get_active_storms(self) -> list[dict]:
+    async def get_active_storms(self, include_jtwc: bool = True) -> list[dict]:
         """
-        Fetch currently active tropical cyclones from NHC.
+        Fetch currently active tropical cyclones across all basins.
 
-        Returns a list of dicts with basic storm info including
-        wind radii by quadrant when available.
+        NHC covers Atlantic (AL) and Eastern Pacific (EP) storms only.
+        JTWC covers Western Pacific (WP), North Indian Ocean (IO), and
+        Southern Hemisphere (SH) storms. By default we merge both so the
+        live pipeline surfaces typhoons like Sinlaku, not just hurricanes.
+
+        Set `include_jtwc=False` to preserve the legacy NHC-only behavior.
+
+        Returns a list of dicts with basic storm info including wind radii
+        by quadrant when available. Each dict carries a `source` field
+        ("NHC" or "JTWC") and a `basin` field so callers can route further.
         """
+        # Fire NHC and JTWC in parallel — neither blocks the other.
+        nhc_task = asyncio.create_task(self._fetch_nhc_active_storms())
+        jtwc_task: Optional[asyncio.Task] = None
+        if include_jtwc:
+            jtwc_task = asyncio.create_task(self._fetch_jtwc_active_storms())
+
+        storms: list[dict] = []
         try:
-            resp = await self._request_with_retry("GET", NHC_ACTIVE_STORMS_URL)
-            resp.raise_for_status()
-            data = resp.json()
-            storms = []
-            for feature in data.get("activeStorms", []):
-                storms.append({
-                    "id": feature.get("id", ""),
-                    "name": feature.get("name", ""),
-                    "classification": feature.get("classification", ""),
-                    "lat": feature.get("lat"),
-                    "lon": feature.get("lon"),
-                    "intensity_knots": feature.get("intensity"),
-                    "pressure_mb": feature.get("pressure"),
-                    "movement": feature.get("movement", ""),
-                    "movement_speed_knots": feature.get("movementSpeed"),
-                    "movement_direction_deg": feature.get("movementDir"),
-                })
-            return storms
+            nhc_storms = await nhc_task
+            storms.extend(nhc_storms)
         except (httpx.HTTPError, NOAAClientError) as e:
-            raise NOAAClientError(f"Failed to fetch active storms: {e}") from e
+            # If JTWC is also going to run, don't fail the whole call on NHC
+            if jtwc_task is None:
+                raise NOAAClientError(f"Failed to fetch active storms: {e}") from e
+            logger.warning(f"[ACTIVE_STORMS] NHC fetch failed: {e}")
+
+        if jtwc_task is not None:
+            try:
+                jtwc_storms = await jtwc_task
+                # De-dupe by storm id (shouldn't collide across agencies, but be safe)
+                seen = {s["id"] for s in storms if s.get("id")}
+                for s in jtwc_storms:
+                    if s.get("id") and s["id"] not in seen:
+                        storms.append(s)
+                        seen.add(s["id"])
+            except Exception as e:
+                logger.warning(f"[ACTIVE_STORMS] JTWC fetch failed: {e}")
+
+        return storms
+
+    async def _fetch_nhc_active_storms(self) -> list[dict]:
+        """NHC CurrentStorms.json — Atlantic + Eastern Pacific only."""
+        resp = await self._request_with_retry("GET", NHC_ACTIVE_STORMS_URL)
+        resp.raise_for_status()
+        data = resp.json()
+        storms = []
+        for feature in data.get("activeStorms", []):
+            storm_id = feature.get("id", "")
+            basin = storm_id[:2].upper() if len(storm_id) >= 2 else ""
+            storms.append({
+                "id": storm_id,
+                "name": feature.get("name", ""),
+                "classification": feature.get("classification", ""),
+                "lat": feature.get("lat"),
+                "lon": feature.get("lon"),
+                "intensity_knots": feature.get("intensity"),
+                "pressure_mb": feature.get("pressure"),
+                "movement": feature.get("movement", ""),
+                "movement_speed_knots": feature.get("movementSpeed"),
+                "movement_direction_deg": feature.get("movementDir"),
+                "basin": basin,
+                "source": "NHC",
+            })
+        return storms
+
+    async def _fetch_jtwc_active_storms(self) -> list[dict]:
+        """JTWC — Western Pacific, North Indian, Southern Hemisphere."""
+        # Import lazily so tests / environments without JTWC reachability
+        # don't pay any import-time cost.
+        from services.jtwc_client import JTWCClient, JTWCClientError
+
+        try:
+            async with JTWCClient(http_client=self._http_client) as jtwc:
+                return await jtwc.get_active_storms()
+        except JTWCClientError as e:
+            logger.warning(f"[ACTIVE_STORMS] JTWC: {e}")
+            return []
 
     # ==================================================================
     #  FORECAST TRACK (NHC GIS)
