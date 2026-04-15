@@ -167,7 +167,10 @@ async def _fetch_open_meteo(lats: list[float], lons: list[float],
         # users can scrub into the immediate forecast.
         delta_days = (now.date() - ts_dt.date()).days
         params["past_days"] = max(0, min(7, delta_days + 1))
-        params["forecast_days"] = 3
+        # Only request forecast hours if the target ts is actually in the
+        # future — otherwise we burn quota on 3 days of unused samples.
+        if ts_dt.date() >= now.date():
+            params["forecast_days"] = 3
 
     async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
         r = await client.get(base, params=params)
@@ -208,7 +211,11 @@ def _build_velocity_payload(lats: list[float], lons: list[float],
     u_data: list[float] = []
     v_data: list[float] = []
     for i in range(len(lats)):
-        u, v = _wind_to_uv(speeds[i] or 0.0, dirs[i] or 0.0)
+        # Pass speed/dir through unmodified — _wind_to_uv returns (0,0) when
+        # either is None. Don't substitute 0.0 here, or a missing direction
+        # paired with a real speed would render as a fake northerly wind
+        # (dir=0 → wind FROM north → southward particle flow over a data void).
+        u, v = _wind_to_uv(speeds[i], dirs[i])
         u_data.append(round(u, 2))
         v_data.append(round(v, 2))
 

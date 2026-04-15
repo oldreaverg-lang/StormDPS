@@ -4420,8 +4420,18 @@ async function _setPressureFrameNow(satelliteTs) {
     st.fillLayer = L.imageOverlay(dataUrl, bounds, {
         opacity: op,
         interactive: false,
-        zIndex: 220,            // above satellite (200), below wind (250) + track
     }).addTo(currentMap);
+    // L.imageOverlay ignores a `zIndex` constructor option — apply it
+    // directly to the rendered <img> so the documented stacking order
+    // (satellite 200 → cloud 215 → precip 218 → pressure 220 → wind 250)
+    // actually holds.
+    if (st.fillLayer.getElement) {
+        const _pfEl = st.fillLayer.getElement();
+        if (_pfEl && _pfEl.style) {
+            _pfEl.style.zIndex = 220;
+            _pfEl.style.imageRendering = 'auto';
+        }
+    }
 
     // Build/update the isobar layer.
     const polylines = _buildIsobarPolylines(field);

@@ -258,7 +258,7 @@ async def pressure_field(
 
 
 def _maybe_evict() -> None:
-    """Run pressure eviction at most once per hour. Best-effort, never raises."""
+    """Run pressure + METAR eviction at most once per hour. Best-effort."""
     global _LAST_EVICT_AT
     now = datetime.now(timezone.utc)
     if _LAST_EVICT_AT is not None and (now - _LAST_EVICT_AT) < _EVICT_INTERVAL:
@@ -268,6 +268,36 @@ def _maybe_evict() -> None:
         evict_old_pressure_frames()
     except Exception as e:
         logger.warning(f"[PRESSURE EVICT] failed: {e}")
+    try:
+        evict_old_metar_files()
+    except Exception as e:
+        logger.warning(f"[METAR EVICT] failed: {e}")
+
+
+def evict_old_metar_files(max_age_hours: int = 24) -> int:
+    """Delete cached METAR JSON files whose mtime is older than *max_age_hours*.
+
+    METAR observations refresh hourly, so stale bbox snapshots aren't useful.
+    Returns the number of files removed.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
+    removed = 0
+    if not METAR_CACHE_DIR.exists():
+        return 0
+    for f in METAR_CACHE_DIR.glob("*.json"):
+        try:
+            mtime = datetime.fromtimestamp(f.stat().st_mtime, tz=timezone.utc)
+        except OSError:
+            continue
+        if mtime < cutoff:
+            try:
+                f.unlink()
+                removed += 1
+            except OSError:
+                pass
+    if removed:
+        logger.info(f"[METAR EVICT] removed {removed} cached files older than {max_age_hours}h")
+    return removed
 
 
 # ── /pressure/stations (METAR) ──────────────────────────────────────────────
@@ -414,6 +444,8 @@ async def pressure_stations(
         os.replace(tmp, cache_path)
     except OSError as e:
         logger.warning(f"[METAR] cache write failed for {cache_path}: {e}")
+
+    _maybe_evict()
 
     return JSONResponse(content=payload, headers={"X-Metar-Cache": "miss"})
 
