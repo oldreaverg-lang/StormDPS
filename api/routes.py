@@ -1200,8 +1200,11 @@ async def get_storm_track(
                     _monitor.record_failure("ibtracs", error="SID lookup failed", latency_ms=(time.time() - t0) * 1000)
                     snapshots = []
 
-            # 3) IBTrACS by ATCF ID for AL/EP storms (e.g. AL092017)
-            if not snapshots and prefix in ("AL", "EP") and len(storm_id) == 8:
+            # 3) IBTrACS by ATCF ID for AL/EP/WP/IO/SH storms (e.g. AL092017,
+            #    WP262013 Haiyan). Covers historical basins globally. In-season
+            #    WP/IO/SH storms won't be in IBTrACS yet (multi-month lag) —
+            #    those fall to step 3a (b-deck) below.
+            if not snapshots and prefix in ("AL", "EP", "WP", "IO", "SH") and len(storm_id) == 8:
                 t0 = time.time()
                 try:
                     csv_text = await client._fetch_ibtracs(use_recent=True)
@@ -1291,19 +1294,57 @@ async def get_storm_track(
             #     handles in-season storms (e.g. Sinlaku) that appear in
             #     the global catalog under a synthetic SID before IBTrACS
             #     has published real track data.
+            #
+            #     Prefer the b-deck (full history) over the warning bulletin
+            #     (T+0 + forecasts only). StormDPS is a retrospective tracker;
+            #     forecast-only data makes every in-season storm render as a
+            #     4-point future arc, which is the bug that prompted this fix.
             if not snapshots and storm_id[0].isdigit():
                 try:
                     candidate_name = _lookup_storm_name_from_catalog(storm_id)
                     if candidate_name:
                         from services.jtwc_client import JTWCClient
                         async with JTWCClient() as jtwc:
-                            snapshots = await jtwc.get_storm_track(candidate_name)
-                        if snapshots:
-                            source = "jtwc"
-                            logger.info(
-                                f"[TRACK] JTWC name-match fallback: {storm_id} → {candidate_name} "
-                                f"({len(snapshots)} points)"
-                            )
+                            warnings = await jtwc._fetch_active_warning_index()
+                        match = next(
+                            (
+                                w for w in warnings
+                                if w.get("name", "").upper() == candidate_name.upper()
+                            ),
+                            None,
+                        )
+                        matched_atcf = match["id"] if match else None
+
+                        # Primary: b-deck (full history)
+                        if matched_atcf:
+                            try:
+                                from services.atcf_bdeck_client import ATCFBDeckClient
+                                async with ATCFBDeckClient() as bdeck:
+                                    snapshots = await bdeck.get_storm_track(matched_atcf)
+                                if snapshots:
+                                    source = "jtwc_bdeck"
+                                    logger.info(
+                                        f"[TRACK] name-match b-deck: {storm_id} → "
+                                        f"{candidate_name} ({matched_atcf}) "
+                                        f"→ {len(snapshots)} observations"
+                                    )
+                            except Exception as e:
+                                logger.debug(
+                                    f"[TRACK] b-deck name-match failed for "
+                                    f"{candidate_name}: {e}"
+                                )
+
+                        # Fallback: warning bulletin (forward-only — last resort)
+                        if not snapshots:
+                            async with JTWCClient() as jtwc:
+                                snapshots = await jtwc.get_storm_track(candidate_name)
+                            if snapshots:
+                                source = "jtwc"
+                                logger.info(
+                                    f"[TRACK] warning-bulletin name-match: "
+                                    f"{storm_id} → {candidate_name} "
+                                    f"({len(snapshots)} points, forward-only)"
+                                )
                 except Exception as e:
                     logger.debug(f"[TRACK] JTWC name-match fallback failed for {storm_id}: {e}")
                     snapshots = snapshots or []
