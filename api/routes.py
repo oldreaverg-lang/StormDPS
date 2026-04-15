@@ -1091,6 +1091,34 @@ async def get_storm_catalog(
     return catalog
 
 
+def _lookup_storm_name_from_catalog(storm_id: str) -> Optional[str]:
+    """
+    Look up a storm's name given an ID (SID or ATCF) from the in-memory
+    global catalog cache or the custom_storms.csv file. Used by the
+    JTWC name-match fallback when an IBTrACS SID has no track data yet.
+    Returns None if not found or the entry is unnamed.
+    """
+    try:
+        if _GLOBAL_IBTRACS_CATALOG_CACHE:
+            for entry in _GLOBAL_IBTRACS_CATALOG_CACHE:
+                if entry.get("id") == storm_id:
+                    name = (entry.get("name") or "").strip()
+                    if name and name.upper() not in ("UNNAMED", "NOT_NAMED", "NOT NAMED", ""):
+                        return name
+                    return None
+    except Exception:
+        pass
+    try:
+        for entry in _load_custom_storms(1851, 2099):
+            if entry.get("id") == storm_id:
+                name = (entry.get("name") or "").strip()
+                if name:
+                    return name
+    except Exception:
+        pass
+    return None
+
+
 # ------------------------------------------------------------------
 # Unified track endpoint (auto-routes HURDAT2 vs IBTrACS)
 # ------------------------------------------------------------------
@@ -1179,6 +1207,27 @@ async def get_storm_track(
                     _monitor.record_failure("ibtracs", error="ATCF lookup failed", latency_ms=(time.time() - t0) * 1000)
                     snapshots = []
 
+            # 3b) JTWC direct lookup for WP/IO/SH ATCF IDs (e.g. WP042026)
+            #     IBTrACS has multi-month publication lag, so in-season JTWC
+            #     storms (Sinlaku etc.) won't appear there. Fall back to the
+            #     live JTWC warning feed and synthesize a track from the
+            #     current advisory + forecast sections.
+            if not snapshots and prefix in ("WP", "IO", "SH") and len(storm_id) == 8:
+                t0 = time.time()
+                try:
+                    from services.jtwc_client import JTWCClient
+                    async with JTWCClient() as jtwc:
+                        snapshots = await jtwc.get_storm_track(storm_id)
+                    if snapshots:
+                        source = "jtwc"
+                        _monitor.record_success("jtwc", latency_ms=(time.time() - t0) * 1000)
+                        logger.info(f"[TRACK] JTWC direct lookup matched {storm_id} → {len(snapshots)} points")
+                    else:
+                        _monitor.record_failure("jtwc", error="ATCF ID not in active warnings", latency_ms=(time.time() - t0) * 1000)
+                except Exception as e:
+                    _monitor.record_failure("jtwc", error=f"JTWC lookup failed: {e}", latency_ms=(time.time() - t0) * 1000)
+                    snapshots = []
+
             # 4) Fallback: HURDAT2/EBTRK for Atlantic/East Pacific ATCF IDs
             #    Only try if IBTrACS didn't have it (e.g. very recent advisory data)
             if not snapshots and prefix in ("AL", "EP") and len(storm_id) == 8:
@@ -1201,6 +1250,29 @@ async def get_storm_track(
                     source = "ibtracs"
                 except (NOAAClientError, Exception):
                     snapshots = []
+
+            # 5b) JTWC name-match fallback: if storm_id is an IBTrACS SID
+            #     (digit-leading) that didn't resolve, try to match it by
+            #     name against the current JTWC active warnings. This
+            #     handles in-season storms (e.g. Sinlaku) that appear in
+            #     the global catalog under a synthetic SID before IBTrACS
+            #     has published real track data.
+            if not snapshots and storm_id[0].isdigit():
+                try:
+                    candidate_name = _lookup_storm_name_from_catalog(storm_id)
+                    if candidate_name:
+                        from services.jtwc_client import JTWCClient
+                        async with JTWCClient() as jtwc:
+                            snapshots = await jtwc.get_storm_track(candidate_name)
+                        if snapshots:
+                            source = "jtwc"
+                            logger.info(
+                                f"[TRACK] JTWC name-match fallback: {storm_id} → {candidate_name} "
+                                f"({len(snapshots)} points)"
+                            )
+                except Exception as e:
+                    logger.debug(f"[TRACK] JTWC name-match fallback failed for {storm_id}: {e}")
+                    snapshots = snapshots or []
 
             # 6) Name-based fallback: if storm_id looks like a plain name
             #    (e.g. "KATRINA", "MICHAEL"), search IBTrACS by name.

@@ -24,12 +24,20 @@ so the two can be merged transparently in routes.py.
 import asyncio
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
 
+from models.hurricane import HurricaneSnapshot
+
 logger = logging.getLogger(__name__)
+
+
+# Nautical-mile to meter conversion (used for wind radii)
+NM_TO_METERS = 1852.0
+# Knots to m/s
+KT_TO_MS = 0.514444
 
 
 # JTWC public endpoints
@@ -430,6 +438,146 @@ class JTWCClient:
             "source": "JTWC",
         }
 
+    # ==================================================================
+    #  TRACK SYNTHESIS
+    #
+    #  IBTrACS has a multi-month publication lag, so for in-season WP/IO/SH
+    #  storms we need to synthesize a track from the JTWC warning bulletin
+    #  itself. Each bulletin contains:
+    #    - one "WARNING POSITION" at T+0 (with current wind radii + motion)
+    #    - forecast positions at T+12, 24, 36, 48, 72, 96, 120 hours
+    #  We emit these as HurricaneSnapshot records, matching the shape that
+    #  HURDAT2 and IBTrACS produce. That's enough for the DPS pipeline to
+    #  compute IKE, surge, and everything downstream.
+    # ==================================================================
+
+    async def get_storm_track(
+        self,
+        storm_identifier: str,
+    ) -> list[HurricaneSnapshot]:
+        """
+        Synthesize a track (observed T+0 + forecast snapshots) for an active
+        JTWC storm, keyed by ATCF ID (e.g. WP042026) or storm name (SINLAKU).
+
+        Returns an empty list if the identifier doesn't match any active
+        JTWC warning. Callers should fall back to IBTrACS in that case.
+        """
+        key = storm_identifier.strip().upper()
+
+        warnings = await self._fetch_active_warning_index()
+        match = next(
+            (w for w in warnings if w["id"].upper() == key or w["name"].upper() == key),
+            None,
+        )
+        if match is None:
+            logger.info(
+                f"[JTWC] No active warning matches '{storm_identifier}' "
+                f"(active: {[w['id'] for w in warnings]})"
+            )
+            return []
+
+        try:
+            resp = await self.http.get(match["warning_url"])
+            resp.raise_for_status()
+        except httpx.HTTPError as e:
+            logger.warning(f"[JTWC] Fetch warning text failed: {e}")
+            return []
+
+        return self._parse_warning_as_track(resp.text, match)
+
+    def _parse_warning_as_track(
+        self,
+        text: str,
+        warning: dict,
+    ) -> list[HurricaneSnapshot]:
+        """
+        Walk a JTWC bulletin and emit one HurricaneSnapshot per forecast
+        position. The T+0 point carries full quadrant wind radii and the
+        storm's current motion vector; forecast points carry position,
+        intensity, and (when present) per-quadrant R34/R50/R64.
+
+        Bulletin structure:
+            WARNING POSITION:
+            151200Z --- NEAR 22.3N 128.5E
+            MOVEMENT PAST SIX HOURS - 340 DEGREES AT 10 KTS
+            PRESENT WIND DISTRIBUTION:
+            MAX SUSTAINED WINDS - 110 KT, GUSTS 135 KT
+            RADIUS OF 064 KT WINDS - 065 NM NORTHEAST QUADRANT
+                                     …
+            MINIMUM CENTRAL PRESSURE - 955 MB
+            ---
+            12 HRS, VALID AT:
+            151200Z --- 16.4N 144.8E
+            MAX SUSTAINED WINDS - 105 KT, GUSTS 130 KT
+            RADIUS OF 064 KT WINDS - 060 NM NORTHEAST QUADRANT
+                                     …
+            ---
+            24 HRS, VALID AT:
+            ...
+        """
+        # Warnings are sectioned by "---" separators. Everything before the
+        # first separator is the observed T+0 snapshot; after that, each
+        # section starts with "NN HRS, VALID AT:".
+        sections = re.split(r"\n\s*---\s*\n", text)
+        if not sections:
+            return []
+
+        # Parse T+0 from the first section
+        t0_section = sections[0]
+        t0_time = _parse_warning_timestamp(t0_section)
+        mv_dir, mv_spd_kt = _parse_movement(t0_section)
+
+        snapshots: list[HurricaneSnapshot] = []
+
+        # T+0 snapshot
+        t0_snap = _section_to_snapshot(
+            t0_section,
+            warning=warning,
+            timestamp=t0_time,
+            forward_speed_kt=mv_spd_kt,
+            forward_direction_deg=mv_dir,
+        )
+        if t0_snap:
+            snapshots.append(t0_snap)
+
+        # Forecast sections: find "NN HRS, VALID AT:" sections
+        for section in sections[1:]:
+            hour_match = re.search(
+                r"(\d{1,3})\s*HRS?,?\s*VALID\s+AT",
+                section,
+                re.IGNORECASE,
+            )
+            if not hour_match:
+                continue
+            hours_offset = int(hour_match.group(1))
+
+            # Forecast timestamp: T+0 + N hours
+            fcst_time = None
+            if t0_time is not None:
+                fcst_time = t0_time + timedelta(hours=hours_offset)
+
+            # Forecast "vector to next" gives us forward motion at THIS point
+            # Line looks like: "VECTOR TO 24 HR POSIT: 355 DEG/ 06 KTS"
+            vec_match = re.search(
+                r"VECTOR\s+TO\s+\d+\s*HR\s*POSIT:\s*(\d{1,3})\s*DEG/?\s*(\d{1,3})\s*KT",
+                section,
+                re.IGNORECASE,
+            )
+            fcst_mv_dir = float(vec_match.group(1)) if vec_match else None
+            fcst_mv_spd = float(vec_match.group(2)) if vec_match else None
+
+            snap = _section_to_snapshot(
+                section,
+                warning=warning,
+                timestamp=fcst_time,
+                forward_speed_kt=fcst_mv_spd,
+                forward_direction_deg=fcst_mv_dir,
+            )
+            if snap:
+                snapshots.append(snap)
+
+        return snapshots
+
 
 # ----------------------------------------------------------------------
 # Parsing helpers (module-level, pure functions — easy to unit test)
@@ -510,3 +658,167 @@ def _deg_to_compass(deg: float) -> str:
             "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
     idx = int((deg % 360) / 22.5 + 0.5) % 16
     return dirs[idx]
+
+
+# ----------------------------------------------------------------------
+# Track-synthesis helpers
+# ----------------------------------------------------------------------
+
+# Maps "NORTHEAST QUADRANT" style labels to our internal short codes
+_QUADRANT_ALIASES = {
+    "NORTHEAST": "NE",
+    "SOUTHEAST": "SE",
+    "SOUTHWEST": "SW",
+    "NORTHWEST": "NW",
+}
+
+
+def _parse_warning_timestamp(text: str) -> Optional[datetime]:
+    """
+    Parse the T+0 observation time from a JTWC bulletin.
+
+    Two formats to handle:
+      1. "WTPN31 PGTW 151200" header — day 15, 12:00 UTC (month/year implicit)
+      2. "151200Z --- NEAR 22.3N 128.5E" — day 15, 12:00 UTC DMY stamp
+
+    JTWC bulletins only carry day/hour/minute; we attach the current UTC
+    month and year, resolving month rollovers (bulletin day > today's day
+    means previous month).
+    """
+    m = re.search(r"(\d{2})(\d{2})(\d{2})Z\s*-{2,}", text)
+    if not m:
+        # Fall back to the WTPN header
+        m = re.search(r"WTPN\d+\s+\w+\s+(\d{2})(\d{2})(\d{2})", text)
+    if not m:
+        return None
+
+    day = int(m.group(1))
+    hour = int(m.group(2))
+    minute = int(m.group(3))
+
+    now = datetime.now(timezone.utc)
+    year, month = now.year, now.month
+    # If the bulletin day is in the future relative to today, it's from
+    # last month. (JTWC never back-dates by more than ~6 hours.)
+    if day > now.day + 2:
+        if month == 1:
+            month = 12
+            year -= 1
+        else:
+            month -= 1
+
+    try:
+        return datetime(year, month, day, hour, minute, tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def _parse_wind_radii(text: str) -> dict:
+    """
+    Extract per-quadrant R34/R50/R64 wind radii (in meters) from a bulletin
+    section.
+
+    Lines look like:
+        RADIUS OF 064 KT WINDS - 065 NM NORTHEAST QUADRANT
+                                 065 NM SOUTHEAST QUADRANT
+                                 050 NM SOUTHWEST QUADRANT
+                                 065 NM NORTHWEST QUADRANT
+
+    The first quadrant appears on the same line as the header; subsequent
+    quadrants are continuation lines. We walk each "RADIUS OF NNN KT WINDS"
+    block and collect NM-quadrant pairs until the next block or section end.
+
+    Returns a dict like:
+        {
+          "r34": {"NE": 425876, "SE": 407440, …},  # meters
+          "r50": {...},
+          "r64": {...},
+        }
+    Keys may be missing if that wind tier isn't present.
+    """
+    result: dict[str, dict[str, float]] = {}
+
+    # Find every "RADIUS OF NNN KT WINDS" header with its position in the
+    # text, so we can slice out each block until the next header.
+    header_re = re.compile(
+        r"RADIUS\s+OF\s+(\d{2,3})\s*KT\s+WINDS",
+        re.IGNORECASE,
+    )
+    pair_re = re.compile(
+        r"(\d{2,4})\s*NM\s+(NORTHEAST|SOUTHEAST|SOUTHWEST|NORTHWEST)\s+QUADRANT",
+        re.IGNORECASE,
+    )
+
+    headers = list(header_re.finditer(text))
+    for i, hdr in enumerate(headers):
+        tier_kt = int(hdr.group(1))
+        tier_key = f"r{tier_kt:02d}"  # "r34", "r50", "r64"
+        start = hdr.end()
+        end = headers[i + 1].start() if i + 1 < len(headers) else len(text)
+        block = text[start:end]
+
+        quads: dict[str, float] = {}
+        for pm in pair_re.finditer(block):
+            nm = float(pm.group(1))
+            q = _QUADRANT_ALIASES[pm.group(2).upper()]
+            quads[q] = nm * NM_TO_METERS
+
+        if quads:
+            result[tier_key] = quads
+
+    return result
+
+
+def _section_to_snapshot(
+    section: str,
+    warning: dict,
+    timestamp: Optional[datetime],
+    forward_speed_kt: Optional[float],
+    forward_direction_deg: Optional[float],
+) -> Optional[HurricaneSnapshot]:
+    """
+    Build a HurricaneSnapshot from one section of a JTWC warning bulletin.
+
+    Returns None if we can't get the bare minimum (position + wind).
+    """
+    lat, lon = _parse_position(section)
+    wind_kt = _parse_max_wind(section)
+
+    if lat is None or lon is None or wind_kt is None:
+        return None
+
+    pressure_mb = _parse_min_pressure(section)
+    radii = _parse_wind_radii(section)
+
+    # Compute the max-over-quadrants for r34/r50/r64 (meters)
+    def _max_quad(quads: Optional[dict]) -> Optional[float]:
+        if not quads:
+            return None
+        return max(quads.values()) if quads else None
+
+    r34_quads = radii.get("r34")
+    r50_quads = radii.get("r50")
+    r64_quads = radii.get("r64")
+
+    # Fallback timestamp if parsing failed: use now() so the pipeline still
+    # has an ordered track (the forecast offsets preserve relative ordering).
+    ts = timestamp or datetime.now(timezone.utc)
+
+    return HurricaneSnapshot(
+        storm_id=warning["id"],
+        name=warning.get("name") or "",
+        timestamp=ts,
+        lat=lat,
+        lon=lon,
+        max_wind_ms=wind_kt * KT_TO_MS,
+        min_pressure_hpa=pressure_mb,
+        rmw_m=None,  # JTWC bulletins don't publish RMW directly
+        r34_m=_max_quad(r34_quads),
+        r50_m=_max_quad(r50_quads),
+        r64_m=_max_quad(r64_quads),
+        r34_quadrants_m=r34_quads,
+        r50_quadrants_m=r50_quads,
+        r64_quadrants_m=r64_quads,
+        forward_speed_ms=(forward_speed_kt * KT_TO_MS) if forward_speed_kt is not None else None,
+        forward_direction_deg=forward_direction_deg,
+    )
