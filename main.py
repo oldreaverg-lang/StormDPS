@@ -27,7 +27,15 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from api.routes import router, generate_preload_bundle, warm_dps_cache, refresh_active_dps_loop
+from api.routes import (
+    router,
+    generate_preload_bundle,
+    warm_dps_cache,
+    refresh_active_dps_loop,
+    load_active_storms_from_disk,
+    warm_ibtracs_catalog,
+    warm_track_cache,
+)
 from api.weather_routes import router as weather_router
 # surgedps_routes was removed — SurgeDPS runs as its own service now
 from services.weather_data_service import WeatherDataService
@@ -50,6 +58,16 @@ async def lifespan(app: FastAPI):
         follow_redirects=True,
     )
     logger.info("[STARTUP] Shared httpx.AsyncClient created (max_connections=200, pool_timeout=10s)")
+
+    # --- STARTUP: restore persisted active-storms snapshot (synchronous) ---
+    # Populates the in-memory active-storms cache from the persistent volume so
+    # the first /storms/active request is served instantly (no NHC/JTWC fetch).
+    # Runs synchronously before any request can hit the server.
+    try:
+        restored = load_active_storms_from_disk()
+        logger.info(f"[STARTUP] Active-storms snapshot restored from disk: {restored}")
+    except Exception as e:
+        logger.warning(f"[STARTUP] Active-storms restore failed (non-fatal): {e}")
 
     # --- STARTUP: Initialize WeatherDataService ---
     try:
@@ -90,6 +108,34 @@ async def lifespan(app: FastAPI):
             logger.warning(f"[DPS WARM] startup warm failed (non-fatal): {e}")
 
     asyncio.create_task(warm_dps())
+
+    # --- STARTUP: warm the IBTrACS global catalog (persistent volume) ---
+    # Fetches the ~200 MB IBTrACS CSV from NOAA and parses it into an in-memory
+    # catalog keyed by sid. Writes a metadata-only index to disk for fast
+    # restart. Fail-open: if NOAA is unreachable, the previously persisted
+    # index is used. Non-fatal — historical-storm endpoints fall back to
+    # on-demand parsing if this never completes.
+    async def warm_ibtracs():
+        try:
+            result = await warm_ibtracs_catalog()
+            logger.info(f"[IBTRACS WARM] complete: {result}")
+        except Exception as e:
+            logger.warning(f"[IBTRACS WARM] startup warm failed (non-fatal): {e}")
+
+    asyncio.create_task(warm_ibtracs())
+
+    # --- STARTUP: warm per-storm track snapshot cache ---
+    # Pre-fetches track snapshots for preset + active storms and persists them
+    # to $PERSISTENT_DATA_DIR/cache/tracks/. Eliminates the cold-start NOAA
+    # round-trip on the first /ibtracs/track/{sid} request.
+    async def warm_tracks():
+        try:
+            result = await warm_track_cache()
+            logger.info(f"[TRACK WARM] complete: {result}")
+        except Exception as e:
+            logger.warning(f"[TRACK WARM] startup warm failed (non-fatal): {e}")
+
+    asyncio.create_task(warm_tracks())
 
     # --- STARTUP: hourly refresh for live tropics ---
     # Keeps active-storm DPS fresh between deploys. Loop cancels on shutdown.

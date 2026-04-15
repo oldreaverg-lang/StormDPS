@@ -102,7 +102,11 @@ from storage import (
     PERSISTENT_DATA_DIR as _PERSISTENT_DATA,
     IKE_CACHE_DIR as _IKE_CACHE_DIR,
     DPS_CACHE_DIR as _DPS_CACHE_DIR,
+    TRACK_CACHE_DIR as _TRACK_CACHE_DIR,
     IBTRACS_CACHE_FILE as _GLOBAL_IBTRACS_CACHE_FILE_PATH,
+    IBTRACS_INDEX_FILE as _IBTRACS_INDEX_FILE,
+    ACTIVE_STORMS_FILE as _ACTIVE_STORMS_FILE,
+    atomic_write_json as _atomic_write_json,
     evict_ike_cache,
 )
 
@@ -494,6 +498,58 @@ def _load_custom_track(storm_id: str) -> list[HurricaneSnapshot]:
 # Active storms
 # ------------------------------------------------------------------
 
+def _persist_active_storms(storms: list, ts: datetime) -> None:
+    """Write the active-storms snapshot to the persistent volume.
+
+    Swallows errors — persistence is an optimization, not a contract.
+    The in-memory cache stays the source of truth while the process lives.
+    """
+    try:
+        _atomic_write_json(_ACTIVE_STORMS_FILE, {
+            "timestamp": ts.isoformat() + "Z",
+            "storms": storms,
+        })
+    except Exception as e:  # pragma: no cover — disk / permissions
+        logger.debug(f"[ACTIVE_STORMS] Persist to disk failed: {e}")
+
+
+def load_active_storms_from_disk() -> bool:
+    """Populate the in-memory active-storms cache from disk.
+
+    Called at startup so the first request never sees an empty cache.
+    Any snapshot is better than none; the next background refresh will
+    overwrite it with current data. Returns True if anything was loaded.
+    """
+    global _active_storms_cache, _active_storms_cache_time
+    try:
+        if not _ACTIVE_STORMS_FILE.exists():
+            return False
+        with open(_ACTIVE_STORMS_FILE, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        storms = payload.get("storms") or []
+        ts_raw = payload.get("timestamp") or ""
+        try:
+            # Trim trailing Z / fractional seconds safely
+            ts_clean = ts_raw.rstrip("Z").split(".")[0]
+            ts = datetime.fromisoformat(ts_clean) if ts_clean else datetime.utcnow()
+        except ValueError:
+            ts = datetime.utcnow()
+        # Only install the disk snapshot if the in-memory cache is empty —
+        # never clobber a live cache with stale data.
+        if _active_storms_cache is None:
+            _active_storms_cache = storms
+            _active_storms_cache_time = ts
+            age_min = (datetime.utcnow() - ts).total_seconds() / 60.0
+            logger.info(
+                f"[ACTIVE_STORMS] Restored {len(storms)} storms from disk "
+                f"(age {age_min:.1f} min)"
+            )
+            return True
+    except Exception as e:
+        logger.debug(f"[ACTIVE_STORMS] Disk restore failed: {e}")
+    return False
+
+
 async def _refresh_active_storms(request: Request):
     """
     Background task to refresh active storms cache.
@@ -516,6 +572,8 @@ async def _refresh_active_storms(request: Request):
                 )
                 _active_storms_cache = storms
                 _active_storms_cache_time = datetime.utcnow()
+                # Persist to disk so restarts don't cold-start from zero.
+                _persist_active_storms(storms, _active_storms_cache_time)
                 logger.info(f"[ACTIVE_STORMS] Background refresh complete: {len(storms)} storms")
         except asyncio.TimeoutError:
             logger.warning("[ACTIVE_STORMS] Background refresh timed out, keeping stale cache")
@@ -1683,6 +1741,7 @@ async def _collect_active_storm_ids(app_state) -> list[str]:
     if storms is not None:
         _active_storms_cache = storms
         _active_storms_cache_time = datetime.utcnow()
+        _persist_active_storms(storms, _active_storms_cache_time)
     ids: list[str] = []
     for s in storms or []:
         sid = (s.get("id") or "").strip()
@@ -2122,65 +2181,144 @@ async def generate_preload_bundle(
 # Global storm catalog (IBTrACS — all basins)
 # ------------------------------------------------------------------
 
+def _write_ibtracs_index(catalog: list[dict]) -> None:
+    """Write a compact metadata-only index derived from the full catalog.
+
+    The index keeps just the fields needed for search / list UIs so a
+    cold restart can populate the in-memory cache in milliseconds instead
+    of re-parsing the full catalog file (which contains a superset of
+    fields we don't always need).
+    """
+    try:
+        index = []
+        for s in catalog or []:
+            if not s:
+                continue
+            index.append({
+                "id":              s.get("id", ""),
+                "name":            s.get("name", ""),
+                "year":            s.get("year", 0),
+                "basin":           s.get("basin", ""),
+                "peak_wind_kt":    s.get("peak_wind_kt", 0),
+                "min_pressure_hpa": s.get("min_pressure_hpa", 0),
+                "category":        s.get("category", ""),
+            })
+        _atomic_write_json(_IBTRACS_INDEX_FILE, index)
+        logger.info(f"[IBTRACS] Wrote metadata index ({len(index)} storms)")
+    except Exception as e:
+        logger.debug(f"[IBTRACS] Index write failed: {e}")
+
+
+def _load_ibtracs_index_if_present() -> list[dict] | None:
+    """Return the cached metadata index if it exists on disk, else None."""
+    try:
+        if _IBTRACS_INDEX_FILE.exists():
+            with open(_IBTRACS_INDEX_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as e:
+        logger.debug(f"[IBTRACS] Index read failed: {e}")
+    return None
+
+
 async def _build_global_catalog() -> list[dict]:
-    """Build or load a cached global storm catalog (IBTrACS + custom storms)."""
+    """Build or load a cached global storm catalog (IBTrACS + custom storms).
+
+    Cache strategy (fail-open, never serve an empty list if we have anything):
+      1. Fresh in-memory cache → return immediately.
+      2. Fresh disk cache (< TTL) → load, install in-memory, return.
+      3. Stale disk cache (> TTL) → load, install in-memory, AND kick off a
+         background NOAA refresh. Keeps every request fast; prevents a
+         single slow NOAA fetch from stalling the first visitor.
+      4. No disk cache → must fetch synchronously (only on truly cold install).
+      5. NOAA fetch fails → keep any stale data we have rather than drop it.
+    """
 
     global _GLOBAL_IBTRACS_CATALOG_CACHE, _GLOBAL_IBTRACS_CATALOG_TIMESTAMP
 
     now = datetime.utcnow()
 
-    # In-memory cache (fast)
+    # ── 1. In-memory cache (fast) ────────────────────────────────────────
     if (
         _GLOBAL_IBTRACS_CATALOG_CACHE
         and _GLOBAL_IBTRACS_CATALOG_TIMESTAMP
         and (now - _GLOBAL_IBTRACS_CATALOG_TIMESTAMP) < _GLOBAL_IBTRACS_CATALOG_TTL
     ):
-        logger.info("Using in-memory global catalog cache")
+        logger.debug("[IBTRACS] In-memory catalog hit")
         return _GLOBAL_IBTRACS_CATALOG_CACHE
 
-    # Disk cache (helps across restarts)
+    # ── 2 / 3. Disk cache ────────────────────────────────────────────────
+    disk_catalog: list[dict] | None = None
+    disk_mtime: datetime | None = None
     try:
         if _GLOBAL_IBTRACS_CACHE_FILE.exists():
-            mtime = datetime.fromtimestamp(_GLOBAL_IBTRACS_CACHE_FILE.stat().st_mtime)
-            if (now - mtime) < _GLOBAL_IBTRACS_CATALOG_TTL:
-                with open(_GLOBAL_IBTRACS_CACHE_FILE, "r", encoding="utf-8") as f:
-                    catalog = json.load(f)
-                logger.info("Loaded global catalog from disk cache")
-                _GLOBAL_IBTRACS_CATALOG_CACHE = catalog
-                _GLOBAL_IBTRACS_CATALOG_TIMESTAMP = now
-                return catalog
+            disk_mtime = datetime.fromtimestamp(_GLOBAL_IBTRACS_CACHE_FILE.stat().st_mtime)
+            with open(_GLOBAL_IBTRACS_CACHE_FILE, "r", encoding="utf-8") as f:
+                disk_catalog = json.load(f)
     except Exception as e:
-        logger.debug(f"Failed to read global catalog cache: {e}")
+        logger.debug(f"[IBTRACS] Disk catalog read failed: {e}")
+        disk_catalog = None
+
+    if disk_catalog and disk_mtime:
+        age = now - disk_mtime
+        _GLOBAL_IBTRACS_CATALOG_CACHE = disk_catalog
+        _GLOBAL_IBTRACS_CATALOG_TIMESTAMP = now  # treat just-loaded as fresh in memory
+        if age < _GLOBAL_IBTRACS_CATALOG_TTL:
+            logger.info(f"[IBTRACS] Loaded catalog from disk ({len(disk_catalog)} storms, age={age})")
+            return disk_catalog
+        # Stale but usable — serve it and refresh in background.
+        logger.info(
+            f"[IBTRACS] Serving stale catalog ({len(disk_catalog)} storms, "
+            f"age={age}); scheduling background refresh"
+        )
+        try:
+            asyncio.create_task(_refresh_global_catalog_async())
+        except RuntimeError:
+            pass  # no running loop (e.g. sync test context)
+        return disk_catalog
+
+    # ── 4. No disk cache: must fetch synchronously ───────────────────────
+    return await _refresh_global_catalog_async()
+
+
+async def _refresh_global_catalog_async() -> list[dict]:
+    """Fetch catalog from NOAA under lock, merge custom storms, persist.
+
+    Always returns the newest catalog we can produce; if NOAA is unreachable
+    we fall back to whatever is already on disk rather than returning an
+    empty list.
+    """
+    global _GLOBAL_IBTRACS_CATALOG_CACHE, _GLOBAL_IBTRACS_CATALOG_TIMESTAMP
 
     # FIX 4: Protect catalog building with lock — only one request fetches from IBTrACS
     async with _catalog_lock:
         # Double-check cache after acquiring lock (another request may have built it)
+        now = datetime.utcnow()
         if (
             _GLOBAL_IBTRACS_CATALOG_CACHE
             and _GLOBAL_IBTRACS_CATALOG_TIMESTAMP
-            and (datetime.utcnow() - _GLOBAL_IBTRACS_CATALOG_TIMESTAMP) < _GLOBAL_IBTRACS_CATALOG_TTL
+            and (now - _GLOBAL_IBTRACS_CATALOG_TIMESTAMP) < _GLOBAL_IBTRACS_CATALOG_TTL
         ):
-            logger.info("Using in-memory global catalog cache (loaded while waiting for lock)")
+            logger.debug("[IBTRACS] Catalog freshened while waiting for lock")
             return _GLOBAL_IBTRACS_CATALOG_CACHE
 
         # Fetch from IBTrACS (may be slow on first run) but time out if it takes too long
-        catalog = []
+        catalog: list[dict] = []
         cache_dir = _PERSISTENT_DATA / "cache"
         async with NOAAClient(timeout=60.0, cache_dir=str(cache_dir)) as client:
             try:
                 catalog = await asyncio.wait_for(
                     client.get_ibtracs_catalog(1851, 2099), timeout=45.0
                 )
-                logger.info(f"Fetched IBTrACS catalog: {len(catalog)} storms")
+                logger.info(f"[IBTRACS] Fetched catalog: {len(catalog)} storms")
             except asyncio.TimeoutError:
-                logger.warning("IBTrACS catalog fetch timed out; returning custom storms only")
+                logger.warning("[IBTRACS] Catalog fetch timed out")
             except Exception as e:
-                logger.warning(f"IBTrACS catalog fetch failed: {type(e).__name__}: {e}")
+                logger.warning(f"[IBTRACS] Catalog fetch failed: {type(e).__name__}: {e}")
 
         # Merge custom storms (future years, etc.)
         try:
             custom = _load_custom_storms(1851, 2099)
-            logger.info(f"Loaded {len(custom)} custom storms")
+            logger.info(f"[IBTRACS] Loaded {len(custom)} custom storms")
             existing_ids = {s.get("id", "") for s in catalog if s}
             for storm in custom:
                 sid = storm.get("id", "")
@@ -2188,19 +2326,48 @@ async def _build_global_catalog() -> list[dict]:
                     catalog.append(storm)
                     existing_ids.add(sid)
         except Exception as e:
-            logger.warning(f"Custom storms load failed: {e}")
+            logger.warning(f"[IBTRACS] Custom storms load failed: {e}")
+
+        # ── Fail-open: if NOAA gave us nothing but we have prior data, keep it ──
+        if not catalog and _GLOBAL_IBTRACS_CATALOG_CACHE:
+            logger.warning(
+                "[IBTRACS] Refresh produced empty catalog; keeping existing "
+                f"{len(_GLOBAL_IBTRACS_CATALOG_CACHE)}-storm cache"
+            )
+            return _GLOBAL_IBTRACS_CATALOG_CACHE
 
         # Cache for quick future responses
         _GLOBAL_IBTRACS_CATALOG_CACHE = catalog
-        _GLOBAL_IBTRACS_CATALOG_TIMESTAMP = now
+        _GLOBAL_IBTRACS_CATALOG_TIMESTAMP = datetime.utcnow()
         try:
             cache_dir.mkdir(parents=True, exist_ok=True)
-            with open(_GLOBAL_IBTRACS_CACHE_FILE, "w", encoding="utf-8") as f:
-                json.dump(catalog, f)
+            _atomic_write_json(_GLOBAL_IBTRACS_CACHE_FILE, catalog)
+            # Also write the compact index for fast startup loads.
+            _write_ibtracs_index(catalog)
         except Exception as e:
-            logger.debug(f"Could not write global catalog cache: {e}")
+            logger.debug(f"[IBTRACS] Could not write catalog cache: {e}")
 
         return catalog
+
+
+async def warm_ibtracs_catalog() -> dict:
+    """Startup task: ensure the IBTrACS catalog is loaded into memory.
+
+    Cheap if the disk cache is fresh (a single JSON read). Falls through
+    to the live NOAA fetch only if we have no disk data at all — in which
+    case we want this to happen once at boot rather than on the first
+    user request.
+    """
+    try:
+        catalog = await _build_global_catalog()
+        # Make sure the compact index exists — useful for future features
+        # that only need metadata (search autocomplete, list views).
+        if catalog and not _IBTRACS_INDEX_FILE.exists():
+            _write_ibtracs_index(catalog)
+        return {"storms": len(catalog or [])}
+    except Exception as e:
+        logger.warning(f"[IBTRACS WARM] failed: {e}")
+        return {"storms": 0, "error": str(e)}
 
 
 @router.get("/storms/catalog/global")
@@ -2240,6 +2407,190 @@ async def get_custom_storms_endpoint(
 # IBTrACS endpoints (global coverage)
 # ------------------------------------------------------------------
 
+# ------------------------------------------------------------------
+# Track cache — persist parsed HurricaneSnapshot lists from IBTrACS to
+# avoid re-parsing the IBTrACS CSV on every request for the same SID.
+# Version-keyed; bump _TRACK_CACHE_VERSION when the dict schema changes.
+# ------------------------------------------------------------------
+
+_TRACK_CACHE_VERSION = "v1"
+# How stale a track cache file can be before we refresh it. IBTrACS
+# revises old storms rarely but active-season storms gain observations
+# every 6 hours, so keep the window short and re-fetch often for recent
+# seasons. Historical storms (>2 yrs old) aren't affected by the TTL
+# since their bundles effectively never change.
+_TRACK_CACHE_TTL = timedelta(days=7)
+
+
+def _track_cache_file(sid: str) -> Path:
+    """Persistent-volume filename for a cached track bundle."""
+    safe = "".join(c for c in sid if c.isalnum() or c in "-_")[:64]
+    return _TRACK_CACHE_DIR / f"{safe}_{_TRACK_CACHE_VERSION}.json"
+
+
+def _snapshot_to_dict(snap) -> dict:
+    """Serialize a HurricaneSnapshot for the track cache.
+
+    Drops the (expensive, usually None) ``wind_field`` grid. Stores
+    timestamps as ISO strings for JSON compatibility.
+    """
+    return {
+        "storm_id":            snap.storm_id,
+        "name":                snap.name,
+        "timestamp":           snap.timestamp.isoformat() if snap.timestamp else None,
+        "lat":                 snap.lat,
+        "lon":                 snap.lon,
+        "max_wind_ms":         snap.max_wind_ms,
+        "min_pressure_hpa":    snap.min_pressure_hpa,
+        "rmw_m":               snap.rmw_m,
+        "r34_m":               snap.r34_m,
+        "r50_m":               snap.r50_m,
+        "r64_m":               snap.r64_m,
+        "r34_quadrants_m":     snap.r34_quadrants_m,
+        "r50_quadrants_m":     snap.r50_quadrants_m,
+        "r64_quadrants_m":     snap.r64_quadrants_m,
+        "forward_speed_ms":    snap.forward_speed_ms,
+        "forward_direction_deg": snap.forward_direction_deg,
+    }
+
+
+def _dict_to_snapshot(d: dict):
+    """Hydrate a HurricaneSnapshot dict written by _snapshot_to_dict."""
+    from models.hurricane import HurricaneSnapshot as _HS
+    ts_raw = d.get("timestamp")
+    if isinstance(ts_raw, str) and ts_raw:
+        try:
+            ts = datetime.fromisoformat(ts_raw.rstrip("Z"))
+        except ValueError:
+            ts = datetime.utcnow()
+    else:
+        ts = datetime.utcnow()
+    return _HS(
+        storm_id=d.get("storm_id", ""),
+        name=d.get("name", ""),
+        timestamp=ts,
+        lat=d.get("lat", 0.0),
+        lon=d.get("lon", 0.0),
+        max_wind_ms=d.get("max_wind_ms", 0.0),
+        min_pressure_hpa=d.get("min_pressure_hpa"),
+        rmw_m=d.get("rmw_m"),
+        r34_m=d.get("r34_m"),
+        r50_m=d.get("r50_m"),
+        r64_m=d.get("r64_m"),
+        r34_quadrants_m=d.get("r34_quadrants_m"),
+        r50_quadrants_m=d.get("r50_quadrants_m"),
+        r64_quadrants_m=d.get("r64_quadrants_m"),
+        forward_speed_ms=d.get("forward_speed_ms"),
+        forward_direction_deg=d.get("forward_direction_deg"),
+    )
+
+
+def _load_track_cache(sid: str, *, max_age: timedelta | None = _TRACK_CACHE_TTL):
+    """Return cached snapshots for *sid* if present and fresh, else None.
+
+    ``max_age=None`` disables the TTL check — useful for fail-open fallback
+    when the live source is unreachable.
+    """
+    fp = _track_cache_file(sid)
+    try:
+        if not fp.exists():
+            return None
+        if max_age is not None:
+            mtime = datetime.fromtimestamp(fp.stat().st_mtime)
+            if (datetime.utcnow() - mtime) > max_age:
+                return None
+        with open(fp, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        snaps = payload.get("snapshots") or []
+        if not snaps:
+            return None
+        return [_dict_to_snapshot(d) for d in snaps]
+    except Exception as e:
+        logger.debug(f"[TRACK CACHE] read failed for {sid}: {e}")
+        return None
+
+
+def _save_track_cache(sid: str, snapshots) -> None:
+    """Persist snapshots for *sid* to the track cache directory."""
+    if not snapshots:
+        return
+    try:
+        payload = {
+            "sid": sid,
+            "version": _TRACK_CACHE_VERSION,
+            "cached_at": datetime.utcnow().isoformat() + "Z",
+            "snapshots": [_snapshot_to_dict(s) for s in snapshots],
+        }
+        _atomic_write_json(_track_cache_file(sid), payload)
+    except Exception as e:
+        logger.debug(f"[TRACK CACHE] write failed for {sid}: {e}")
+
+
+async def _fetch_track_with_cache(sid: str, *, force: bool = False):
+    """Fetch IBTrACS snapshots for *sid*, using the track cache aggressively.
+
+    - Fresh cache hit → return instantly.
+    - Stale cache but NOAA unreachable → return the stale data rather than 404.
+    - No cache and NOAA fails → raise so the caller can 404 normally.
+    """
+    if not force:
+        snaps = _load_track_cache(sid)
+        if snaps:
+            return snaps
+
+    try:
+        async with NOAAClient() as client:
+            snaps = await client.get_ibtracs_track(sid)
+    except Exception as e:
+        # NOAA failed — try the stale cache as a last resort.
+        fallback = _load_track_cache(sid, max_age=None)
+        if fallback:
+            logger.warning(
+                f"[TRACK CACHE] {sid}: NOAA failed ({type(e).__name__}), "
+                f"serving stale cache ({len(fallback)} snapshots)"
+            )
+            return fallback
+        raise
+
+    if snaps:
+        _save_track_cache(sid, snaps)
+    return snaps
+
+
+async def warm_track_cache(*, max_concurrency: int = 3) -> dict:
+    """Pre-fetch and persist tracks for every preset storm at startup.
+
+    Idempotent: skips any SID whose cache file is fresh. Failures are
+    swallowed — a missing track just means the first /ibtracs/track/{sid}
+    request for that storm goes to NOAA normally.
+    """
+    targets = list(PRESET_STORM_IDS)
+    sem = asyncio.Semaphore(max_concurrency)
+    stats = {"cached": 0, "fetched": 0, "failed": 0, "empty": 0}
+
+    async def _one(sid: str):
+        if _load_track_cache(sid) is not None:
+            stats["cached"] += 1
+            return
+        async with sem:
+            try:
+                snaps = await _fetch_track_with_cache(sid, force=True)
+                if snaps:
+                    stats["fetched"] += 1
+                else:
+                    stats["empty"] += 1
+            except Exception as e:
+                stats["failed"] += 1
+                logger.debug(f"[TRACK WARM] {sid}: {type(e).__name__}: {e}")
+
+    await asyncio.gather(*[_one(sid) for sid in targets], return_exceptions=True)
+    logger.info(
+        f"[TRACK WARM] {len(targets)} presets — cached={stats['cached']} "
+        f"fetched={stats['fetched']} empty={stats['empty']} failed={stats['failed']}"
+    )
+    return stats
+
+
 @router.get("/ibtracs/track/{sid}", response_model=list[IKEResponse])
 async def get_ibtracs_track(
     sid: str,
@@ -2254,11 +2605,10 @@ async def get_ibtracs_track(
     Args:
         sid: IBTrACS storm ID (e.g., '2005236N23285' for Katrina)
     """
-    async with NOAAClient() as client:
-        try:
-            snapshots = await client.get_ibtracs_track(sid)
-        except (NOAAClientError, Exception) as e:
-            raise HTTPException(status_code=404, detail=str(e))
+    try:
+        snapshots = await _fetch_track_with_cache(sid)
+    except (NOAAClientError, Exception) as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
     if not snapshots:
         raise HTTPException(status_code=404, detail=f"No IBTrACS data for {sid}")

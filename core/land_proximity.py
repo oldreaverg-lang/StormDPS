@@ -441,6 +441,28 @@ def _get_coastline_db() -> CoastlineDatabase:
     return _coastline_db
 
 
+# ─── Memoized distance-to-coast ────────────────────────────────────────────
+# Storm tracks are sampled every 3-6 hours and typically move by ~0.3-1.0° per
+# step; rounding inputs to 0.1° (~11 km) collapses adjacent timesteps onto
+# the same cache entry without materially changing the computed distance
+# (the nearest-waypoint database has ~50 km granularity). This avoids a
+# full Haversine search over ~150 waypoints on every per-snapshot DPS call.
+from functools import lru_cache as _lru_cache
+
+
+@_lru_cache(maxsize=16384)
+def _distance_to_coast_cached(lat_bin: float, lon_bin: float) -> tuple:
+    """Internal: cached Haversine lookup keyed by rounded coords.
+
+    Returns a flat tuple (not a dict) so it's hashable and cheap to store.
+    The public wrapper re-packs it into the dict shape callers expect.
+    """
+    db = _get_coastline_db()
+    wp, dist_km = db.nearest_waypoint(lat_bin, lon_bin)
+    bearing_deg = _compute_bearing(lat_bin, lon_bin, wp.lat, wp.lon)
+    return (dist_km, wp.region_key, wp.lat, wp.lon, bearing_deg)
+
+
 def compute_distance_to_coast(lat: float, lon: float) -> Dict[str, Any]:
     """
     Compute the distance from a storm center to the nearest coastline.
@@ -467,17 +489,19 @@ def compute_distance_to_coast(lat: float, lon: float) -> Dict[str, Any]:
         >>> print(result['distance_km'])  # < 20 km (near coast)
         >>> print(result['nearest_region_key'])  # 'gulf_central_tx'
     """
-    db = _get_coastline_db()
-    wp, dist_km = db.nearest_waypoint(lat, lon)
-
-    # Compute bearing from storm center to nearest coast
-    bearing_deg = _compute_bearing(lat, lon, wp.lat, wp.lon)
-
+    # Round to 0.1° bins for cache locality. Rounded to 1 decimal because
+    # coastline_db.nearest_waypoint is already a discretized lookup, so
+    # sub-0.1° precision doesn't change the answer.
+    lat_bin = round(float(lat), 1)
+    lon_bin = round(float(lon), 1)
+    dist_km, region_key, wp_lat, wp_lon, bearing_deg = _distance_to_coast_cached(
+        lat_bin, lon_bin
+    )
     return {
         'distance_km': dist_km,
-        'nearest_region_key': wp.region_key,
-        'nearest_lat': wp.lat,
-        'nearest_lon': wp.lon,
+        'nearest_region_key': region_key,
+        'nearest_lat': wp_lat,
+        'nearest_lon': wp_lon,
         'bearing_deg': bearing_deg,
     }
 

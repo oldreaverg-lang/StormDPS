@@ -45,7 +45,10 @@ PERSISTENT_DATA_DIR = Path(os.environ.get("PERSISTENT_DATA_DIR", _FALLBACK))
 CACHE_DIR = PERSISTENT_DATA_DIR / "cache"
 IKE_CACHE_DIR = CACHE_DIR / "ike"
 DPS_CACHE_DIR = CACHE_DIR / "dps"  # Per-storm DPS bundles (one JSON per storm_id)
+TRACK_CACHE_DIR = CACHE_DIR / "tracks"  # Parsed IBTrACS track snapshots (one JSON per sid)
 IBTRACS_CACHE_FILE = CACHE_DIR / "ibtracs_catalog.json"
+IBTRACS_INDEX_FILE = CACHE_DIR / "ibtracs_index_v1.json"  # Metadata-only index
+ACTIVE_STORMS_FILE = CACHE_DIR / "active_storms.json"  # Persistent snapshot of NHC/JTWC list
 HURDAT2_CACHE_FILE = CACHE_DIR / "hurdat2.txt"
 PRELOAD_BUNDLE_FILE = CACHE_DIR / "preload_bundle.json"
 # Compiled bundle on the persistent volume — served ahead of the frontend/
@@ -60,8 +63,23 @@ AUDIT_DIR = PERSISTENT_DATA_DIR / "audit"
 WIND_RADII_AUDIT_DIR = AUDIT_DIR / "wind_radii"
 
 # ── Create all directories on import ────────────────────────────────────────
-for _d in (IKE_CACHE_DIR, DPS_CACHE_DIR, VALIDATION_DIR, WIND_RADII_AUDIT_DIR):
+for _d in (IKE_CACHE_DIR, DPS_CACHE_DIR, TRACK_CACHE_DIR, VALIDATION_DIR, WIND_RADII_AUDIT_DIR):
     _d.mkdir(parents=True, exist_ok=True)
+
+
+# ── Atomic JSON write helper ────────────────────────────────────────────────
+# Used by any module that writes to the persistent volume. Writes to a
+# temp file in the same directory, then renames — guarantees readers
+# never see a partially-written file even if the writer crashes mid-write.
+
+def atomic_write_json(path: Path, data, *, indent: int | None = None) -> None:
+    """Write JSON atomically: tmp file + rename."""
+    import json as _json
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        _json.dump(data, f, indent=indent)
+    os.replace(tmp, path)
 
 logger.info("StormDPS storage root: %s", PERSISTENT_DATA_DIR)
 
@@ -112,9 +130,24 @@ def storage_summary() -> dict:
             "files": _file_count(path),
         }
 
+    # Add pre-cache directories
+    for key, path in {
+        "dps_cache": DPS_CACHE_DIR,
+        "track_cache": TRACK_CACHE_DIR,
+    }.items():
+        sz = _dir_size(path)
+        total_bytes += sz
+        result[key] = {
+            "path": str(path),
+            "size_mb": round(sz / 1_048_576, 2),
+            "files": _file_count(path),
+        }
+
     # Top-level files (ibtracs, hurdat2, preload bundle)
     for label, fp in [
         ("ibtracs_catalog", IBTRACS_CACHE_FILE),
+        ("ibtracs_index", IBTRACS_INDEX_FILE),
+        ("active_storms", ACTIVE_STORMS_FILE),
         ("hurdat2", HURDAT2_CACHE_FILE),
         ("preload_bundle", PRELOAD_BUNDLE_FILE),
     ]:
