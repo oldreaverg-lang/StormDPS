@@ -39,7 +39,9 @@ _FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 _ARCHIVE_URL  = "https://archive-api.open-meteo.com/v1/era5"
 _HTTP_TIMEOUT = httpx.Timeout(25.0, connect=5.0)
 
-_MAX_GRID_POINTS = 900    # 30 × 30 — same cap as wind/pressure for parity
+_MAX_GRID_POINTS = 350    # ~18×18 — keeps the Open-Meteo URL under ~6KB
+                          # (each lat/lon pair is ~7 chars + comma; >~600
+                          # points blows past Cloudflare's 8KB upstream cap)
 _MIN_RES_DEG     = 0.25
 _MAX_RES_DEG     = 2.0
 _DEFAULT_RES_DEG = 0.5    # Precip varies sharply — finer default than pressure
