@@ -483,7 +483,49 @@ class JTWCClient:
             logger.warning(f"[JTWC] Fetch warning text failed: {e}")
             return []
 
-        return self._parse_warning_as_track(resp.text, match)
+        snapshots = self._parse_warning_as_track(resp.text, match)
+
+        # JTWC's text warnings omit central pressure — fill it in from
+        # JMA RSMC Tokyo (the WMO-designated RSMC for the Northwest
+        # Pacific). Without this, the frontend surge calculator guards
+        # on min_pressure_hpa and silently returns 0, which zeroes out
+        # the Storm Surge component of the DPS hero card.
+        if snapshots and any(s.min_pressure_hpa is None for s in snapshots):
+            await self._enrich_with_jma_pressure(snapshots, match)
+
+        return snapshots
+
+    async def _enrich_with_jma_pressure(
+        self, snapshots: list[HurricaneSnapshot], match: dict
+    ) -> None:
+        """Attach JMA-sourced central pressure to every snapshot that
+        doesn't already have one. All snapshots in a single advisory
+        cycle share the same pressure value (JMA issues one pressure per
+        analysis cycle; forecast pressures are not published). That's
+        still better than None — it lets the surge model compute.
+        """
+        atcf_id = match.get("id", "")
+        try:
+            # Lazy import keeps the JTWC module load cheap for callers
+            # that don't need JMA enrichment (e.g. historical IBTrACS).
+            from services.jma_client import JMAClient
+            async with JMAClient(http_client=self.http) as jma:
+                data = await jma.get_storm_data(atcf_id)
+        except Exception as e:
+            logger.debug(f"[JTWC+JMA] pressure enrichment failed for {atcf_id}: {e}")
+            return
+
+        if data is None or data.pressure_hpa is None:
+            logger.debug(f"[JTWC+JMA] no JMA pressure available for {atcf_id}")
+            return
+
+        logger.info(
+            f"[JTWC+JMA] {atcf_id} ({data.name}) — pressure {data.pressure_hpa} hPa "
+            f"from {data.source} slot {data.source_slot}"
+        )
+        for snap in snapshots:
+            if snap.min_pressure_hpa is None:
+                snap.min_pressure_hpa = data.pressure_hpa
 
     def _parse_warning_as_track(
         self,
