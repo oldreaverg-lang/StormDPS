@@ -51,17 +51,27 @@ BASIN_COEFFICIENTS = {
     },
     "WESTERN_PACIFIC": {
         "dps_multiplier": 1.10,  # 10% boost for large wind fields
-        "ri_bonus": 10,  # Also detect RI for typhoons (lower than EP's 15)
-        "duration_factor": 0.8,  # Reduced from 15% to 12% (0.8 means 80% of 15%)
+        "ri_bonus": 15,  # Typhoons RI more often than EP storms (Haiyan, Rai, Rammasun)
         "name": "Western Pacific",
+        # Sub-region vulnerability-adjusted destructive-potential multipliers.
+        # These compose with COASTAL_EXPOSURE_WEIGHTS (which already handles
+        # asset density) — they represent OVER/UNDER-delivery of damage
+        # relative to raw wind×pressure (e.g. rainfall-driven Morakot in
+        # Taiwan, surge-amplifying Mekong Delta in Vietnam).
+        #
+        # WP_GENERAL is 1.00 so open-ocean storms don't double-count the
+        # base dps_multiplier (1.10) — previous value 1.10 compounded to
+        # a silent 21% boost.
         "sub_basin_multipliers": {
-            # Sub-region economic vulnerability adjustments
-            "WP_JAPAN": 0.95,        # Better infrastructure, insurance
-            "WP_PHILIPPINES": 1.15,  # Higher vulnerability
-            "WP_VIETNAM": 1.20,      # High vulnerability
-            "WP_TAIWAN": 0.93,       # Built for typhoons
-            "WP_CHINA": 1.05,        # Moderate vulnerability
-            "WP_GENERAL": 1.10,      # Default if region unclear
+            "WP_JAPAN":        1.00,  # Asset density already in COASTAL_EXPOSURE_WEIGHTS
+            "WP_KOREA":        0.98,  # Decent resilience, moderate exposure
+            "WP_PHILIPPINES":  1.15,  # High vulnerability, island-arc concentration
+            "WP_VIETNAM":      1.20,  # Mekong Delta surge amplification
+            "WP_TAIWAN":       1.00,  # Orographic bonus handles rainfall separately now
+            "WP_HAINAN":       1.10,  # Dense coast + agriculture, limited hardening
+            "WP_SOUTH_CHINA":  1.08,  # Guangdong / Hong Kong — massive exposure
+            "WP_NORTH_CHINA":  0.98,  # Extratropical transition, lower cumulative exposure
+            "WP_GENERAL":      1.00,  # Default: no extra boost beyond base multiplier
         },
     },
     "NORTH_INDIAN": {
@@ -234,8 +244,15 @@ def detect_landfall_events(snapshots):
 
 def has_orographic_rainfall_potential(snapshots, basin):
     """
-    Check if storm track passes near mountains for orographic rainfall.
-    Returns boolean and estimated intensity of effect.
+    Check if storm track passes close enough to mountains to trigger
+    orographic rainfall enhancement. Returns (bool, peak_wind_ms_near).
+
+    Activation requires a snapshot within ~110 km (1.0°) of a mountain
+    range. The old threshold of 3° (~330 km) was generous enough that
+    storms 300+ km offshore — never making landfall — still got the
+    full orographic bonus. Orographic rainfall enhancement in tropical
+    cyclones requires the low-level circulation to actually interact
+    with terrain, which is a near-landfall / inland process.
     """
     if basin != "WESTERN_PACIFIC":
         return False, 0
@@ -243,16 +260,20 @@ def has_orographic_rainfall_potential(snapshots, basin):
     # Mountain regions in Western Pacific (lat, lon, elevation_m)
     mountain_zones = [
         (11.5, 124.0, 2500),   # Philippines Cordilleras
-        (14.5, 121.0, 2500),   # Philippines highlands
+        (14.5, 121.0, 2500),   # Philippines highlands (Sierra Madre)
         (24.0, 121.0, 3952),   # Taiwan Central Mountains
         (35.0, 139.0, 3776),   # Japan Alps
         (20.5, 103.0, 2819),   # Laos mountains
-        (17.0, 105.0, 2982),   # Vietnam highlands
+        (17.0, 105.0, 2982),   # Vietnam highlands (Annamite Range)
+        (37.5, 128.0, 1638),   # Korea Taebaek Range
     ]
 
-    # Check if any snapshots are within 100km of a mountain zone
     has_mountains = False
     max_intensity = 0
+
+    # ~110 km at these latitudes is roughly 1.0 degree. Require a true
+    # terrain encounter rather than an offshore pass.
+    RADIUS_DEG = 1.0
 
     for snapshot in snapshots:
         lat = snapshot.get("lat", 0)
@@ -260,9 +281,13 @@ def has_orographic_rainfall_potential(snapshots, basin):
         wind = snapshot.get("max_wind_ms", 0) or 0
 
         for mt_lat, mt_lon, elevation in mountain_zones:
-            # Simple distance check (rough, but good enough for compilation)
-            distance = ((lat - mt_lat) ** 2 + (lon - mt_lon) ** 2) ** 0.5
-            if distance < 3:  # Within ~3 degrees (~330km)
+            # Latitude-corrected Euclidean distance in degrees
+            import math as _m
+            mean_lat_rad = _m.radians((lat + mt_lat) / 2.0)
+            dlat = lat - mt_lat
+            dlon = (lon - mt_lon) * _m.cos(mean_lat_rad)
+            distance = _m.hypot(dlat, dlon)
+            if distance < RADIUS_DEG:
                 has_mountains = True
                 if wind > max_intensity:
                     max_intensity = wind
@@ -272,47 +297,41 @@ def has_orographic_rainfall_potential(snapshots, basin):
 
 def determine_wp_sub_basin(snapshots):
     """
-    Determine which sub-basin (Philippines, Japan, Vietnam, etc.) the WP storm primarily affected.
-    Returns sub-basin key for multiplier lookup.
+    Determine which sub-basin the WP storm primarily affected.
+    Returns a sub-basin key for multiplier lookup.
+
+    Rewritten from the previous first-match elif chain that had overlapping
+    boxes (Philippines 5-21N / Japan 24-45N / Taiwan 21-26N / China 15-40N
+    all partially overlapped). We now tally every snapshot against every
+    region's box and pick the region with the most snapshots, so overlap
+    regions count toward both candidates and the decision is density-based,
+    not match-order-based.
     """
     if not snapshots:
         return "WP_GENERAL"
 
-    # Count snapshots in each sub-region
-    philippines_count = 0
-    japan_count = 0
-    vietnam_count = 0
-    taiwan_count = 0
-    china_count = 0
+    # Region bounding boxes. Tighter than the previous version and ordered
+    # from most specific to least specific; a snapshot can count toward
+    # multiple regions — the tally picks the winner.
+    regions = [
+        # key,              lat_min, lat_max, lon_min, lon_max
+        ("WP_TAIWAN",       21.5,   25.5,    119.5,   122.5),
+        ("WP_PHILIPPINES",   5.0,   20.0,    117.0,   127.0),
+        ("WP_VIETNAM",       8.0,   22.0,    102.0,   112.0),
+        ("WP_HAINAN",       17.5,   20.5,    108.0,   111.5),
+        ("WP_SOUTH_CHINA",  20.0,   26.0,    108.0,   118.0),  # Guangdong, Hong Kong, Fujian
+        ("WP_NORTH_CHINA",  26.0,   41.0,    117.0,   124.5),  # Shandong, Jiangsu, Bohai
+        ("WP_KOREA",        33.0,   39.0,    124.5,   131.5),
+        ("WP_JAPAN",        24.0,   45.5,    128.0,   146.0),
+    ]
 
+    counts = {key: 0 for key, *_ in regions}
     for snapshot in snapshots:
         lat = snapshot.get("lat", 0)
         lon = snapshot.get("lon", 0)
-
-        # Philippines region
-        if 5 <= lat <= 21 and 120 <= lon <= 135:
-            philippines_count += 1
-        # Japan region
-        elif 24 <= lat <= 45 and 123 <= lon <= 145:
-            japan_count += 1
-        # Vietnam/Cambodia
-        elif 8 <= lat <= 22 and 100 <= lon <= 112:
-            vietnam_count += 1
-        # Taiwan
-        elif 21 <= lat <= 26 and 119 <= lon <= 123:
-            taiwan_count += 1
-        # China
-        elif 15 <= lat <= 40 and 105 <= lon <= 125:
-            china_count += 1
-
-    # Return the region with most snapshots
-    counts = {
-        "WP_PHILIPPINES": philippines_count,
-        "WP_JAPAN": japan_count,
-        "WP_VIETNAM": vietnam_count,
-        "WP_TAIWAN": taiwan_count,
-        "WP_CHINA": china_count,
-    }
+        for key, lat_min, lat_max, lon_min, lon_max in regions:
+            if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
+                counts[key] += 1
 
     max_region = max(counts, key=counts.get)
     return max_region if counts[max_region] > 0 else "WP_GENERAL"
@@ -501,19 +520,27 @@ def apply_basin_dps_adjustment(cum_dpi, basin, snapshots):
     adjusted_dps = cum_dpi * coeffs["dps_multiplier"]
     adjustment_notes = []
 
-    # Check for rapid intensification
+    # Check for rapid intensification.
+    #
+    # Standard NHC/JTWC definition of RI: sustained wind increase of at least
+    # 30 knots in 24 hours (~15.4 m/s / 24h). Snapshots are 6-hourly so we
+    # scale the single-step delta by 4 to get a 24h-equivalent gain.
+    #
+    # Previous threshold was `> 80` (m/s per 24h = ~155 kt/24h), which is
+    # physically unreachable — even Haiyan 2013 peaked at ~80 kt/24h = ~41
+    # m/s/24h. The old bonus never fired on any real storm.
+    RI_THRESHOLD_MS_PER_24H = 15.4  # 30 kt/24h — standard RI definition
     ri_bonus = 0
     if coeffs["ri_bonus"] > 0 and len(snapshots) >= 2:
         max_24h_gain = 0
         for i in range(1, len(snapshots)):
-            if (i - 1) >= 0:
-                wind_prev = snapshots[i - 1].get("max_wind_ms", 0) or 0
-                wind_curr = snapshots[i].get("max_wind_ms", 0) or 0
-                gain_estimate = (wind_curr - wind_prev) * 4
-                if gain_estimate > max_24h_gain:
-                    max_24h_gain = gain_estimate
+            wind_prev = snapshots[i - 1].get("max_wind_ms", 0) or 0
+            wind_curr = snapshots[i].get("max_wind_ms", 0) or 0
+            gain_estimate = (wind_curr - wind_prev) * 4  # m/s per 24h
+            if gain_estimate > max_24h_gain:
+                max_24h_gain = gain_estimate
 
-        if max_24h_gain > 80:
+        if max_24h_gain > RI_THRESHOLD_MS_PER_24H:
             ri_bonus = coeffs["ri_bonus"]
             adjusted_dps += ri_bonus
             adjustment_notes.append(f"+{ri_bonus}RI")
@@ -527,12 +554,17 @@ def apply_basin_dps_adjustment(cum_dpi, basin, snapshots):
             adjusted_dps += landfall_bonus
             adjustment_notes.append(f"+{landfall_bonus:.1f}LF")
 
-        # 2. Orographic rainfall bonus
+        # 2. Orographic rainfall bonus.
+        #    Taiwan/Luzon/Vietnam mountains can drive rainfall-dominant
+        #    damage profiles (Morakot 2009 ≈ 3000 mm over 48h → $3B damage
+        #    at Cat 2 landfall). The old cap of +5 was too low for what
+        #    can be the single largest driver of total damage; raised to
+        #    +9 with a steeper slope on the wind scaling.
         has_orographic, max_wind_near_mountains = has_orographic_rainfall_potential(
             snapshots, basin
         )
         if has_orographic and max_wind_near_mountains >= 20:
-            orographic_bonus = min(max_wind_near_mountains / 25, 5)  # Up to +5 points
+            orographic_bonus = min(max_wind_near_mountains / 18, 9)
             adjusted_dps += orographic_bonus
             adjustment_notes.append(f"+{orographic_bonus:.1f}ORO")
 
