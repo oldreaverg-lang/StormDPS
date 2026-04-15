@@ -505,6 +505,33 @@
         <div id="vizArea" class="viz-area">
             <div class="map-panel" style="position:relative;">
                 <div id="map"></div>
+                <!-- Storm Card: compact summary pinned top-left. Updates on
+                     scrub via syncVisualization. Collapsible to clear the
+                     map view on demand. -->
+                <div id="stormCard" style="display:none;position:absolute;top:8px;left:8px;z-index:501;background:rgba(10,14,26,.92);backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:var(--radius);padding:.5rem .65rem;min-width:190px;max-width:230px;font-size:.7rem;color:var(--text-muted);box-shadow:0 4px 18px rgba(0,0,0,.35)">
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:.5rem;margin-bottom:.35rem">
+                        <div id="stormCardName" style="font-weight:700;color:#f1f5f9;font-size:.78rem;letter-spacing:.02em;text-transform:uppercase;line-height:1.1">--</div>
+                        <button id="stormCardCollapse" onclick="toggleStormCard()" title="Collapse" style="background:none;border:none;color:#64748b;cursor:pointer;font-size:.85rem;line-height:1;padding:0 .15rem;font-family:inherit">&#9660;</button>
+                    </div>
+                    <div id="stormCardBody">
+                        <div style="display:flex;align-items:center;gap:.4rem;margin-bottom:.3rem">
+                            <span id="stormCardCatBadge" style="background:#475569;color:#fff;padding:.1rem .4rem;border-radius:3px;font-weight:700;font-size:.6rem;letter-spacing:.03em">--</span>
+                            <span id="stormCardWind" style="color:#cbd5e1;font-variant-numeric:tabular-nums">--</span>
+                        </div>
+                        <div style="display:grid;grid-template-columns:auto 1fr;gap:.15rem .6rem;font-size:.62rem;line-height:1.4">
+                            <span style="color:#64748b">DPS</span>
+                            <span><b id="stormCardDps" style="color:#f1f5f9;font-variant-numeric:tabular-nums">--</b> <span id="stormCardDpsBand" style="color:#94a3b8;font-size:.55rem;margin-left:.2rem">--</span></span>
+                            <span style="color:#64748b">Pressure</span>
+                            <span id="stormCardPres" style="color:#cbd5e1;font-variant-numeric:tabular-nums">--</span>
+                            <span style="color:#64748b">Move</span>
+                            <span id="stormCardMove" style="color:#cbd5e1;font-variant-numeric:tabular-nums">--</span>
+                            <span id="stormCardStallLbl" style="color:#64748b;display:none">Stall</span>
+                            <span id="stormCardStall" style="color:#fbbf24;display:none">--</span>
+                            <span id="stormCardLandfallLbl" style="color:#64748b;display:none">Landfall</span>
+                            <span id="stormCardLandfall" style="color:#cbd5e1;display:none">--</span>
+                        </div>
+                    </div>
+                </div>
                 <button class="map-legend-toggle" id="mapLegendToggle" onclick="toggleMapLegend()">Legend &#9660;</button>
                 <!-- Active-storm overlay controls. Sits top-right under the
                      Leaflet zoom buttons. Storm Timeline drives the satellite
@@ -523,8 +550,30 @@
                     </div>
                     <!-- Wind speed color legend (visible when wind layer is on) -->
                     <div id="windLegend" style="display:none;margin-top:.4rem;padding-top:.35rem;border-top:1px solid rgba(148,163,184,.18)">
-                        <div style="display:flex;justify-content:space-between;font-size:.55rem;color:#94a3b8;margin-bottom:.1rem"><span>0</span><span>Wind (mph)</span><span>134+</span></div>
-                        <div style="height:6px;border-radius:3px;background:linear-gradient(90deg,#3b82f6 0%,#22d3ee 17%,#a3e635 33%,#facc15 50%,#f97316 67%,#ef4444 83%,#ec4899 100%)"></div>
+                        <div style="font-size:.55rem;color:#94a3b8;margin-bottom:.15rem;text-align:center;letter-spacing:.04em">Wind speed (mph)</div>
+                        <!-- Saffir-Simpson thresholds: TS 39, Cat1 74, Cat3 111, Cat4 130, Cat5 157.
+                             Color stops are positioned at percentages of maxVelocity=60 m/s (134 mph). -->
+                        <div style="position:relative;height:6px;border-radius:3px;background:linear-gradient(90deg,#3b82f6 0%,#22d3ee 17%,#a3e635 33%,#facc15 50%,#f97316 67%,#ef4444 83%,#ec4899 100%)">
+                            <div style="position:absolute;left:29%;top:-2px;width:1px;height:10px;background:rgba(255,255,255,.45)"></div>
+                            <div style="position:absolute;left:55%;top:-2px;width:1px;height:10px;background:rgba(255,255,255,.45)"></div>
+                            <div style="position:absolute;left:83%;top:-2px;width:1px;height:10px;background:rgba(255,255,255,.45)"></div>
+                            <div style="position:absolute;left:97%;top:-2px;width:1px;height:10px;background:rgba(255,255,255,.45)"></div>
+                        </div>
+                        <div style="position:relative;height:.85rem;font-size:.5rem;color:#94a3b8;font-variant-numeric:tabular-nums;margin-top:.1rem">
+                            <span style="position:absolute;left:0">0</span>
+                            <span style="position:absolute;left:29%;transform:translateX(-50%)">39</span>
+                            <span style="position:absolute;left:55%;transform:translateX(-50%)">74</span>
+                            <span style="position:absolute;left:83%;transform:translateX(-50%)">111</span>
+                            <span style="position:absolute;right:0">130+</span>
+                        </div>
+                        <!-- Opacity slider so users can dim the particles over the storm track -->
+                        <div style="display:flex;align-items:center;gap:.35rem;margin-top:.25rem">
+                            <span style="font-size:.5rem;color:#64748b;letter-spacing:.04em">DIM</span>
+                            <input type="range" id="windOpacityInput" min="10" max="95" value="55" step="5"
+                                   oninput="setWindOpacity(this.value)"
+                                   style="flex:1;height:3px;accent-color:#22d3ee;cursor:pointer">
+                            <span id="windOpacityLabel" style="font-size:.5rem;color:#94a3b8;font-variant-numeric:tabular-nums;min-width:1.6rem;text-align:right">55%</span>
+                        </div>
                     </div>
                     <!-- Frame timestamp readout (synced with storm timeline) -->
                     <div style="display:flex;justify-content:space-between;margin-top:.35rem;font-size:.55rem;color:#64748b">
@@ -2039,7 +2088,11 @@ function applyStallRiskToIAS(data, stallRisk) {
 
 function clearStallRisk() {
     window._activeStallRisk = null;
+    window._activeLandfallEta = null;
+    window._stormDisplayName = null;
     document.getElementById('stallRiskBar').classList.remove('visible');
+    const card = document.getElementById('stormCard');
+    if (card) card.style.display = 'none';
 }
 
 function calculateDPS(dataPoint) {
@@ -3081,6 +3134,9 @@ async function fetchHistory(){
             const _nm = (PRESETS.find(p=>p.id===usedId)||{}).name
                      || (window.stormCatalog && (window.stormCatalog.find(s=>s.id===usedId)||{}).name)
                      || usedId;
+            // Cache the display name so the Storm Card can show it even when
+            // the search input holds an ATCF id rather than a friendly name.
+            window._stormDisplayName = _nm;
             await ensureCompiledBundle(usedId, _nm, _yr);
         }
         // Allow UI to repaint before heavy render
@@ -3921,9 +3977,13 @@ async function _setWindFrameNow(satelliteTs) {
         try { st.layer.setZIndex && st.layer.setZIndex(250); } catch(e) {}
         // leaflet-velocity ignores `opacity` in its options — soften the
         // canvas directly so storm-track dots stay readable underneath.
+        // Pulls current value from the DIM slider so the user's last choice
+        // sticks across hours.
+        const _opIn = document.getElementById('windOpacityInput');
+        const _op   = _opIn ? (parseInt(_opIn.value, 10) / 100) : 0.55;
         try {
             const cvs = st.layer._canvasLayer && st.layer._canvasLayer._canvas;
-            if (cvs) cvs.style.opacity = '0.55';
+            if (cvs) cvs.style.opacity = String(_op);
         } catch (e) {}
     }
 }
@@ -3959,6 +4019,20 @@ window.syncOverlaysToTimestampMs = function(tsMs) {
         if (diff < bestDiff) { bestDiff = diff; bestIdx = i; }
     }
     if (bestIdx !== st.currentIdx) setSatelliteFrame(bestIdx);
+};
+
+// Live opacity slider for the wind canvas. No-op if the layer hasn't been
+// created yet; the next addTo() will read the slider value.
+window.setWindOpacity = function(value) {
+    const pct = Math.max(10, Math.min(95, parseInt(value, 10) || 55));
+    const lbl = document.getElementById('windOpacityLabel');
+    if (lbl) lbl.textContent = pct + '%';
+    const st = window._windState;
+    if (!st || !st.layer) return;
+    try {
+        const cvs = st.layer._canvasLayer && st.layer._canvasLayer._canvas;
+        if (cvs) cvs.style.opacity = String(pct / 100);
+    } catch (e) {}
 };
 
 function toggleWindLayer() {
@@ -4264,6 +4338,9 @@ function syncVisualization(fi,snap){
             syncOverlaysToTimestampMs(new Date(d1.timestamp).getTime());
         }
 
+        // Refresh the Storm Card with the snapshot at this timeline position.
+        if (window.updateStormCard) window.updateStormCard(d1);
+
         // Update chart highlights
         if(currentChart&&!snap){
             currentChart.setActiveElements([{datasetIndex:0,index:bi}]);
@@ -4336,6 +4413,127 @@ function resetToWelcome() {
 }
 
 // ---- Map Legend Toggle ----
+// ── Storm Card (top-left summary) ─────────────────────────────────────────
+// Single-snapshot view of the storm at the current timeline position.
+// Pulls name/category from the loaded storm + dynamic fields from the
+// snapshot record. Landfall ETA + stall come from active-storm forecast
+// (renderMap caches them on window).
+window._stormCardCollapsed = false;
+
+window.toggleStormCard = function() {
+    const body = document.getElementById('stormCardBody');
+    const btn  = document.getElementById('stormCardCollapse');
+    if (!body) return;
+    window._stormCardCollapsed = !window._stormCardCollapsed;
+    body.style.display = window._stormCardCollapsed ? 'none' : '';
+    if (btn) btn.innerHTML = window._stormCardCollapsed ? '&#9654;' : '&#9660;';
+    btn.title = window._stormCardCollapsed ? 'Expand' : 'Collapse';
+};
+
+function _ssCategoryFromMs(ms) {
+    if (ms == null) return {label: '--', color: '#475569'};
+    const mph = ms * 2.237;
+    if (mph >= 157) return {label: 'CAT 5', color: '#ec4899'};
+    if (mph >= 130) return {label: 'CAT 4', color: '#ef4444'};
+    if (mph >= 111) return {label: 'CAT 3', color: '#f97316'};
+    if (mph >= 96)  return {label: 'CAT 2', color: '#fb923c'};
+    if (mph >= 74)  return {label: 'CAT 1', color: '#facc15'};
+    if (mph >= 39)  return {label: 'TS',    color: '#a3e635'};
+    if (mph >= 23)  return {label: 'TD',    color: '#22d3ee'};
+    return {label: 'LOW', color: '#3b82f6'};
+}
+
+function _dpsBandLabel(score) {
+    if (score == null) return '';
+    if (score >= 80) return 'CATASTROPHIC';
+    if (score >= 60) return 'EXTREME';
+    if (score >= 40) return 'SEVERE';
+    if (score >= 20) return 'MODERATE';
+    return 'LOW';
+}
+
+window.updateStormCard = function(snap) {
+    const card = document.getElementById('stormCard');
+    if (!card || !snap) return;
+    card.style.display = 'block';
+
+    // Storm name from the input (uppercased ID is fine fallback)
+    const nameEl = document.getElementById('stormCardName');
+    if (nameEl) {
+        const nm = (window._stormDisplayName || (document.getElementById('stormId') || {}).value || '').toString().trim();
+        nameEl.textContent = nm.toUpperCase() || 'STORM';
+    }
+
+    const cat = _ssCategoryFromMs(snap.max_wind_ms);
+    const catEl = document.getElementById('stormCardCatBadge');
+    if (catEl) {
+        catEl.textContent = cat.label;
+        catEl.style.background = cat.color;
+        catEl.style.color = (cat.label === 'CAT 1' || cat.label === 'TS') ? '#0a0e1a' : '#fff';
+    }
+
+    const windEl = document.getElementById('stormCardWind');
+    if (windEl) {
+        windEl.textContent = snap.max_wind_ms != null
+            ? `${(snap.max_wind_ms * 2.237).toFixed(0)} mph`
+            : '—';
+    }
+
+    const dps = snap.dps && snap.dps.score != null ? snap.dps.score : null;
+    const dpsEl = document.getElementById('stormCardDps');
+    const bandEl = document.getElementById('stormCardDpsBand');
+    if (dpsEl) {
+        dpsEl.textContent = dps != null ? Math.round(dps) : '—';
+        if (snap.dps && snap.dps.color) dpsEl.style.color = snap.dps.color;
+    }
+    if (bandEl) bandEl.textContent = dps != null ? _dpsBandLabel(dps) : '';
+
+    const presEl = document.getElementById('stormCardPres');
+    if (presEl) presEl.textContent = snap.min_pressure_hpa ? `${snap.min_pressure_hpa} mb` : '—';
+
+    // Movement: forward speed in mph + cardinal direction (if available)
+    const moveEl = document.getElementById('stormCardMove');
+    if (moveEl) {
+        const spd = snap.fwd_speed_kt != null ? `${(snap.fwd_speed_kt * 1.151).toFixed(0)} mph` : null;
+        const dir = snap.heading_deg != null ? _degToCardinal(snap.heading_deg) : null;
+        moveEl.textContent = spd ? (dir ? `${spd} ${dir}` : spd) : '—';
+    }
+
+    // Stall risk (if active forecast resolved it)
+    const sr = window._activeStallRisk;
+    const stallLbl = document.getElementById('stormCardStallLbl');
+    const stallVal = document.getElementById('stormCardStall');
+    if (sr && sr.risk_level && sr.risk_level !== 'none') {
+        const colors = {low:'#a3e635', moderate:'#facc15', high:'#f97316', extreme:'#ef4444'};
+        stallLbl.style.display = '';
+        stallVal.style.display = '';
+        stallVal.textContent = sr.risk_level.toUpperCase() + (sr.risk_score!=null ? ` (${Math.round(sr.risk_score)})` : '');
+        stallVal.style.color = colors[sr.risk_level] || '#fbbf24';
+    } else if (stallLbl && stallVal) {
+        stallLbl.style.display = 'none';
+        stallVal.style.display = 'none';
+    }
+
+    // Landfall ETA (active storms only — set by renderMap forecast block)
+    const lfLbl = document.getElementById('stormCardLandfallLbl');
+    const lfVal = document.getElementById('stormCardLandfall');
+    const lf = window._activeLandfallEta;
+    if (lf && lfLbl && lfVal) {
+        lfLbl.style.display = '';
+        lfVal.style.display = '';
+        lfVal.textContent = lf;
+    } else if (lfLbl && lfVal) {
+        lfLbl.style.display = 'none';
+        lfVal.style.display = 'none';
+    }
+};
+
+function _degToCardinal(deg) {
+    if (deg == null) return '';
+    const dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+    return dirs[Math.round(((deg % 360) / 22.5)) % 16];
+}
+
 function toggleMapLegend() {
     const legend = document.getElementById('mapLegend');
     const btn = document.getElementById('mapLegendToggle');
