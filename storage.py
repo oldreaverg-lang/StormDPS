@@ -62,8 +62,13 @@ VALIDATION_DB = VALIDATION_DIR / "validation.db"
 AUDIT_DIR = PERSISTENT_DATA_DIR / "audit"
 WIND_RADII_AUDIT_DIR = AUDIT_DIR / "wind_radii"
 
+# Satellite tile cache — Web Mercator slippy tiles fetched from NASA GIBS.
+# Layout: SATELLITE_CACHE_DIR/<satellite>/<YYYYMMDDTHHMM>/z/x/y.png
+# Eviction: keep last 48 hours of frames per satellite (see satellite_routes).
+SATELLITE_CACHE_DIR = CACHE_DIR / "satellite"
+
 # ── Create all directories on import ────────────────────────────────────────
-for _d in (IKE_CACHE_DIR, DPS_CACHE_DIR, TRACK_CACHE_DIR, VALIDATION_DIR, WIND_RADII_AUDIT_DIR):
+for _d in (IKE_CACHE_DIR, DPS_CACHE_DIR, TRACK_CACHE_DIR, SATELLITE_CACHE_DIR, VALIDATION_DIR, WIND_RADII_AUDIT_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 
@@ -134,6 +139,7 @@ def storage_summary() -> dict:
     for key, path in {
         "dps_cache": DPS_CACHE_DIR,
         "track_cache": TRACK_CACHE_DIR,
+        "satellite_cache": SATELLITE_CACHE_DIR,
     }.items():
         sz = _dir_size(path)
         total_bytes += sz

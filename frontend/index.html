@@ -503,6 +503,19 @@
             <div class="map-panel" style="position:relative;">
                 <div id="map"></div>
                 <button class="map-legend-toggle" id="mapLegendToggle" onclick="toggleMapLegend()">Legend &#9660;</button>
+                <!-- Satellite imagery time slider — only shown for active storms.
+                     Populated by initSatelliteLayer() once frame list returns. -->
+                <div id="satelliteSlider" style="display:none;position:absolute;bottom:8px;right:8px;z-index:501;background:rgba(10,14,26,.92);backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:var(--radius);padding:.4rem .55rem;min-width:230px;max-width:300px;font-size:.65rem;color:var(--text-muted)">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.25rem;gap:.5rem">
+                        <div style="font-weight:700;color:#e2e8f0;font-size:.7rem">Satellite</div>
+                        <div id="satelliteFrameLabel" style="font-variant-numeric:tabular-nums;color:#cbd5e1;font-weight:600;font-size:.65rem">--</div>
+                    </div>
+                    <input type="range" id="satelliteSliderInput" min="0" max="0" value="0" step="1" style="width:100%;cursor:pointer" oninput="onSatelliteFrameScrub(this.value)">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:.25rem;gap:.5rem">
+                        <button id="satellitePlayBtn" onclick="toggleSatellitePlay()" style="background:rgba(59,130,246,.18);border:1px solid rgba(59,130,246,.4);color:#93c5fd;padding:.15rem .55rem;border-radius:4px;cursor:pointer;font-size:.62rem;font-weight:600;font-family:inherit">&#9658; Play</button>
+                        <div id="satelliteName" style="font-size:.6rem;text-transform:uppercase;letter-spacing:.5px;color:#64748b">--</div>
+                    </div>
+                </div>
                 <div class="map-legend" id="mapLegend" style="display:none;">
                     <div style="font-weight:600;margin-bottom:2px;color:#e2e8f0;">Wind Speed</div>
                     <div class="legend-item"><div class="legend-swatch" style="background:#ff4da6"></div>Cat 5 (&ge;157 mph)</div>
@@ -3593,6 +3606,140 @@ function renderSSTChart(data,sstData){
         scales:{x:{grid:{color:'rgba(30,41,59,.5)',drawBorder:false},ticks:{maxTicksLimit:10,font:{size:10}}},y:{min:15,max:35,grid:{color:'rgba(30,41,59,.5)',drawBorder:false},title:{display:true,text:'Sea Surface Temp (°C)',color:'#64748b',font:{size:10,weight:500}},ticks:{font:{size:10}}}}}});
 }
 
+// ── Satellite layer state (mutable across calls) ─────────────────────────
+window._satelliteState = {
+    layer: null,        // current Leaflet tileLayer
+    frames: [],         // array of "YYYYMMDDTHHMM" strings
+    satellite: null,    // satellite name (goes-east, himawari, etc.)
+    currentIdx: 0,      // index into frames[]
+    playing: false,
+    playTimer: null,
+};
+
+function chooseSatelliteForLatLon(lat, lon) {
+    let L = lon;
+    if (L > 180) L -= 360;
+    if (L >= -135 && L < -10) return 'goes-east';
+    if (L >= -180 && L < -135) return 'goes-west';
+    if (L >= 60 && L <= 180) return 'himawari';
+    if (L >= 20 && L < 60) return 'meteosat-iodc';
+    return 'meteosat-0';
+}
+
+function formatSatelliteFrameLabel(ts) {
+    // ts = YYYYMMDDTHHMM → "Apr 15  18:30Z"
+    if (!ts || ts.length < 13) return '--';
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const m = months[parseInt(ts.slice(4,6),10)-1] || '?';
+    const d = ts.slice(6,8);
+    const hh = ts.slice(9,11);
+    const mm = ts.slice(11,13);
+    return `${m} ${d}  ${hh}:${mm}Z`;
+}
+
+function setSatelliteFrame(idx) {
+    const st = window._satelliteState;
+    if (!st.layer || !st.frames.length) return;
+    idx = Math.max(0, Math.min(idx, st.frames.length - 1));
+    st.currentIdx = idx;
+    const ts = st.frames[idx];
+    // Rebuild tile URL with the new ts in path
+    const newUrl = `${API_BASE}/satellite/tile/${st.satellite}/${ts}/{z}/{x}/{y}.png`;
+    st.layer.setUrl(newUrl);
+    const lbl = document.getElementById('satelliteFrameLabel');
+    if (lbl) lbl.textContent = formatSatelliteFrameLabel(ts);
+    const slider = document.getElementById('satelliteSliderInput');
+    if (slider && parseInt(slider.value,10) !== idx) slider.value = idx;
+}
+
+function onSatelliteFrameScrub(value) {
+    setSatelliteFrame(parseInt(value, 10));
+}
+
+function toggleSatellitePlay() {
+    const st = window._satelliteState;
+    const btn = document.getElementById('satellitePlayBtn');
+    if (st.playing) {
+        st.playing = false;
+        if (st.playTimer) { clearInterval(st.playTimer); st.playTimer = null; }
+        if (btn) btn.innerHTML = '&#9658; Play';
+    } else {
+        if (!st.frames.length) return;
+        st.playing = true;
+        if (btn) btn.innerHTML = '&#10074;&#10074; Pause';
+        st.playTimer = setInterval(() => {
+            const next = (st.currentIdx + 1) % st.frames.length;
+            setSatelliteFrame(next);
+        }, 600);
+    }
+}
+
+function teardownSatelliteLayer() {
+    const st = window._satelliteState;
+    if (st.playTimer) { clearInterval(st.playTimer); st.playTimer = null; }
+    st.playing = false;
+    if (st.layer && currentMap) {
+        try { currentMap.removeLayer(st.layer); } catch(e) {}
+    }
+    st.layer = null;
+    st.frames = [];
+    st.satellite = null;
+    st.currentIdx = 0;
+    const slider = document.getElementById('satelliteSlider');
+    if (slider) slider.style.display = 'none';
+    const btn = document.getElementById('satellitePlayBtn');
+    if (btn) btn.innerHTML = '&#9658; Play';
+}
+
+async function initSatelliteLayer(data) {
+    teardownSatelliteLayer();
+    if (!window._isActiveStorm || !data || !data.length || !currentMap) return;
+
+    // Use most recent point's position to pick the satellite
+    const last = data[data.length - 1];
+    const sat = chooseSatelliteForLatLon(last.lat, last.lon);
+
+    let frames = [];
+    try {
+        const r = await fetch(`${API_BASE}/satellite/frames/${sat}?hours=24&cadence_min=30`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const body = await r.json();
+        frames = body.frames || [];
+    } catch (e) {
+        console.warn('[SATELLITE] frames fetch failed:', e);
+        return;
+    }
+    if (!frames.length) return;
+
+    const st = window._satelliteState;
+    st.satellite = sat;
+    st.frames = frames;
+    st.currentIdx = frames.length - 1;  // start on most recent
+
+    const tileUrl = `${API_BASE}/satellite/tile/${sat}/${frames[st.currentIdx]}/{z}/{x}/{y}.png`;
+    st.layer = L.tileLayer(tileUrl, {
+        opacity: 0.85,
+        zIndex: 200,        // above basemap, below track polylines + markers
+        maxZoom: 7,
+        attribution: 'NASA GIBS / NOAA / JMA',
+        crossOrigin: true,
+    }).addTo(currentMap);
+
+    // Wire slider UI
+    const slider = document.getElementById('satelliteSliderInput');
+    const wrap = document.getElementById('satelliteSlider');
+    const nameEl = document.getElementById('satelliteName');
+    if (slider) {
+        slider.min = 0;
+        slider.max = frames.length - 1;
+        slider.value = st.currentIdx;
+    }
+    if (nameEl) nameEl.textContent = sat.replace('-', ' ').toUpperCase();
+    if (wrap) wrap.style.display = 'block';
+    const lbl = document.getElementById('satelliteFrameLabel');
+    if (lbl) lbl.textContent = formatSatelliteFrameLabel(frames[st.currentIdx]);
+}
+
 function renderMap(data){
 
     const mapDiv=document.getElementById('map'),parent=mapDiv.parentNode;
@@ -3660,6 +3807,12 @@ function renderMap(data){
         const isMobile=window.innerWidth<=900;
         currentMap.fitBounds(bounds,{padding:isMobile?[20,20]:[40,40],maxZoom:8});
     },150);
+
+    // ── Live satellite layer (active storms only) ─────────────────────────
+    // Picks the right geostationary satellite based on the storm's most-recent
+    // position, fetches a list of frame timestamps from /satellite/frames, and
+    // overlays a Leaflet TileLayer that scrubs through frames via the slider.
+    initSatelliteLayer(data);
 
     // Forecast track overlay for active storms
     if(window._isActiveStorm){

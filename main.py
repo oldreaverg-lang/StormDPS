@@ -37,6 +37,7 @@ from api.routes import (
     warm_track_cache,
 )
 from api.weather_routes import router as weather_router
+from api.satellite_routes import router as satellite_router
 # surgedps_routes was removed — SurgeDPS runs as its own service now
 from services.weather_data_service import WeatherDataService
 
@@ -207,6 +208,7 @@ app.add_middleware(GZipMiddleware, minimum_size=500)
 
 app.include_router(router, prefix="/api/v1")
 app.include_router(weather_router, prefix="/api/v1")
+app.include_router(satellite_router, prefix="/api/v1")
 # SurgeDPS API routes removed — SurgeDPS runs as its own service now
 
 
