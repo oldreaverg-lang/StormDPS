@@ -3877,6 +3877,8 @@ function teardownSatelliteLayer() {
         pp.enabled = false;
         pp.bbox = null;
         pp.currentTs = null;
+        pp.lastPayload = null;
+        pp.lastBounds = null;
         const ppbtn = document.getElementById('precipToggleBtn');
         if (ppbtn) {
             ppbtn.disabled = true;
@@ -4369,8 +4371,10 @@ function setPressureFrame(satelliteTs) {
 async function _setPressureFrameNow(satelliteTs) {
     const st = window._pressureState;
     if (!st.enabled || !st.bbox || !currentMap) return;
-    // Pressure is hourly (same as wind).
-    const presTs = satelliteTs && satelliteTs.length >= 13 ? satelliteTs.slice(0, 11) : null;
+    // Pressure is hourly (same as wind). Accept either YYYYMMDDTHH (11 chars)
+    // or YYYYMMDDTHHMM (13 chars) and normalize to the 11-char hourly form.
+    const _presM = satelliteTs && satelliteTs.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})/);
+    const presTs = _presM ? `${_presM[1]}${_presM[2]}${_presM[3]}T${_presM[4]}` : null;
     if (!presTs || presTs === st.currentTs) return;
     const prevTs = st.currentTs;
     st.currentTs = presTs;
@@ -4555,6 +4559,11 @@ window._precipState = {
     fetchToken:    0,
     debounceTimer: null,
     pendingTs:     null,
+    // Cache of the last successfully-fetched /precip/field payload so that
+    // toggling the cloud-cover checkbox can re-render from memory without
+    // re-fetching from Open-Meteo.
+    lastPayload:   null,
+    lastBounds:    null,
 };
 
 function _precipButtonReset() {
@@ -4729,7 +4738,9 @@ async function _setPrecipFrameNow(satelliteTs) {
         }
     }
 
-    st.currentTs = ts;
+    st.currentTs   = ts;
+    st.lastPayload = payload;
+    st.lastBounds  = bounds;
     if (btn) {
         btn.textContent       = 'Precip: On';
         btn.style.background  = 'rgba(96,165,250,.20)';
@@ -4753,11 +4764,29 @@ window.togglePrecipCloud = function(checked) {
     if (!st) return;
     st.showCloud = !!checked;
     if (!st.enabled) return;
-    if (!checked && st.cloudLayer && currentMap) {
-        try { currentMap.removeLayer(st.cloudLayer); } catch(e) {}
+    if (!checked) {
+        if (st.cloudLayer && currentMap) {
+            try { currentMap.removeLayer(st.cloudLayer); } catch(e) {}
+        }
         st.cloudLayer = null;
-    } else if (checked && st.currentTs) {
-        // Force a re-fetch+render to repopulate the cloud overlay
+        return;
+    }
+    // Re-render cloud from the cached payload if available — no re-fetch.
+    if (st.lastPayload && st.lastBounds && currentMap) {
+        if (st.cloudLayer) { try { currentMap.removeLayer(st.cloudLayer); } catch(e) {} st.cloudLayer = null; }
+        const cloudUrl = _renderCloudCanvas(st.lastPayload.cloud);
+        st.cloudLayer = L.imageOverlay(cloudUrl, st.lastBounds, {
+            opacity: 0.5, interactive: false, className: 'precip-cloud-overlay',
+        }).addTo(currentMap);
+        if (st.cloudLayer.getElement) {
+            const el = st.cloudLayer.getElement();
+            if (el && el.style) {
+                el.style.zIndex = 215;
+                el.style.imageRendering = 'auto';
+            }
+        }
+    } else if (st.currentTs) {
+        // No cached payload (shouldn't normally happen) — fall back to refetch.
         const wasTs = st.currentTs;
         st.currentTs = null;
         _setPrecipFrameNow(wasTs);

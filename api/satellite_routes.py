@@ -71,6 +71,11 @@ _SATELLITES = {
 _TILE_CACHE_TTL_HOURS = 48
 _HTTP_TIMEOUT = httpx.Timeout(20.0, connect=5.0)
 
+# Throttle eviction scans: at most one per hour so a burst of tile writes
+# doesn't repeatedly walk the (large) satellite cache directory tree.
+_LAST_EVICT_AT: datetime | None = None
+_EVICT_INTERVAL = timedelta(hours=1)
+
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -211,6 +216,7 @@ async def satellite_tile(
                 os.replace(tmp, path)
             except OSError as e:
                 logger.warning(f"[SATELLITE] cache write failed for {path}: {e}")
+            _maybe_evict()
             return Response(content=r.content, media_type="image/png",
                             headers={"Cache-Control": "public, max-age=86400"})
         else:
@@ -224,6 +230,19 @@ async def satellite_tile(
 
 
 # ── Eviction (called from a background task or manually) ────────────────────
+
+def _maybe_evict() -> None:
+    """Run satellite eviction at most once per hour. Best-effort, never raises."""
+    global _LAST_EVICT_AT
+    now = datetime.now(timezone.utc)
+    if _LAST_EVICT_AT is not None and (now - _LAST_EVICT_AT) < _EVICT_INTERVAL:
+        return
+    _LAST_EVICT_AT = now
+    try:
+        evict_old_satellite_frames()
+    except Exception as e:
+        logger.warning(f"[SATELLITE EVICT] failed: {e}")
+
 
 def evict_old_satellite_frames(max_age_hours: int = _TILE_CACHE_TTL_HOURS) -> int:
     """Delete cached frame directories older than *max_age_hours*.

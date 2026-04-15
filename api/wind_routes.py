@@ -63,12 +63,23 @@ _MAX_RES_DEG     = 2.0
 _DEFAULT_RES_DEG = 1.0
 _CACHE_TTL_HOURS = 48
 
+# Throttle eviction scans: at most one per hour so a burst of cache writes
+# doesn't repeatedly walk the cache directory.
+_LAST_EVICT_AT: datetime | None = None
+_EVICT_INTERVAL = timedelta(hours=1)
+
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
 def _bbox_key(lat0: float, lon0: float, lat1: float, lon1: float, res: float) -> str:
-    """Stable directory key for a bbox at a given resolution."""
-    return f"{lat0:+06.1f}_{lon0:+07.1f}_{lat1:+06.1f}_{lon1:+07.1f}_r{res:.1f}"
+    """Stable directory key for a bbox at a given resolution.
+
+    Normalizes corner order so callers passing swapped corners hit the same
+    cache entry as the canonical (south,west,north,east) ordering.
+    """
+    s, n = sorted((float(lat0), float(lat1)))
+    w, e = sorted((float(lon0), float(lon1)))
+    return f"{s:+06.1f}_{w:+07.1f}_{n:+06.1f}_{e:+07.1f}_r{res:.1f}"
 
 
 def _parse_ts(ts: str) -> datetime:
@@ -317,9 +328,24 @@ async def wind_field(
     except OSError as e:
         logger.warning(f"[WIND] cache write failed for {cache_path}: {e}")
 
+    _maybe_evict()
+
     return JSONResponse(content=payload,
                         headers={"Cache-Control": "public, max-age=3600",
                                  "X-Wind-Cache": "miss"})
+
+
+def _maybe_evict() -> None:
+    """Run eviction if we haven't in the last hour. Best-effort, never raises."""
+    global _LAST_EVICT_AT
+    now = datetime.now(timezone.utc)
+    if _LAST_EVICT_AT is not None and (now - _LAST_EVICT_AT) < _EVICT_INTERVAL:
+        return
+    _LAST_EVICT_AT = now
+    try:
+        evict_old_wind_frames()
+    except Exception as e:
+        logger.warning(f"[WIND EVICT] failed: {e}")
 
 
 # ── Eviction ────────────────────────────────────────────────────────────────

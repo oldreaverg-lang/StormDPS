@@ -52,15 +52,26 @@ _DEFAULT_RES_DEG = 1.0
 _CACHE_TTL_HOURS = 48
 _METAR_TTL_MIN   = 15    # observations refresh hourly; 15-min cache is safe
 
+# Throttle eviction scans: at most one per hour so a burst of cache writes
+# doesn't repeatedly walk the cache directory.
+_LAST_EVICT_AT: datetime | None = None
+_EVICT_INTERVAL = timedelta(hours=1)
+
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
 def _bbox_key(lat0: float, lon0: float, lat1: float, lon1: float, res: float) -> str:
-    return f"{lat0:+06.1f}_{lon0:+07.1f}_{lat1:+06.1f}_{lon1:+07.1f}_r{res:.1f}"
+    # Normalize corner order so callers passing swapped corners hit the same
+    # cache entry as the canonical (south,west,north,east) ordering.
+    s, n = sorted((float(lat0), float(lat1)))
+    w, e = sorted((float(lon0), float(lon1)))
+    return f"{s:+06.1f}_{w:+07.1f}_{n:+06.1f}_{e:+07.1f}_r{res:.1f}"
 
 
 def _metar_key(lat0: float, lon0: float, lat1: float, lon1: float) -> str:
-    return f"{lat0:+06.1f}_{lon0:+07.1f}_{lat1:+06.1f}_{lon1:+07.1f}"
+    s, n = sorted((float(lat0), float(lat1)))
+    w, e = sorted((float(lon0), float(lon1)))
+    return f"{s:+06.1f}_{w:+07.1f}_{n:+06.1f}_{e:+07.1f}"
 
 
 def _parse_ts(ts: str) -> datetime:
@@ -120,7 +131,10 @@ async def _fetch_open_meteo_pressure(lats: list[float], lons: list[float],
     else:
         delta_days = (now.date() - ts_dt.date()).days
         params["past_days"] = max(0, min(7, delta_days + 1))
-        params["forecast_days"] = 3
+        # Only ask for forecast hours if the requested ts is actually in the
+        # future — otherwise we burn quota on 3 days of unused samples.
+        if ts_dt.date() >= now.date():
+            params["forecast_days"] = 3
 
     async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
         r = await client.get(base, params=params)
@@ -236,9 +250,24 @@ async def pressure_field(
     except OSError as e:
         logger.warning(f"[PRESSURE] cache write failed for {cache_path}: {e}")
 
+    _maybe_evict()
+
     return JSONResponse(content=payload,
                         headers={"Cache-Control": "public, max-age=3600",
                                  "X-Pressure-Cache": "miss"})
+
+
+def _maybe_evict() -> None:
+    """Run pressure eviction at most once per hour. Best-effort, never raises."""
+    global _LAST_EVICT_AT
+    now = datetime.now(timezone.utc)
+    if _LAST_EVICT_AT is not None and (now - _LAST_EVICT_AT) < _EVICT_INTERVAL:
+        return
+    _LAST_EVICT_AT = now
+    try:
+        evict_old_pressure_frames()
+    except Exception as e:
+        logger.warning(f"[PRESSURE EVICT] failed: {e}")
 
 
 # ── /pressure/stations (METAR) ──────────────────────────────────────────────
@@ -320,19 +349,32 @@ async def pressure_stations(
             slp = float(slp) if slp is not None else None
         except (TypeError, ValueError):
             slp = None
-        # SLP coding: AviationWeather returns it in tenths of hPa with the
-        # leading 9/10 stripped (e.g. 132 → 1013.2; 982 → 998.2). Reconstruct.
-        if slp is not None and slp < 500:
-            base = 1000.0 if slp < 500 else 900.0
-            # Heuristic: <500 → above 1000 mb; >=500 → below 1000 mb.
-            slp = base + (slp / 10.0) if slp < 500 else (900.0 + slp / 10.0)
+        # AviationWeather returns slp directly in hPa (e.g. 1013.2). Trust it
+        # if it's within a sane meteorological range; otherwise fall back to
+        # the altimeter setting converted from inHg.
         pressure_hpa = slp if (slp is not None and 870 <= slp <= 1085) else \
                        _altim_inhg_to_hpa(rec.get("altim"))
         if pressure_hpa is None or not (870 <= pressure_hpa <= 1085):
             continue
         prev = by_icao.get(icao)
-        ob_time = rec.get("obsTime") or rec.get("reportTime") or 0
-        if prev is None or (ob_time or 0) > (prev.get("_ot") or 0):
+        # Coerce obsTime / reportTime to a single int epoch so the
+        # comparison below never mixes types (obsTime is epoch int,
+        # reportTime is ISO string in the AviationWeather schema).
+        ot_raw = rec.get("obsTime")
+        if ot_raw is None:
+            rt_raw = rec.get("reportTime")
+            try:
+                if rt_raw:
+                    ot_raw = int(datetime.fromisoformat(
+                        str(rt_raw).replace("Z", "+00:00")
+                    ).timestamp())
+            except Exception:
+                ot_raw = None
+        try:
+            ob_time = int(ot_raw) if ot_raw is not None else 0
+        except (TypeError, ValueError):
+            ob_time = 0
+        if prev is None or ob_time > (prev.get("_ot") or 0):
             by_icao[icao] = {
                 "icao":     icao,
                 "lat":      round(float(lat), 4),

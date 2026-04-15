@@ -47,11 +47,18 @@ _MAX_RES_DEG     = 2.0
 _DEFAULT_RES_DEG = 0.5    # Precip varies sharply — finer default than pressure
 _CACHE_TTL_HOURS = 48
 
+# Throttle eviction scans: at most one per hour so a burst of cache writes
+# doesn't repeatedly walk the cache directory.
+_LAST_EVICT_AT: datetime | None = None
+_EVICT_INTERVAL = timedelta(hours=1)
+
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
 def _bbox_key(lat0: float, lon0: float, lat1: float, lon1: float, res: float) -> str:
-    return f"{lat0:+06.1f}_{lon0:+07.1f}_{lat1:+06.1f}_{lon1:+07.1f}_r{res:.2f}"
+    s, n = sorted((float(lat0), float(lat1)))
+    w, e = sorted((float(lon0), float(lon1)))
+    return f"{s:+06.1f}_{w:+07.1f}_{n:+06.1f}_{e:+07.1f}_r{res:.2f}"
 
 
 def _parse_ts(ts: str) -> datetime:
@@ -107,8 +114,11 @@ async def _fetch_open_meteo_precip_cloud(lats: list[float], lons: list[float],
         params["end_date"]   = ts_dt.strftime("%Y-%m-%d")
     else:
         delta_days = (now.date() - ts_dt.date()).days
-        params["past_days"]     = max(0, min(7, delta_days + 1))
-        params["forecast_days"] = 3
+        params["past_days"] = max(0, min(7, delta_days + 1))
+        # Only ask for forecast hours if the requested ts is actually in the
+        # future — otherwise we burn quota on 3 days of unused samples.
+        if ts_dt.date() >= now.date():
+            params["forecast_days"] = 3
 
     async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
         r = await client.get(base, params=params)
@@ -148,6 +158,9 @@ def _build_field_payload(lats: list[float], lons: list[float],
     """Pack precip + cloud into co-registered grids the frontend can rasterize."""
     pclean: list[float] = [round(float(v), 2) if v is not None else 0.0 for v in precip]
     cclean: list[float] = [round(float(v), 1) if v is not None else 0.0 for v in cloud]
+    # p_min/p_max should reflect *measured* values, not the None→0 substitution
+    # used for rendering. Compute over the original (non-None) precip series.
+    pvalid = [round(float(v), 2) for v in precip if v is not None]
 
     # Reshape to ny rows × nx cols (top row = highest lat).
     p_rows: list[list[float]] = [pclean[j * nx:(j + 1) * nx] for j in range(ny)]
@@ -166,8 +179,8 @@ def _build_field_payload(lats: list[float], lons: list[float],
         "res":    round(res, 3),
         "precip": p_rows,           # mm/hr
         "cloud":  c_rows,           # 0–100 %
-        "p_max":  round(max(pclean) if pclean else 0.0, 2),
-        "p_min":  round(min(pclean) if pclean else 0.0, 2),
+        "p_max":  round(max(pvalid) if pvalid else 0.0, 2),
+        "p_min":  round(min(pvalid) if pvalid else 0.0, 2),
         "unit":   "mm/hr|%",
     }
 
@@ -226,9 +239,24 @@ async def precip_field(
     except OSError as e:
         logger.warning(f"[PRECIP] cache write failed for {cache_path}: {e}")
 
+    _maybe_evict()
+
     return JSONResponse(content=payload,
                         headers={"Cache-Control": "public, max-age=3600",
                                  "X-Precip-Cache": "miss"})
+
+
+def _maybe_evict() -> None:
+    """Run precip eviction at most once per hour. Best-effort, never raises."""
+    global _LAST_EVICT_AT
+    now = datetime.now(timezone.utc)
+    if _LAST_EVICT_AT is not None and (now - _LAST_EVICT_AT) < _EVICT_INTERVAL:
+        return
+    _LAST_EVICT_AT = now
+    try:
+        evict_old_precip_frames()
+    except Exception as e:
+        logger.warning(f"[PRECIP EVICT] failed: {e}")
 
 
 # ── Eviction ────────────────────────────────────────────────────────────────
