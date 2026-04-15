@@ -121,7 +121,7 @@ def _tile_path(satellite: str, ts: str, z: int, x: int, y: int) -> Path:
 @router.get("/satellite/frames/{satellite}")
 async def satellite_frames(
     satellite: str,
-    hours: int = Query(24, ge=1, le=72),
+    hours: int = Query(24, ge=1, le=336),
     cadence_min: int = Query(30, ge=10, le=60),
 ):
     """List the most recent frame timestamps available for a satellite.

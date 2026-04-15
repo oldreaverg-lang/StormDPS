@@ -3774,8 +3774,8 @@ async function initSatelliteLayer(data) {
     // Snap to whatever the storm timeline is currently showing so the layers
     // line up on first paint (timeline starts at index 0 = first observation).
     const idx0 = (window.currentAnimIndex != null) ? Math.floor(window.currentAnimIndex) : 0;
-    if (data[idx0] && data[idx0].timestamp) {
-        syncOverlaysToTimestampMs(new Date(data[idx0].timestamp).getTime());
+    if (data[idx0] && data[idx0].timestamp && window.syncOverlaysToTimestampMs) {
+        window.syncOverlaysToTimestampMs(new Date(data[idx0].timestamp).getTime());
     }
 
     // Cache the storm bbox on the wind state so the wind layer can fetch
@@ -3842,38 +3842,38 @@ async function setWindFrame(satelliteTs) {
     }
 }
 
-// Convert a JS timestamp (ms) to the YYYYMMDDTHHMM string the satellite
-// frames are keyed by. Used to find the closest frame for a given storm
-// observation when the storm timeline scrubs.
-function _tsMsToSatTsString(ms) {
+// Attach to window explicitly. Plain function declarations here were
+// not consistently reaching global scope across browsers — likely a
+// deferred-script / parser quirk with adjacent declarations. Window
+// assignments sidestep it.
+window._tsMsToSatTsString = function(ms) {
     const d = new Date(ms);
     const pad = n => String(n).padStart(2, '0');
     return d.getUTCFullYear() + pad(d.getUTCMonth()+1) + pad(d.getUTCDate())
          + 'T' + pad(d.getUTCHours()) + pad(d.getUTCMinutes());
-}
+};
 
-function _satTsToMs(ts) {
-    // 'YYYYMMDDTHHMM' → epoch ms (UTC)
+window._satTsToMs = function(ts) {
+    // 'YYYYMMDDTHHMM' -> epoch ms (UTC)
     if (!ts || ts.length < 13) return NaN;
     const Y = +ts.slice(0,4), M = +ts.slice(4,6)-1, D = +ts.slice(6,8);
     const h = +ts.slice(9,11), m = +ts.slice(11,13);
     return Date.UTC(Y, M, D, h, m);
-}
+};
 
 // Drive the satellite (and wind, if enabled) overlay from a storm-timeline
 // timestamp (epoch ms). Snaps to the nearest available satellite frame.
 // No-op when the satellite layer hasn't initialized (non-active storms).
-function syncOverlaysToTimestampMs(tsMs) {
+window.syncOverlaysToTimestampMs = function(tsMs) {
     const st = window._satelliteState;
     if (!st || !st.frames || !st.frames.length) return;
-    // Binary-ish: linear search is fine for ≤350 frames.
     let bestIdx = 0, bestDiff = Infinity;
     for (let i = 0; i < st.frames.length; i++) {
-        const diff = Math.abs(_satTsToMs(st.frames[i]) - tsMs);
+        const diff = Math.abs(window._satTsToMs(st.frames[i]) - tsMs);
         if (diff < bestDiff) { bestDiff = diff; bestIdx = i; }
     }
     if (bestIdx !== st.currentIdx) setSatelliteFrame(bestIdx);
-}
+};
 
 function toggleWindLayer() {
     const st = window._windState;
@@ -4038,7 +4038,9 @@ function renderMap(data){
                 }
             }).catch(()=>{});
         }
-        window._isActiveStorm=false;
+        // (Previously cleared window._isActiveStorm here — that was a bug
+        // that broke any post-render code path checking the active flag,
+        // including the satellite/wind timeline-sync hook.)
     }
 
     // Pre-compute all wind field images for smooth animation
