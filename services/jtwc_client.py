@@ -193,48 +193,121 @@ class JTWCClient:
 
     async def _fetch_active_warning_index(self) -> list[dict]:
         """
-        Parse the JTWC RSS feed to discover which storms currently have
-        active warnings. Returns a list of partial storm dicts with at
-        least `id`, `name`, `basin`, and the URL of the warning text.
+        Parse the JTWC RSS feed to discover active warnings.
+
+        The JTWC feed is NOT one item-per-storm. It has exactly four <item>
+        blocks — three per-region aggregates (NWPac/NIO, EPac, SH) plus one
+        "significant tropical weather advisories" item. Each region item's
+        <description> contains a CDATA-wrapped HTML snippet that lists the
+        currently active storms for that region, e.g.:
+
+            <p><b>Typhoon  04W (Sinlaku) Warning #25 </b>…
+            <a href='…/wp0426web.txt' target='newwin'>TC Warning Text</a>…
+
+        So we:
+          1. Iterate <item> blocks to get the CDATA HTML per region
+          2. Scan each HTML blob for "<b>…Warning #NN</b>" storm headers,
+             paired with the adjacent wpNNYYweb.txt URL
+
+        The URL is the source of truth for (basin, number, year) because
+        the HTML header uses 2-digit storm numbers that don't include the
+        year, and JTWC has had cross-year name collisions before.
         """
         resp = await self.http.get(JTWC_RSS_URL)
         resp.raise_for_status()
         text = resp.text
 
-        # Each active warning appears as an <item>…</item> block.
-        # Titles look like:
-        #   "Tropical Cyclone 26W (Sinlaku) Warning #014"
-        # or "Typhoon 26W (Sinlaku) Warning #014"
-        # Links point at a web-friendly landing page; we translate to the
-        # canonical .txt product URL below.
         items = re.findall(r"<item>(.*?)</item>", text, re.DOTALL | re.IGNORECASE)
 
         warnings: list[dict] = []
-        for item in items:
-            title = _extract_tag(item, "title") or ""
-            link = _extract_tag(item, "link") or ""
+        seen_ids: set[str] = set()
 
-            parsed = self._parse_rss_title(title)
-            if not parsed:
+        for item in items:
+            description = _extract_tag(item, "description") or ""
+            if not description:
                 continue
 
-            basin_lower = parsed["basin"].lower()
-            num = parsed["number"]
-            year = parsed["year"]
+            # Skip the "no current warnings" items to cut noise in logs.
+            if "no current tropical cyclone warnings" in description.lower():
+                continue
 
-            # Canonical text warning URL pattern used by JTWC.
-            txt_url = f"{JTWC_PRODUCT_BASE}/{basin_lower}{num:02d}{year % 100:02d}web.txt"
-
-            warnings.append({
-                "id": f"{parsed['basin']}{num:02d}{year}",
-                "name": parsed["name"],
-                "basin": parsed["basin"],
-                "rss_title": title.strip(),
-                "rss_link": link.strip(),
-                "warning_url": txt_url,
-            })
+            warnings.extend(
+                w for w in self._parse_region_description(description)
+                if w["id"] not in seen_ids and not seen_ids.add(w["id"])
+            )
 
         return warnings
+
+    def _parse_region_description(self, html: str) -> list[dict]:
+        """
+        Extract active-storm records from one region's CDATA HTML blob.
+
+        Pairs each "<b>Typhoon 04W (Sinlaku) Warning #25</b>" header with
+        the nearest wpNNYYweb.txt link that follows it.
+        """
+        # Find every storm header with its position in the blob so we can
+        # match it to the warning-text URL that appears right after.
+        header_pattern = re.compile(
+            r"<b>\s*"
+            r"(?P<kind>Super\s+Typhoon|Typhoon|Tropical\s+Storm|"
+            r"Tropical\s+Depression|Tropical\s+Cyclone)\s+"
+            r"(?P<num>\d{2})(?P<suffix>[WBAPSEC])\s*"
+            r"\((?P<name>[^)]+)\)\s*"
+            r"(?:Warning|Advisory)[^<]*</b>",
+            re.IGNORECASE,
+        )
+
+        url_pattern = re.compile(
+            r"(?P<url>https?://[^\s'\"]+?/"
+            r"(?P<basin_lower>wp|io|sh|cp|ep)"
+            r"(?P<num>\d{2})"
+            r"(?P<yr>\d{2})"
+            r"web\.txt)",
+            re.IGNORECASE,
+        )
+
+        suffix_map = {
+            "W": "WP",
+            "B": "IO", "A": "IO",
+            "P": "SH", "S": "SH",
+            "E": "EP", "C": "EP",
+        }
+
+        results: list[dict] = []
+        urls = list(url_pattern.finditer(html))
+
+        for hm in header_pattern.finditer(html):
+            # Find the closest URL that appears after this header in the blob.
+            pos = hm.end()
+            next_url = next((u for u in urls if u.start() >= pos), None)
+            if next_url is None:
+                continue
+
+            num = int(next_url.group("num"))
+            yr2 = int(next_url.group("yr"))
+            # JTWC product filenames use 2-digit years; resolve against the
+            # current century. Since JTWC only archives recent seasons at
+            # these URLs, this rule is safe.
+            year = 2000 + yr2
+            basin_lower = next_url.group("basin_lower").lower()
+            basin = JTWC_BASIN_MAP.get(basin_lower)
+            if basin is None:
+                # Fall back to parsing the header suffix if the URL used an
+                # unexpected prefix.
+                basin = suffix_map.get(hm.group("suffix").upper())
+            if basin is None:
+                continue
+
+            results.append({
+                "id": f"{basin}{num:02d}{year}",
+                "name": hm.group("name").strip().upper(),
+                "basin": basin,
+                "rss_title": hm.group(0),
+                "rss_link": next_url.group("url"),
+                "warning_url": next_url.group("url"),
+            })
+
+        return results
 
     def _parse_rss_title(self, title: str) -> Optional[dict]:
         """

@@ -132,11 +132,11 @@ WESTERN_PACIFIC_STORM_IDS = [
     "WP112025", "WP122025", "WP132025", "WP142025", "WP152025",
     "WP162025", "WP172025", "WP182025", "WP192025", "WP202025",
     "WP212025", "WP222025", "WP232025", "WP242025", "WP252025",
-    "WP262025",  # Sinlaku
-    "WP272025", "WP282025", "WP292025", "WP302025",
+    "WP262025", "WP272025", "WP282025", "WP292025", "WP302025",
     # 2026 (current season — fill in as storms develop)
-    "WP012026", "WP022026", "WP032026", "WP042026", "WP052026",
-    "WP062026", "WP072026", "WP082026", "WP092026", "WP102026",
+    "WP012026", "WP022026", "WP032026",
+    "WP042026",  # Sinlaku (active as of April 2026)
+    "WP052026", "WP062026", "WP072026", "WP082026", "WP092026", "WP102026",
 ]
 
 # Master per-basin catalog so main() can select subsets cleanly.
