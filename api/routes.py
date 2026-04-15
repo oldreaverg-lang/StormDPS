@@ -1164,11 +1164,24 @@ async def get_storm_track(
     prefix = storm_id[:2].upper()
 
     # --- Check IKE cache FIRST — skip all network I/O if already computed ---
-    # Exception: in-season JTWC ATCF IDs (WP/IO/SH with 8-char IDs) are active
-    # storms whose track updates every 6 hours as new warnings come in. Bypass
-    # the disk cache for those so the UI never serves a stale advisory.
+    # Exception: active storms get a new advisory every 3-6 hours, so serving
+    # a months-old IKE cache would show a stale position/intensity. Bypass the
+    # disk cache for anything we consider "live":
+    #   * All 8-char JTWC ATCF IDs (WP/IO/SH) — these only exist in-season
+    #   * NHC ATCF IDs (AL/EP) that currently appear in /storms/active
+    # Historical NHC storms (e.g. AL122005 Katrina) share the AL/EP prefix and
+    # 8-char length, so we can't key off that alone — we have to consult the
+    # active-storms cache. This keeps the hot path fast for museum pieces while
+    # making the hourly DPS refresh loop actually pick up live advisories.
     _is_live_jtwc = prefix in ("WP", "IO", "SH") and len(storm_id) == 8
-    if not _is_live_jtwc:
+    _is_live_nhc = False
+    if prefix in ("AL", "EP") and len(storm_id) == 8 and _active_storms_cache:
+        _is_live_nhc = any(
+            (s.get("id") or "").upper() == storm_id.upper()
+            for s in _active_storms_cache
+        )
+    _is_live = _is_live_jtwc or _is_live_nhc
+    if not _is_live:
         cached = _load_ike_cache(storm_id, grid_resolution_km, skip_points)
         if cached:
             logger.info(f"[CACHE HIT] {storm_id} — returning {len(cached)} cached IKE results")
@@ -1645,7 +1658,14 @@ async def _warm_one_dps(storm_id: str, *, force: bool = False) -> str:
 
 
 async def _collect_active_storm_ids(app_state) -> list[str]:
-    """Pull NHC active-storm IDs (ATCF format) without going through FastAPI DI."""
+    """
+    Pull NHC active-storm IDs (ATCF format) without going through FastAPI DI,
+    and populate the module-level _active_storms_cache so that the live-bypass
+    check in get_storm_track() sees these as live. Without this, the first
+    startup warm pass would serve stale IKE data for any newly-active NHC storm
+    (no one has hit /storms/active yet, so the cache is still None).
+    """
+    global _active_storms_cache, _active_storms_cache_time
     shared_client = getattr(app_state, "http_client", None)
     try:
         async with NOAAClient(http_client=shared_client) as client:
@@ -1653,6 +1673,9 @@ async def _collect_active_storm_ids(app_state) -> list[str]:
     except Exception as e:
         logger.warning(f"[DPS WARM] active-storms fetch failed: {e}")
         return []
+    if storms is not None:
+        _active_storms_cache = storms
+        _active_storms_cache_time = datetime.utcnow()
     ids: list[str] = []
     for s in storms or []:
         sid = (s.get("id") or "").strip()
