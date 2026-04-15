@@ -67,8 +67,13 @@ WIND_RADII_AUDIT_DIR = AUDIT_DIR / "wind_radii"
 # Eviction: keep last 48 hours of frames per satellite (see satellite_routes).
 SATELLITE_CACHE_DIR = CACHE_DIR / "satellite"
 
+# Wind field JSON cache — leaflet-velocity-formatted U/V grids fetched from
+# Open-Meteo. Layout: WIND_CACHE_DIR/<bbox_key>/<YYYYMMDDTHH>.json
+# Eviction: 48h TTL via wind_routes.evict_old_wind_frames.
+WIND_CACHE_DIR = CACHE_DIR / "wind"
+
 # ── Create all directories on import ────────────────────────────────────────
-for _d in (IKE_CACHE_DIR, DPS_CACHE_DIR, TRACK_CACHE_DIR, SATELLITE_CACHE_DIR, VALIDATION_DIR, WIND_RADII_AUDIT_DIR):
+for _d in (IKE_CACHE_DIR, DPS_CACHE_DIR, TRACK_CACHE_DIR, SATELLITE_CACHE_DIR, WIND_CACHE_DIR, VALIDATION_DIR, WIND_RADII_AUDIT_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 
@@ -140,6 +145,7 @@ def storage_summary() -> dict:
         "dps_cache": DPS_CACHE_DIR,
         "track_cache": TRACK_CACHE_DIR,
         "satellite_cache": SATELLITE_CACHE_DIR,
+        "wind_cache": WIND_CACHE_DIR,
     }.items():
         sz = _dir_size(path)
         total_bytes += sz

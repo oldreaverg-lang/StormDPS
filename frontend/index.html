@@ -58,6 +58,8 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-velocity@2.1.4/dist/leaflet-velocity.css"/>
+    <script src="https://unpkg.com/leaflet-velocity@2.1.4/dist/leaflet-velocity.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
@@ -513,6 +515,7 @@
                     <input type="range" id="satelliteSliderInput" min="0" max="0" value="0" step="1" style="width:100%;cursor:pointer" oninput="onSatelliteFrameScrub(this.value)">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:.25rem;gap:.5rem">
                         <button id="satellitePlayBtn" onclick="toggleSatellitePlay()" style="background:rgba(59,130,246,.18);border:1px solid rgba(59,130,246,.4);color:#93c5fd;padding:.15rem .55rem;border-radius:4px;cursor:pointer;font-size:.62rem;font-weight:600;font-family:inherit">&#9658; Play</button>
+                        <button id="windToggleBtn" onclick="toggleWindLayer()" style="background:rgba(100,116,139,.18);border:1px solid rgba(100,116,139,.4);color:#94a3b8;padding:.15rem .55rem;border-radius:4px;cursor:pointer;font-size:.62rem;font-weight:600;font-family:inherit">Wind</button>
                         <div id="satelliteName" style="font-size:.6rem;text-transform:uppercase;letter-spacing:.5px;color:#64748b">--</div>
                     </div>
                 </div>
@@ -3650,6 +3653,8 @@ function setSatelliteFrame(idx) {
     if (lbl) lbl.textContent = formatSatelliteFrameLabel(ts);
     const slider = document.getElementById('satelliteSliderInput');
     if (slider && parseInt(slider.value,10) !== idx) slider.value = idx;
+    // Sync the wind layer (no-op if disabled or same hour)
+    if (window._windState && window._windState.enabled) setWindFrame(ts);
 }
 
 function onSatelliteFrameScrub(value) {
@@ -3689,6 +3694,23 @@ function teardownSatelliteLayer() {
     if (slider) slider.style.display = 'none';
     const btn = document.getElementById('satellitePlayBtn');
     if (btn) btn.innerHTML = '&#9658; Play';
+    // Tear down the wind layer too — its bbox is tied to the satellite session.
+    const w = window._windState;
+    if (w) {
+        if (w.layer && currentMap) {
+            try { currentMap.removeLayer(w.layer); } catch(e) {}
+        }
+        w.layer = null;
+        w.enabled = false;
+        w.bbox = null;
+        w.currentTs = null;
+        const wbtn = document.getElementById('windToggleBtn');
+        if (wbtn) {
+            wbtn.style.background = 'rgba(100,116,139,.18)';
+            wbtn.style.borderColor = 'rgba(100,116,139,.4)';
+            wbtn.style.color = '#94a3b8';
+        }
+    }
 }
 
 async function initSatelliteLayer(data) {
@@ -3738,6 +3760,100 @@ async function initSatelliteLayer(data) {
     if (wrap) wrap.style.display = 'block';
     const lbl = document.getElementById('satelliteFrameLabel');
     if (lbl) lbl.textContent = formatSatelliteFrameLabel(frames[st.currentIdx]);
+
+    // Cache the storm bbox on the wind state so the wind layer can fetch
+    // matching frames without re-deriving it. ±5° padding gives the wind
+    // particles room to flow off the storm center.
+    const lats=data.map(d=>d.lat), lons=data.map(d=>d.lon);
+    window._windState.bbox = [
+        Math.max(-60, Math.min(...lats) - 5),
+        Math.max(-180, Math.min(...lons) - 5),
+        Math.min( 60, Math.max(...lats) + 5),
+        Math.min( 180, Math.max(...lons) + 5),
+    ];
+}
+
+// ── Wind layer state (mutable across calls) ───────────────────────────────
+// leaflet-velocity overlay backed by /wind/field (Open-Meteo proxy). The
+// satellite slider drives both layers — see setSatelliteFrame below.
+window._windState = {
+    layer: null,
+    enabled: false,
+    bbox: null,             // [s,w,n,e] cached by initSatelliteLayer
+    currentTs: null,        // YYYYMMDDTHH (wind is hourly)
+    fetchToken: 0,          // monotonic counter to drop stale responses
+};
+
+function _satelliteTsToWindTs(ts) {
+    // YYYYMMDDTHHMM (30-min cadence) → YYYYMMDDTHH (hourly), floor.
+    if (!ts || ts.length < 13) return null;
+    return ts.slice(0, 11);  // 'YYYYMMDDTHH'
+}
+
+async function setWindFrame(satelliteTs) {
+    const st = window._windState;
+    if (!st.enabled || !st.bbox || !currentMap) return;
+    const windTs = _satelliteTsToWindTs(satelliteTs);
+    if (!windTs || windTs === st.currentTs) return;  // dedupe identical hour
+    st.currentTs = windTs;
+    const token = ++st.fetchToken;
+    const [s,w,n,e] = st.bbox;
+    let payload = null;
+    try {
+        const r = await fetch(`${API_BASE}/wind/field?bbox=${s.toFixed(2)},${w.toFixed(2)},${n.toFixed(2)},${e.toFixed(2)}&ts=${windTs}&res=1.0`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        payload = await r.json();
+    } catch (e) {
+        console.warn('[WIND] field fetch failed:', e);
+        return;
+    }
+    if (token !== st.fetchToken || !st.enabled) return;  // superseded
+    if (st.layer) {
+        try { st.layer.setData(payload); } catch (e) { console.warn('[WIND] setData failed:', e); }
+    } else {
+        st.layer = L.velocityLayer({
+            displayValues: false,
+            data: payload,
+            maxVelocity: 60,        // m/s — saturates the colormap at hurricane wind
+            velocityScale: 0.012,
+            particleAge: 64,
+            lineWidth: 1.2,
+            particleMultiplier: 0.0015,
+            colorScale: ['#3b82f6','#22d3ee','#a3e635','#facc15','#f97316','#ef4444','#ec4899'],
+        }).addTo(currentMap);
+        try { st.layer.setZIndex && st.layer.setZIndex(250); } catch(e) {}
+    }
+}
+
+function toggleWindLayer() {
+    const st = window._windState;
+    const btn = document.getElementById('windToggleBtn');
+    if (st.enabled) {
+        st.enabled = false;
+        if (st.layer && currentMap) {
+            try { currentMap.removeLayer(st.layer); } catch(e) {}
+        }
+        st.layer = null;
+        st.currentTs = null;
+        if (btn) {
+            btn.style.background = 'rgba(100,116,139,.18)';
+            btn.style.borderColor = 'rgba(100,116,139,.4)';
+            btn.style.color = '#94a3b8';
+        }
+    } else {
+        if (!window._satelliteState || !window._satelliteState.frames.length || !st.bbox) {
+            console.warn('[WIND] cannot enable — satellite slider not initialized');
+            return;
+        }
+        st.enabled = true;
+        if (btn) {
+            btn.style.background = 'rgba(34,211,238,.22)';
+            btn.style.borderColor = 'rgba(34,211,238,.5)';
+            btn.style.color = '#67e8f9';
+        }
+        const satTs = window._satelliteState.frames[window._satelliteState.currentIdx];
+        setWindFrame(satTs);
+    }
 }
 
 function renderMap(data){
