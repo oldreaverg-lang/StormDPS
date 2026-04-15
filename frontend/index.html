@@ -60,6 +60,8 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet-velocity@2.1.4/dist/leaflet-velocity.css"/>
     <script src="https://unpkg.com/leaflet-velocity@2.1.4/dist/leaflet-velocity.js"></script>
+    <!-- d3-contour: client-side isobar generation for the Pressure overlay -->
+    <script src="https://cdn.jsdelivr.net/npm/d3-contour@4/dist/d3-contour.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
@@ -548,6 +550,9 @@
                         <button id="windToggleBtn" onclick="toggleWindLayer()" disabled title="Loading satellite frames…" style="flex:1;background:rgba(100,116,139,.10);border:1px solid rgba(100,116,139,.25);color:#64748b;padding:.2rem .4rem;border-radius:3px;cursor:not-allowed;font-size:.62rem;font-weight:600;font-family:inherit;opacity:.6">Wind: Off</button>
                         <div id="satelliteName" style="font-size:.55rem;text-transform:uppercase;letter-spacing:.5px;color:#64748b;text-align:right">--</div>
                     </div>
+                    <div style="display:flex;align-items:center;gap:.4rem;margin-top:.3rem">
+                        <button id="pressureToggleBtn" onclick="togglePressureLayer()" disabled title="Loading satellite frames…" style="flex:1;background:rgba(100,116,139,.10);border:1px solid rgba(100,116,139,.25);color:#64748b;padding:.2rem .4rem;border-radius:3px;cursor:not-allowed;font-size:.62rem;font-weight:600;font-family:inherit;opacity:.6">Pressure: Off</button>
+                    </div>
                     <!-- Wind speed color legend (visible when wind layer is on) -->
                     <div id="windLegend" style="display:none;margin-top:.4rem;padding-top:.35rem;border-top:1px solid rgba(148,163,184,.18)">
                         <div style="font-size:.55rem;color:#94a3b8;margin-bottom:.15rem;text-align:center;letter-spacing:.04em">Wind speed (mph)</div>
@@ -574,6 +579,30 @@
                                    style="flex:1;height:3px;accent-color:#22d3ee;cursor:pointer">
                             <span id="windOpacityLabel" style="font-size:.5rem;color:#94a3b8;font-variant-numeric:tabular-nums;min-width:1.6rem;text-align:right">55%</span>
                         </div>
+                    </div>
+                    <!-- Pressure (MSLP) color legend (visible when pressure layer is on) -->
+                    <div id="pressureLegend" style="display:none;margin-top:.4rem;padding-top:.35rem;border-top:1px solid rgba(148,163,184,.18)">
+                        <div style="font-size:.55rem;color:#94a3b8;margin-bottom:.15rem;text-align:center;letter-spacing:.04em">Pressure (mb)</div>
+                        <!-- Standard atmosphere = 1013.25 mb, marked with a tick -->
+                        <div style="position:relative;height:6px;border-radius:3px;background:linear-gradient(90deg,#1e3a8a 0%,#3b82f6 22%,#67e8f9 45%,#f8fafc 57%,#fde68a 70%,#f97316 85%,#7f1d1d 100%)">
+                            <div style="position:absolute;left:57%;top:-2px;width:1px;height:10px;background:rgba(15,23,42,.6)"></div>
+                        </div>
+                        <div style="position:relative;height:.85rem;font-size:.5rem;color:#94a3b8;font-variant-numeric:tabular-nums;margin-top:.1rem">
+                            <span style="position:absolute;left:0">970</span>
+                            <span style="position:absolute;left:57%;transform:translateX(-50%);color:#cbd5e1">1013</span>
+                            <span style="position:absolute;right:0">1045+</span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:.35rem;margin-top:.25rem">
+                            <span style="font-size:.5rem;color:#64748b;letter-spacing:.04em">DIM</span>
+                            <input type="range" id="pressureOpacityInput" min="10" max="95" value="55" step="5"
+                                   oninput="setPressureOpacity(this.value)"
+                                   style="flex:1;height:3px;accent-color:#a855f7;cursor:pointer">
+                            <span id="pressureOpacityLabel" style="font-size:.5rem;color:#94a3b8;font-variant-numeric:tabular-nums;min-width:1.6rem;text-align:right">55%</span>
+                        </div>
+                        <label style="display:flex;align-items:center;gap:.3rem;margin-top:.25rem;font-size:.55rem;color:#94a3b8;cursor:pointer">
+                            <input type="checkbox" id="pressureStationsToggle" checked onchange="togglePressureStations(this.checked)" style="margin:0;cursor:pointer">
+                            <span>Show station obs</span>
+                        </label>
                     </div>
                     <!-- Frame timestamp readout (synced with storm timeline) -->
                     <div style="display:flex;justify-content:space-between;margin-top:.35rem;font-size:.55rem;color:#64748b">
@@ -3729,6 +3758,8 @@ function setSatelliteFrame(idx) {
     }
     // Sync the wind layer (no-op if disabled or same hour)
     if (window._windState && window._windState.enabled) setWindFrame(ts);
+    // Sync the pressure layer (no-op if disabled or same hour)
+    if (window._pressureState && window._pressureState.enabled) setPressureFrame(ts);
 }
 
 // Recenter the map on the storm's most-recent (eye) position. Useful when the
@@ -3783,6 +3814,30 @@ function teardownSatelliteLayer() {
         }
         const wleg = document.getElementById('windLegend');
         if (wleg) wleg.style.display = 'none';
+    }
+    // Tear down the pressure layer too — it's also bbox-tied to the session.
+    const p = window._pressureState;
+    if (p) {
+        ['fillLayer','isobarLayer','stationLayer'].forEach(k => {
+            if (p[k] && currentMap) { try { currentMap.removeLayer(p[k]); } catch(e) {} }
+            p[k] = null;
+        });
+        p.enabled = false;
+        p.bbox = null;
+        p.currentTs = null;
+        const pbtn = document.getElementById('pressureToggleBtn');
+        if (pbtn) {
+            pbtn.disabled = true;
+            pbtn.title = 'Loading satellite frames…';
+            pbtn.style.cursor = 'not-allowed';
+            pbtn.style.opacity = '.6';
+            pbtn.style.background = 'rgba(100,116,139,.10)';
+            pbtn.style.borderColor = 'rgba(100,116,139,.25)';
+            pbtn.style.color = '#64748b';
+            pbtn.textContent = 'Pressure: Off';
+        }
+        const pleg = document.getElementById('pressureLegend');
+        if (pleg) pleg.style.display = 'none';
     }
 }
 
@@ -3841,7 +3896,7 @@ async function initSatelliteLayer(data) {
     }
     if (nameEl) nameEl.textContent = sat.replace('-', ' ').toUpperCase();
     if (wrap) wrap.style.display = 'block';
-    // Satellite is ready — enable the Wind toggle.
+    // Satellite is ready — enable the Wind + Pressure toggles.
     const _wbtnReady = document.getElementById('windToggleBtn');
     if (_wbtnReady) {
         _wbtnReady.disabled = false;
@@ -3851,6 +3906,16 @@ async function initSatelliteLayer(data) {
         _wbtnReady.style.background = 'rgba(100,116,139,.18)';
         _wbtnReady.style.borderColor = 'rgba(100,116,139,.4)';
         _wbtnReady.style.color = '#94a3b8';
+    }
+    const _pbtnReady = document.getElementById('pressureToggleBtn');
+    if (_pbtnReady) {
+        _pbtnReady.disabled = false;
+        _pbtnReady.title = 'Toggle MSLP field, isobars, and station obs';
+        _pbtnReady.style.cursor = 'pointer';
+        _pbtnReady.style.opacity = '1';
+        _pbtnReady.style.background = 'rgba(100,116,139,.18)';
+        _pbtnReady.style.borderColor = 'rgba(100,116,139,.4)';
+        _pbtnReady.style.color = '#94a3b8';
     }
     const lbl = document.getElementById('satelliteFrameLabel');
     if (lbl) lbl.textContent = formatSatelliteFrameLabel(frames[st.currentIdx]);
@@ -3862,15 +3927,24 @@ async function initSatelliteLayer(data) {
         window.syncOverlaysToTimestampMs(new Date(data[idx0].timestamp).getTime());
     }
 
-    // Cache the storm bbox on the wind state so the wind layer can fetch
-    // matching frames without re-deriving it. ±5° padding gives the wind
-    // particles room to flow off the storm center.
+    // Cache the storm bbox on the wind + pressure states so both layers can
+    // fetch matching frames without re-deriving it. ±5° padding gives the
+    // wind particles room to flow off the storm center; pressure benefits
+    // from a wider context so the synoptic field reads correctly.
     const lats=data.map(d=>d.lat), lons=data.map(d=>d.lon);
-    window._windState.bbox = [
+    const windBbox = [
         Math.max(-60, Math.min(...lats) - 5),
         Math.max(-180, Math.min(...lons) - 5),
         Math.min( 60, Math.max(...lats) + 5),
         Math.min( 180, Math.max(...lons) + 5),
+    ];
+    window._windState.bbox = windBbox;
+    // Slightly larger pad for pressure so isobars don't clip the viewport.
+    window._pressureState.bbox = [
+        Math.max(-60, Math.min(...lats) - 8),
+        Math.max(-180, Math.min(...lons) - 8),
+        Math.min( 60, Math.max(...lats) + 8),
+        Math.min( 180, Math.max(...lons) + 8),
     ];
 }
 
@@ -4071,6 +4145,328 @@ function toggleWindLayer() {
         }
         const satTs = window._satelliteState.frames[window._satelliteState.currentIdx];
         setWindFrame(satTs);
+    }
+}
+
+// ── Pressure (MSLP) layer ─────────────────────────────────────────────────
+// Three sub-layers stacked under the storm track:
+//   1. Color-shaded MSLP fill        → L.imageOverlay rendered from canvas
+//   2. White isobars (every 4 hPa)   → L.layerGroup of L.polylines via d3-contour
+//   3. METAR station-pressure pills  → L.layerGroup of L.divIcon markers
+// Sync follows the same pattern as the wind layer: setPressureFrame is
+// called on every Storm Timeline scrub (debounced) and shares bbox with
+// the satellite state so all three overlays line up.
+window._pressureState = {
+    fillLayer:    null,    // L.imageOverlay
+    isobarLayer:  null,    // L.layerGroup
+    stationLayer: null,    // L.layerGroup
+    enabled:      false,
+    showStations: true,
+    bbox:         null,    // [s,w,n,e] cached by initSatelliteLayer
+    currentTs:    null,    // YYYYMMDDTHH (hourly)
+    fetchToken:   0,
+    debounceTimer: null,
+    pendingTs:    null,
+};
+
+function _pressureButtonReset() {
+    const btn = document.getElementById('pressureToggleBtn');
+    const legend = document.getElementById('pressureLegend');
+    if (btn) {
+        btn.style.background = 'rgba(100,116,139,.18)';
+        btn.style.borderColor = 'rgba(100,116,139,.4)';
+        btn.style.color = '#94a3b8';
+        btn.textContent = 'Pressure: Off';
+        btn.disabled = false;
+        btn.style.cursor = 'pointer';
+        btn.style.opacity = '1';
+    }
+    if (legend) legend.style.display = 'none';
+}
+
+// Color ramp: 970 mb (deep blue) → 1013 mb (white) → 1045 mb (deep red).
+// Matches the Pressure legend gradient.
+function _pressureColor(hpa) {
+    const stops = [
+        [970,  [30,  58,  138]], // #1e3a8a
+        [988,  [59,  130, 246]], // #3b82f6
+        [1004, [103, 232, 249]], // #67e8f9
+        [1013, [248, 250, 252]], // #f8fafc
+        [1024, [253, 230, 138]], // #fde68a
+        [1035, [249, 115, 22]],  // #f97316
+        [1045, [127, 29,  29]],  // #7f1d1d
+    ];
+    if (hpa <= stops[0][0]) return stops[0][1];
+    if (hpa >= stops[stops.length-1][0]) return stops[stops.length-1][1];
+    for (let i = 0; i < stops.length - 1; i++) {
+        const [a, ca] = stops[i], [b, cb] = stops[i+1];
+        if (hpa >= a && hpa <= b) {
+            const t = (hpa - a) / (b - a);
+            return [
+                Math.round(ca[0] + (cb[0]-ca[0]) * t),
+                Math.round(ca[1] + (cb[1]-ca[1]) * t),
+                Math.round(ca[2] + (cb[2]-ca[2]) * t),
+            ];
+        }
+    }
+    return [240, 240, 240];
+}
+
+// Render the MSLP grid as a colored canvas → data URL → L.imageOverlay.
+// Browser's bilinear upscaling smooths the cell edges naturally.
+function _renderPressureFillCanvas(field) {
+    const nx = field.nx, ny = field.ny, data = field.data;
+    const cv = document.createElement('canvas');
+    cv.width = nx; cv.height = ny;
+    const ctx = cv.getContext('2d');
+    const img = ctx.createImageData(nx, ny);
+    for (let j = 0; j < ny; j++) {
+        const row = data[j];
+        for (let i = 0; i < nx; i++) {
+            const c = _pressureColor(row[i]);
+            const k = (j * nx + i) * 4;
+            img.data[k]   = c[0];
+            img.data[k+1] = c[1];
+            img.data[k+2] = c[2];
+            img.data[k+3] = 255;
+        }
+    }
+    ctx.putImageData(img, 0, 0);
+    return cv.toDataURL('image/png');
+}
+
+// Run d3-contour on the flat grid to get isobar polygons. d3 returns
+// MultiPolygons in grid coordinates (x ∈ [0..nx], y ∈ [0..ny]); we
+// convert each ring to lat/lon using the field's bbox + resolution.
+function _buildIsobarPolylines(field) {
+    if (!window.d3 || !window.d3.contours) return [];
+    const nx = field.nx, ny = field.ny;
+    // Flatten data row-by-row (top-to-bottom matches d3's expectation).
+    const flat = new Float64Array(nx * ny);
+    for (let j = 0; j < ny; j++) {
+        const row = field.data[j];
+        for (let i = 0; i < nx; i++) flat[j * nx + i] = row[i];
+    }
+    // Snap thresholds to nearest 4 hPa boundaries inside the field range.
+    const lo = Math.floor(field.min / 4) * 4;
+    const hi = Math.ceil(field.max / 4) * 4;
+    const thresholds = [];
+    for (let v = lo; v <= hi; v += 4) thresholds.push(v);
+    let contours;
+    try {
+        contours = d3.contours().size([nx, ny]).thresholds(thresholds)(flat);
+    } catch (e) {
+        console.warn('[PRESSURE] d3-contour failed:', e);
+        return [];
+    }
+    const la1 = field.la1, lo1 = field.lo1;
+    const dx  = field.dx,  dy  = field.dy;
+    // Convert grid (x, y) → lat/lon. y=0 is the top row (highest lat).
+    const toLatLng = (x, y) => [la1 - y * dy, lo1 + x * dx];
+    const out = [];
+    contours.forEach(c => {
+        const value = c.value;
+        // Style emphasis on multiples of 8; standard atmosphere stands out.
+        const isMain = (value % 8) === 0;
+        const isStd  = Math.abs(value - 1012) < 0.1;
+        c.coordinates.forEach(poly => {
+            poly.forEach(ring => {
+                const ll = ring.map(([x,y]) => toLatLng(x, y));
+                out.push({
+                    latlngs: ll,
+                    value,
+                    isMain,
+                    isStd,
+                });
+            });
+        });
+    });
+    return out;
+}
+
+function setPressureFrame(satelliteTs) {
+    const st = window._pressureState;
+    if (!st.enabled || !st.bbox || !currentMap) return;
+    st.pendingTs = satelliteTs;
+    if (st.debounceTimer) clearTimeout(st.debounceTimer);
+    st.debounceTimer = setTimeout(() => {
+        st.debounceTimer = null;
+        const ts = st.pendingTs;
+        st.pendingTs = null;
+        if (ts) _setPressureFrameNow(ts);
+    }, 200);
+}
+
+async function _setPressureFrameNow(satelliteTs) {
+    const st = window._pressureState;
+    if (!st.enabled || !st.bbox || !currentMap) return;
+    // Pressure is hourly (same as wind).
+    const presTs = satelliteTs && satelliteTs.length >= 13 ? satelliteTs.slice(0, 11) : null;
+    if (!presTs || presTs === st.currentTs) return;
+    const prevTs = st.currentTs;
+    st.currentTs = presTs;
+    const token = ++st.fetchToken;
+    const [s,w,n,e] = st.bbox;
+
+    let field = null;
+    try {
+        const r = await fetch(`${API_BASE}/pressure/field?bbox=${s.toFixed(2)},${w.toFixed(2)},${n.toFixed(2)},${e.toFixed(2)}&ts=${presTs}&res=1.0`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        field = await r.json();
+    } catch (e) {
+        console.warn('[PRESSURE] field fetch failed:', e);
+        if (token === st.fetchToken) st.currentTs = prevTs;
+        if (!st.fillLayer) {
+            st.enabled = false;
+            _pressureButtonReset();
+        }
+        return;
+    }
+    if (token !== st.fetchToken || !st.enabled) return;
+
+    // Flip the button state on first successful frame.
+    const btn = document.getElementById('pressureToggleBtn');
+    const leg = document.getElementById('pressureLegend');
+    if (btn) {
+        btn.style.background = 'rgba(168,85,247,.22)';
+        btn.style.borderColor = 'rgba(168,85,247,.5)';
+        btn.style.color = '#d8b4fe';
+        btn.textContent = 'Pressure: On';
+        btn.disabled = false;
+    }
+    if (leg) leg.style.display = 'block';
+
+    // Build/update the colored fill overlay.
+    const dataUrl = _renderPressureFillCanvas(field);
+    const bounds  = [[field.la2, field.lo1], [field.la1, field.lo2]];
+    const opIn    = document.getElementById('pressureOpacityInput');
+    const op      = opIn ? (parseInt(opIn.value, 10) / 100) : 0.55;
+    if (st.fillLayer) {
+        try { currentMap.removeLayer(st.fillLayer); } catch (e) {}
+    }
+    st.fillLayer = L.imageOverlay(dataUrl, bounds, {
+        opacity: op,
+        interactive: false,
+        zIndex: 220,            // above satellite (200), below wind (250) + track
+    }).addTo(currentMap);
+
+    // Build/update the isobar layer.
+    const polylines = _buildIsobarPolylines(field);
+    if (st.isobarLayer) {
+        try { currentMap.removeLayer(st.isobarLayer); } catch (e) {}
+    }
+    st.isobarLayer = L.layerGroup();
+    polylines.forEach(({latlngs, value, isMain, isStd}) => {
+        const weight = isStd ? 1.4 : (isMain ? 1.1 : 0.7);
+        const color  = isStd ? 'rgba(255,255,255,.85)' : (isMain ? 'rgba(255,255,255,.65)' : 'rgba(255,255,255,.4)');
+        const pl = L.polyline(latlngs, {
+            color, weight, opacity: 1, interactive: false,
+        });
+        st.isobarLayer.addLayer(pl);
+        // Label every 8 hPa isobar at its midpoint.
+        if (isMain && latlngs.length > 4) {
+            const mid = latlngs[Math.floor(latlngs.length / 2)];
+            const lbl = L.marker(mid, {
+                interactive: false,
+                icon: L.divIcon({
+                    className: 'pressure-isobar-label',
+                    html: `<span style="background:rgba(15,23,42,.65);color:#fff;font-size:9px;font-weight:600;padding:0 3px;border-radius:2px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">${value}</span>`,
+                    iconSize: [24, 12],
+                    iconAnchor: [12, 6],
+                }),
+            });
+            st.isobarLayer.addLayer(lbl);
+        }
+    });
+    st.isobarLayer.addTo(currentMap);
+
+    // Refresh the station pills (independent of the field timestamp).
+    if (st.showStations) _refreshPressureStations();
+}
+
+async function _refreshPressureStations() {
+    const st = window._pressureState;
+    if (!st.bbox || !currentMap) return;
+    const [s,w,n,e] = st.bbox;
+    let body = null;
+    try {
+        const r = await fetch(`${API_BASE}/pressure/stations?bbox=${s.toFixed(2)},${w.toFixed(2)},${n.toFixed(2)},${e.toFixed(2)}`);
+        if (!r.ok) return;
+        body = await r.json();
+    } catch (e) {
+        console.warn('[PRESSURE] stations fetch failed:', e);
+        return;
+    }
+    const stations = (body && body.stations) || [];
+    if (st.stationLayer) {
+        try { currentMap.removeLayer(st.stationLayer); } catch (e) {}
+    }
+    st.stationLayer = L.layerGroup();
+    stations.forEach(s2 => {
+        const m = L.marker([s2.lat, s2.lon], {
+            interactive: true,
+            icon: L.divIcon({
+                className: 'pressure-station-pill',
+                html: `<div style="background:#fff;color:#0f172a;border:1px solid rgba(15,23,42,.25);border-radius:9px;padding:1px 5px;font-size:9.5px;font-weight:700;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;box-shadow:0 1px 2px rgba(0,0,0,.25);white-space:nowrap">${Math.round(s2.pressure)}</div>`,
+                iconSize: [30, 14],
+                iconAnchor: [15, 7],
+            }),
+        });
+        m.bindTooltip(`<b>${s2.icao}</b><br>MSLP: ${s2.pressure} mb`, {direction:'top', offset:L.point(0,-6)});
+        st.stationLayer.addLayer(m);
+    });
+    st.stationLayer.addTo(currentMap);
+}
+
+window.setPressureOpacity = function(value) {
+    const pct = Math.max(10, Math.min(95, parseInt(value, 10) || 55));
+    const lbl = document.getElementById('pressureOpacityLabel');
+    if (lbl) lbl.textContent = pct + '%';
+    const st = window._pressureState;
+    if (st && st.fillLayer && st.fillLayer.setOpacity) {
+        try { st.fillLayer.setOpacity(pct / 100); } catch (e) {}
+    }
+};
+
+window.togglePressureStations = function(checked) {
+    const st = window._pressureState;
+    if (!st) return;
+    st.showStations = !!checked;
+    if (!st.enabled) return;
+    if (checked) {
+        _refreshPressureStations();
+    } else if (st.stationLayer && currentMap) {
+        try { currentMap.removeLayer(st.stationLayer); } catch (e) {}
+        st.stationLayer = null;
+    }
+};
+
+function togglePressureLayer() {
+    const st = window._pressureState;
+    const btn = document.getElementById('pressureToggleBtn');
+    if (st.enabled) {
+        st.enabled = false;
+        ['fillLayer','isobarLayer','stationLayer'].forEach(k => {
+            if (st[k] && currentMap) { try { currentMap.removeLayer(st[k]); } catch(e) {} }
+            st[k] = null;
+        });
+        st.currentTs = null;
+        _pressureButtonReset();
+    } else {
+        if (!window._satelliteState || !window._satelliteState.frames.length || !st.bbox) {
+            console.warn('[PRESSURE] cannot enable — satellite slider not initialized');
+            return;
+        }
+        st.enabled = true;
+        if (btn) {
+            btn.style.background = 'rgba(250,204,21,.18)';
+            btn.style.borderColor = 'rgba(250,204,21,.4)';
+            btn.style.color = '#fde047';
+            btn.textContent = 'Pressure: Loading…';
+            btn.disabled = true;
+        }
+        const satTs = window._satelliteState.frames[window._satelliteState.currentIdx];
+        setPressureFrame(satTs);
     }
 }
 

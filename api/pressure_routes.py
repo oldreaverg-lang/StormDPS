@@ -1,0 +1,407 @@
+"""
+Mean Sea Level Pressure (MSLP) layer backed by Open-Meteo + METAR.
+
+Two endpoints power the frontend Pressure overlay:
+
+    GET /pressure/field?bbox=lat0,lon0,lat1,lon1&ts=YYYYMMDDTHH&res=1.0
+        Returns a regular grid of pressure_msl values (hPa) covering the
+        bbox at *res* degrees. Frontend uses this to:
+          - Color-shade the field via a canvas overlay
+          - Run d3-contour to draw isobars every 4 hPa
+
+    GET /pressure/stations?bbox=lat0,lon0,lat1,lon1
+        Returns recent METAR station-pressure observations inside the bbox
+        from aviationweather.gov. Frontend renders these as small white
+        pills on the map (the "1012 / 1009 / 1007" labels in the reference).
+
+Both endpoints persist responses to the Railway volume so we don't burn the
+Open-Meteo / METAR free tiers on repeat scrubs.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import math
+import os
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import httpx
+from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import JSONResponse
+
+from storage import PRESSURE_CACHE_DIR, METAR_CACHE_DIR
+
+logger = logging.getLogger(__name__)
+router = APIRouter()
+
+# ── Upstream config ─────────────────────────────────────────────────────────
+
+_FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+_ARCHIVE_URL  = "https://archive-api.open-meteo.com/v1/era5"
+_METAR_URL    = "https://aviationweather.gov/api/data/metar"
+_HTTP_TIMEOUT = httpx.Timeout(25.0, connect=5.0)
+
+_MAX_GRID_POINTS = 900   # 30 × 30 — same cap as wind for parity
+_MIN_RES_DEG     = 0.5
+_MAX_RES_DEG     = 2.0
+_DEFAULT_RES_DEG = 1.0
+_CACHE_TTL_HOURS = 48
+_METAR_TTL_MIN   = 15    # observations refresh hourly; 15-min cache is safe
+
+
+# ── Helpers ─────────────────────────────────────────────────────────────────
+
+def _bbox_key(lat0: float, lon0: float, lat1: float, lon1: float, res: float) -> str:
+    return f"{lat0:+06.1f}_{lon0:+07.1f}_{lat1:+06.1f}_{lon1:+07.1f}_r{res:.1f}"
+
+
+def _metar_key(lat0: float, lon0: float, lat1: float, lon1: float) -> str:
+    return f"{lat0:+06.1f}_{lon0:+07.1f}_{lat1:+06.1f}_{lon1:+07.1f}"
+
+
+def _parse_ts(ts: str) -> datetime:
+    if len(ts) != 11 or ts[8] != "T":
+        raise HTTPException(400, "Invalid ts; expected YYYYMMDDTHH")
+    try:
+        return datetime.strptime(ts, "%Y%m%dT%H").replace(tzinfo=timezone.utc)
+    except ValueError as e:
+        raise HTTPException(400, f"Invalid ts: {e}")
+
+
+def _build_grid(lat0: float, lon0: float, lat1: float, lon1: float, res: float
+                ) -> tuple[list[float], list[float], int, int, float]:
+    """Build a regular row-major grid (top row = highest lat).
+
+    Returns (lats, lons, ny, nx, effective_res).
+    """
+    lat_min, lat_max = sorted([lat0, lat1])
+    lon_min, lon_max = sorted([lon0, lon1])
+    nx = max(2, int(math.floor((lon_max - lon_min) / res)) + 1)
+    ny = max(2, int(math.floor((lat_max - lat_min) / res)) + 1)
+    while nx * ny > _MAX_GRID_POINTS:
+        res *= 1.25
+        nx = max(2, int(math.floor((lon_max - lon_min) / res)) + 1)
+        ny = max(2, int(math.floor((lat_max - lat_min) / res)) + 1)
+    lats: list[float] = []
+    lons: list[float] = []
+    for j in range(ny):
+        lat = lat_max - j * res
+        for i in range(nx):
+            lon = lon_min + i * res
+            lats.append(round(lat, 4))
+            lons.append(round(lon, 4))
+    return lats, lons, ny, nx, res
+
+
+async def _fetch_open_meteo_pressure(lats: list[float], lons: list[float],
+                                     ts_dt: datetime) -> list[float | None]:
+    """Hit Open-Meteo for pressure_msl at every point.
+
+    Returns hPa values parallel to lats/lons (None for any point that
+    didn't come back).
+    """
+    now = datetime.now(timezone.utc)
+    is_archive = ts_dt < now - timedelta(days=7)
+    base = _ARCHIVE_URL if is_archive else _FORECAST_URL
+
+    params = {
+        "latitude": ",".join(f"{x:.4f}" for x in lats),
+        "longitude": ",".join(f"{x:.4f}" for x in lons),
+        "hourly": "pressure_msl",
+        "timezone": "UTC",
+    }
+    if is_archive:
+        params["start_date"] = ts_dt.strftime("%Y-%m-%d")
+        params["end_date"]   = ts_dt.strftime("%Y-%m-%d")
+    else:
+        delta_days = (now.date() - ts_dt.date()).days
+        params["past_days"] = max(0, min(7, delta_days + 1))
+        params["forecast_days"] = 3
+
+    async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
+        r = await client.get(base, params=params)
+    if r.status_code != 200:
+        raise HTTPException(502, f"Open-Meteo {r.status_code}: {r.text[:200]}")
+    body = r.json()
+    if isinstance(body, dict):
+        body = [body]
+
+    target_iso = ts_dt.strftime("%Y-%m-%dT%H:00")
+    out: list[float | None] = []
+    for entry in body:
+        h = entry.get("hourly") or {}
+        times = h.get("time") or []
+        ps    = h.get("pressure_msl") or []
+        try:
+            idx = times.index(target_iso)
+            v = ps[idx] if idx < len(ps) else None
+        except (ValueError, IndexError):
+            v = None
+        out.append(v)
+    while len(out) < len(lats):
+        out.append(None)
+    return out
+
+
+def _build_field_payload(lats: list[float], lons: list[float],
+                         ny: int, nx: int, res: float,
+                         pressures: list[float | None],
+                         ts_dt: datetime) -> dict:
+    """Pack into a compact grid the frontend can color + contour."""
+    # Replace Nones with the row median so isobar contouring stays smooth.
+    clean: list[float] = []
+    valid = [p for p in pressures if p is not None]
+    fallback = sum(valid) / len(valid) if valid else 1013.25
+    for p in pressures:
+        clean.append(round(float(p), 1) if p is not None else round(fallback, 1))
+
+    # Reshape to ny rows × nx cols (top row = highest lat).
+    rows: list[list[float]] = []
+    for j in range(ny):
+        rows.append(clean[j * nx:(j + 1) * nx])
+
+    la1 = max(lats); la2 = min(lats)
+    lo1 = min(lons); lo2 = max(lons)
+    return {
+        "ts":   ts_dt.strftime("%Y%m%dT%H"),
+        "ny":   ny,
+        "nx":   nx,
+        "la1":  la1, "la2": la2,
+        "lo1":  lo1, "lo2": lo2,
+        "dx":   round((lo2 - lo1) / max(1, nx - 1), 4),
+        "dy":   round((la1 - la2) / max(1, ny - 1), 4),
+        "res":  round(res, 3),
+        "data": rows,
+        "min":  round(min(clean), 1),
+        "max":  round(max(clean), 1),
+        "unit": "hPa",
+    }
+
+
+# ── /pressure/field ─────────────────────────────────────────────────────────
+
+@router.get("/pressure/field")
+async def pressure_field(
+    bbox: str = Query(..., description="lat0,lon0,lat1,lon1"),
+    ts: str | None = Query(None, description="YYYYMMDDTHH; defaults to current hour"),
+    res: float = Query(_DEFAULT_RES_DEG, ge=_MIN_RES_DEG, le=_MAX_RES_DEG),
+):
+    parts = bbox.split(",")
+    if len(parts) != 4:
+        raise HTTPException(400, "bbox must be lat0,lon0,lat1,lon1")
+    try:
+        lat0, lon0, lat1, lon1 = (float(p) for p in parts)
+    except ValueError:
+        raise HTTPException(400, "bbox values must be numeric")
+
+    lat0 = max(-60.0, min(60.0, lat0)); lat1 = max(-60.0, min(60.0, lat1))
+    lon0 = max(-180.0, min(180.0, lon0)); lon1 = max(-180.0, min(180.0, lon1))
+
+    if ts:
+        ts_dt = _parse_ts(ts)
+    else:
+        ts_dt = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+        ts = ts_dt.strftime("%Y%m%dT%H")
+
+    key = _bbox_key(lat0, lon0, lat1, lon1, res)
+    cache_path = PRESSURE_CACHE_DIR / key / f"{ts}.json"
+    if cache_path.exists():
+        try:
+            return JSONResponse(content=json.loads(cache_path.read_text()),
+                                headers={"Cache-Control": "public, max-age=3600",
+                                         "X-Pressure-Cache": "hit"})
+        except Exception as e:
+            logger.warning(f"[PRESSURE] cache read failed for {cache_path}: {e}")
+
+    lats, lons, ny, nx, eff_res = _build_grid(lat0, lon0, lat1, lon1, res)
+    try:
+        pressures = await _fetch_open_meteo_pressure(lats, lons, ts_dt)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[PRESSURE] Open-Meteo fetch failed: {type(e).__name__}: {e}")
+        raise HTTPException(502, "pressure upstream unavailable")
+
+    payload = _build_field_payload(lats, lons, ny, nx, eff_res, pressures, ts_dt)
+
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = cache_path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(payload, separators=(",", ":")))
+        os.replace(tmp, cache_path)
+    except OSError as e:
+        logger.warning(f"[PRESSURE] cache write failed for {cache_path}: {e}")
+
+    return JSONResponse(content=payload,
+                        headers={"Cache-Control": "public, max-age=3600",
+                                 "X-Pressure-Cache": "miss"})
+
+
+# ── /pressure/stations (METAR) ──────────────────────────────────────────────
+
+def _altim_inhg_to_hpa(in_hg: float | None) -> float | None:
+    """Convert an altimeter setting in inches Hg to hPa. Standard 33.8639."""
+    if in_hg is None:
+        return None
+    try:
+        return round(float(in_hg) * 33.8639, 1)
+    except (TypeError, ValueError):
+        return None
+
+
+@router.get("/pressure/stations")
+async def pressure_stations(
+    bbox: str = Query(..., description="lat0,lon0,lat1,lon1"),
+    max_stations: int = Query(60, ge=1, le=300),
+):
+    """Return METAR station pressure observations inside the bbox.
+
+    Uses the AviationWeather.gov API. Stations without a usable pressure
+    reading (no slp and no altim) are dropped. Results are thinned to
+    *max_stations* by sampling on a grid so dense regions don't crowd
+    the map.
+    """
+    parts = bbox.split(",")
+    if len(parts) != 4:
+        raise HTTPException(400, "bbox must be lat0,lon0,lat1,lon1")
+    try:
+        lat0, lon0, lat1, lon1 = (float(p) for p in parts)
+    except ValueError:
+        raise HTTPException(400, "bbox values must be numeric")
+
+    lat_min, lat_max = sorted([lat0, lat1])
+    lon_min, lon_max = sorted([lon0, lon1])
+
+    key = _metar_key(lat_min, lon_min, lat_max, lon_max)
+    cache_path = METAR_CACHE_DIR / f"{key}.json"
+    if cache_path.exists():
+        try:
+            mtime = datetime.fromtimestamp(cache_path.stat().st_mtime, tz=timezone.utc)
+            if datetime.now(timezone.utc) - mtime < timedelta(minutes=_METAR_TTL_MIN):
+                return JSONResponse(content=json.loads(cache_path.read_text()),
+                                    headers={"X-Metar-Cache": "hit"})
+        except Exception as e:
+            logger.warning(f"[METAR] cache read failed for {cache_path}: {e}")
+
+    # AviationWeather wants bbox as: minLat,minLon,maxLat,maxLon
+    bbox_param = f"{lat_min:.2f},{lon_min:.2f},{lat_max:.2f},{lon_max:.2f}"
+    params = {"bbox": bbox_param, "format": "json", "hours": 2}
+    try:
+        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
+            r = await client.get(_METAR_URL, params=params)
+    except Exception as e:
+        logger.warning(f"[METAR] upstream fetch failed: {e}")
+        return JSONResponse(content={"stations": [], "ts": None, "source": "metar"})
+
+    if r.status_code != 200:
+        logger.warning(f"[METAR] upstream {r.status_code}: {r.text[:200]}")
+        return JSONResponse(content={"stations": [], "ts": None, "source": "metar"})
+
+    body = r.json() or []
+    if not isinstance(body, list):
+        body = []
+
+    # Build the station list with one observation per ICAO (most recent).
+    by_icao: dict[str, dict] = {}
+    for rec in body:
+        icao = rec.get("icaoId") or rec.get("station_id") or rec.get("metar_id")
+        if not icao:
+            continue
+        lat = rec.get("lat"); lon = rec.get("lon")
+        if lat is None or lon is None:
+            continue
+        # Prefer slp (sea-level pressure, hPa already) when present.
+        slp = rec.get("slp")
+        try:
+            slp = float(slp) if slp is not None else None
+        except (TypeError, ValueError):
+            slp = None
+        # SLP coding: AviationWeather returns it in tenths of hPa with the
+        # leading 9/10 stripped (e.g. 132 → 1013.2; 982 → 998.2). Reconstruct.
+        if slp is not None and slp < 500:
+            base = 1000.0 if slp < 500 else 900.0
+            # Heuristic: <500 → above 1000 mb; >=500 → below 1000 mb.
+            slp = base + (slp / 10.0) if slp < 500 else (900.0 + slp / 10.0)
+        pressure_hpa = slp if (slp is not None and 870 <= slp <= 1085) else \
+                       _altim_inhg_to_hpa(rec.get("altim"))
+        if pressure_hpa is None or not (870 <= pressure_hpa <= 1085):
+            continue
+        prev = by_icao.get(icao)
+        ob_time = rec.get("obsTime") or rec.get("reportTime") or 0
+        if prev is None or (ob_time or 0) > (prev.get("_ot") or 0):
+            by_icao[icao] = {
+                "icao":     icao,
+                "lat":      round(float(lat), 4),
+                "lon":      round(float(lon), 4),
+                "pressure": round(float(pressure_hpa), 1),
+                "_ot":      ob_time,
+            }
+
+    stations = list(by_icao.values())
+
+    # Spatial thinning: bucket onto a coarse grid, keep one station per bucket.
+    if len(stations) > max_stations:
+        # Pick a bucket size such that count/bucket ≈ max_stations
+        cells = max(4, int(math.sqrt(max_stations)))
+        dlat = (lat_max - lat_min) / cells or 1
+        dlon = (lon_max - lon_min) / cells or 1
+        seen: dict[tuple[int, int], dict] = {}
+        for s in stations:
+            cy = int((s["lat"] - lat_min) / dlat)
+            cx = int((s["lon"] - lon_min) / dlon)
+            seen.setdefault((cy, cx), s)
+        stations = list(seen.values())[:max_stations]
+
+    for s in stations:
+        s.pop("_ot", None)
+
+    payload = {
+        "stations": stations,
+        "ts":       datetime.now(timezone.utc).strftime("%Y%m%dT%H%M"),
+        "source":   "aviationweather.gov",
+        "count":    len(stations),
+    }
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = cache_path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(payload, separators=(",", ":")))
+        os.replace(tmp, cache_path)
+    except OSError as e:
+        logger.warning(f"[METAR] cache write failed for {cache_path}: {e}")
+
+    return JSONResponse(content=payload, headers={"X-Metar-Cache": "miss"})
+
+
+# ── Eviction ────────────────────────────────────────────────────────────────
+
+def evict_old_pressure_frames(max_age_hours: int = _CACHE_TTL_HOURS) -> int:
+    """Delete cached pressure JSON files older than *max_age_hours*."""
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
+    removed = 0
+    if not PRESSURE_CACHE_DIR.exists():
+        return 0
+    for bbox_dir in PRESSURE_CACHE_DIR.iterdir():
+        if not bbox_dir.is_dir():
+            continue
+        for f in bbox_dir.glob("*.json"):
+            try:
+                stem = f.stem
+                ft = datetime.strptime(stem, "%Y%m%dT%H").replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+            if ft < cutoff:
+                try:
+                    f.unlink()
+                    removed += 1
+                except OSError:
+                    pass
+        try:
+            if not any(bbox_dir.iterdir()):
+                bbox_dir.rmdir()
+        except OSError:
+            pass
+    if removed:
+        logger.info(f"[PRESSURE EVICT] removed {removed} cached frames older than {max_age_hours}h")
+    return removed

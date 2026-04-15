@@ -72,8 +72,19 @@ SATELLITE_CACHE_DIR = CACHE_DIR / "satellite"
 # Eviction: 48h TTL via wind_routes.evict_old_wind_frames.
 WIND_CACHE_DIR = CACHE_DIR / "wind"
 
+# Pressure (MSLP) field JSON cache — gridded pressure_msl values from Open-Meteo
+# plus contoured isobar GeoJSON. Layout: PRESSURE_CACHE_DIR/<bbox_key>/<YYYYMMDDTHH>.json
+# Eviction: 48h TTL via pressure_routes.evict_old_pressure_frames.
+PRESSURE_CACHE_DIR = CACHE_DIR / "pressure"
+
+# METAR station observation cache — short TTL (15 min) since observations
+# update hourly. Layout: METAR_CACHE_DIR/<bbox_key>.json
+METAR_CACHE_DIR = CACHE_DIR / "metar"
+
 # ── Create all directories on import ────────────────────────────────────────
-for _d in (IKE_CACHE_DIR, DPS_CACHE_DIR, TRACK_CACHE_DIR, SATELLITE_CACHE_DIR, WIND_CACHE_DIR, VALIDATION_DIR, WIND_RADII_AUDIT_DIR):
+for _d in (IKE_CACHE_DIR, DPS_CACHE_DIR, TRACK_CACHE_DIR, SATELLITE_CACHE_DIR,
+           WIND_CACHE_DIR, PRESSURE_CACHE_DIR, METAR_CACHE_DIR,
+           VALIDATION_DIR, WIND_RADII_AUDIT_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 
@@ -146,6 +157,8 @@ def storage_summary() -> dict:
         "track_cache": TRACK_CACHE_DIR,
         "satellite_cache": SATELLITE_CACHE_DIR,
         "wind_cache": WIND_CACHE_DIR,
+        "pressure_cache": PRESSURE_CACHE_DIR,
+        "metar_cache": METAR_CACHE_DIR,
     }.items():
         sz = _dir_size(path)
         total_bytes += sz
