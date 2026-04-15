@@ -36,7 +36,10 @@ rank_*.py
 validate_*.py
 tournament_formula.py
 batch_*.py
-compile_cache.py
+# NOTE: compile_cache.py is NEEDED AT RUNTIME — core.dps_engine imports
+# detect_landfall_events, apply_basin_dps_adjustment, COASTAL_REGIONS, etc.
+# from it. Do NOT add it here (the /storms/{id}/dps endpoint will 500 with
+# "No module named 'compile_cache'" if it's excluded from the image).
 build_preload.py
 
 # Docs (not needed at runtime)

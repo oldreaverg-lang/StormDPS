@@ -2409,20 +2409,26 @@ let activeStormsPollTimer=null;
 let lastActiveStorms=[];
 
 function intensityColor(kt){
+    // Mirror intensityLabel() brackets (Saffir-Simpson 1-min kts).
     if(!kt||kt<34) return 'var(--ts)';
-    if(kt<64) return 'var(--cat1)';
-    if(kt<83) return 'var(--cat2)';
-    if(kt<96) return 'var(--cat3)';
-    if(kt<113) return 'var(--cat4)';
+    if(kt<64) return 'var(--ts)';
+    if(kt<83) return 'var(--cat1)';
+    if(kt<96) return 'var(--cat2)';
+    if(kt<113) return 'var(--cat3)';
     if(kt<137) return 'var(--cat4)';
     return 'var(--cat5)';
 }
 function intensityLabel(kt){
+    // Saffir-Simpson (1-minute sustained, knots):
+    // TS 34–63, Cat 1 64–82, Cat 2 83–95, Cat 3 96–112,
+    // Cat 4 113–136, Cat 5 ≥137. Prior version was shifted one bracket low
+    // (e.g. 110 kt showed Cat 4; a 50-kt TS showed Cat 1).
     if(!kt||kt<34) return 'Tropical Storm';
-    if(kt<64) return 'Cat 1';
-    if(kt<83) return 'Cat 2';
-    if(kt<96) return 'Cat 3';
-    if(kt<113) return 'Cat 4';
+    if(kt<64) return 'Tropical Storm';
+    if(kt<83) return 'Cat 1';
+    if(kt<96) return 'Cat 2';
+    if(kt<113) return 'Cat 3';
+    if(kt<137) return 'Cat 4';
     return 'Cat 5';
 }
 function classificationShort(cls){
