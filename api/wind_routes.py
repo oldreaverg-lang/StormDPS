@@ -132,7 +132,11 @@ async def _fetch_open_meteo(lats: list[float], lons: list[float],
     (None, None) for any point that didn't come back.
     """
     now = datetime.now(timezone.utc)
-    is_archive = ts_dt < now - timedelta(hours=6)
+    # ERA5 archive has ~5 day publication lag — only switch to it for
+    # timestamps older than 7 days. Anything within the last week is served
+    # from the forecast endpoint, which exposes a `past_days` window so we
+    # can request historical hours without the archive lag.
+    is_archive = ts_dt < now - timedelta(days=7)
     base = _ARCHIVE_URL if is_archive else _FORECAST_URL
 
     # Open-Meteo accepts comma-separated multi-location requests.
@@ -147,7 +151,11 @@ async def _fetch_open_meteo(lats: list[float], lons: list[float],
         params["start_date"] = ts_dt.strftime("%Y-%m-%d")
         params["end_date"]   = ts_dt.strftime("%Y-%m-%d")
     else:
-        # Forecast endpoint defaults to next 7 days; that's fine.
+        # Forecast endpoint: include enough past_days to cover the requested
+        # timestamp (max 7 on the free tier), and a small forward window so
+        # users can scrub into the immediate forecast.
+        delta_days = (now.date() - ts_dt.date()).days
+        params["past_days"] = max(0, min(7, delta_days + 1))
         params["forecast_days"] = 3
 
     async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:

@@ -518,7 +518,7 @@
                     <input type="hidden" id="satelliteSliderInput" value="0">
                     <button id="satellitePlayBtn" style="display:none"></button>
                     <div style="display:flex;align-items:center;justify-content:space-between;gap:.4rem">
-                        <button id="windToggleBtn" onclick="toggleWindLayer()" style="flex:1;background:rgba(100,116,139,.18);border:1px solid rgba(100,116,139,.4);color:#94a3b8;padding:.2rem .4rem;border-radius:3px;cursor:pointer;font-size:.62rem;font-weight:600;font-family:inherit">Wind: Off</button>
+                        <button id="windToggleBtn" onclick="toggleWindLayer()" disabled title="Loading satellite frames…" style="flex:1;background:rgba(100,116,139,.10);border:1px solid rgba(100,116,139,.25);color:#64748b;padding:.2rem .4rem;border-radius:3px;cursor:not-allowed;font-size:.62rem;font-weight:600;font-family:inherit;opacity:.6">Wind: Off</button>
                         <div id="satelliteName" style="font-size:.55rem;text-transform:uppercase;letter-spacing:.5px;color:#64748b;text-align:right">--</div>
                     </div>
                     <!-- Wind speed color legend (visible when wind layer is on) -->
@@ -3628,8 +3628,6 @@ window._satelliteState = {
     frames: [],         // array of "YYYYMMDDTHHMM" strings
     satellite: null,    // satellite name (goes-east, himawari, etc.)
     currentIdx: 0,      // index into frames[]
-    playing: false,
-    playTimer: null,
 };
 
 function chooseSatelliteForLatLon(lat, lon) {
@@ -3691,28 +3689,10 @@ function onSatelliteFrameScrub(value) {
     setSatelliteFrame(parseInt(value, 10));
 }
 
-function toggleSatellitePlay() {
-    const st = window._satelliteState;
-    const btn = document.getElementById('satellitePlayBtn');
-    if (st.playing) {
-        st.playing = false;
-        if (st.playTimer) { clearInterval(st.playTimer); st.playTimer = null; }
-        if (btn) btn.innerHTML = '&#9658; Play';
-    } else {
-        if (!st.frames.length) return;
-        st.playing = true;
-        if (btn) btn.innerHTML = '&#10074;&#10074; Pause';
-        st.playTimer = setInterval(() => {
-            const next = (st.currentIdx + 1) % st.frames.length;
-            setSatelliteFrame(next);
-        }, 600);
-    }
-}
+// (Satellite playback was removed — the Storm Timeline drives both layers.)
 
 function teardownSatelliteLayer() {
     const st = window._satelliteState;
-    if (st.playTimer) { clearInterval(st.playTimer); st.playTimer = null; }
-    st.playing = false;
     if (st.layer && currentMap) {
         try { currentMap.removeLayer(st.layer); } catch(e) {}
     }
@@ -3736,10 +3716,17 @@ function teardownSatelliteLayer() {
         w.currentTs = null;
         const wbtn = document.getElementById('windToggleBtn');
         if (wbtn) {
-            wbtn.style.background = 'rgba(100,116,139,.18)';
-            wbtn.style.borderColor = 'rgba(100,116,139,.4)';
-            wbtn.style.color = '#94a3b8';
+            wbtn.disabled = true;
+            wbtn.title = 'Loading satellite frames…';
+            wbtn.style.cursor = 'not-allowed';
+            wbtn.style.opacity = '.6';
+            wbtn.style.background = 'rgba(100,116,139,.10)';
+            wbtn.style.borderColor = 'rgba(100,116,139,.25)';
+            wbtn.style.color = '#64748b';
+            wbtn.textContent = 'Wind: Off';
         }
+        const wleg = document.getElementById('windLegend');
+        if (wleg) wleg.style.display = 'none';
     }
 }
 
@@ -3798,6 +3785,17 @@ async function initSatelliteLayer(data) {
     }
     if (nameEl) nameEl.textContent = sat.replace('-', ' ').toUpperCase();
     if (wrap) wrap.style.display = 'block';
+    // Satellite is ready — enable the Wind toggle.
+    const _wbtnReady = document.getElementById('windToggleBtn');
+    if (_wbtnReady) {
+        _wbtnReady.disabled = false;
+        _wbtnReady.title = 'Toggle wind particle overlay';
+        _wbtnReady.style.cursor = 'pointer';
+        _wbtnReady.style.opacity = '1';
+        _wbtnReady.style.background = 'rgba(100,116,139,.18)';
+        _wbtnReady.style.borderColor = 'rgba(100,116,139,.4)';
+        _wbtnReady.style.color = '#94a3b8';
+    }
     const lbl = document.getElementById('satelliteFrameLabel');
     if (lbl) lbl.textContent = formatSatelliteFrameLabel(frames[st.currentIdx]);
 
@@ -3829,7 +3827,24 @@ window._windState = {
     bbox: null,             // [s,w,n,e] cached by initSatelliteLayer
     currentTs: null,        // YYYYMMDDTHH (wind is hourly)
     fetchToken: 0,          // monotonic counter to drop stale responses
+    debounceTimer: null,    // debounce rapid scrubs (Open-Meteo 10 req/min)
+    pendingTs: null,        // most-recent satellite ts queued behind debounce
 };
+
+// Reset the Wind toggle button to its idle "Off" appearance. Used on fetch
+// failures so the button doesn't get stuck on "Loading…".
+function _windButtonReset() {
+    const btn = document.getElementById('windToggleBtn');
+    const legend = document.getElementById('windLegend');
+    if (btn) {
+        btn.style.background = 'rgba(100,116,139,.18)';
+        btn.style.borderColor = 'rgba(100,116,139,.4)';
+        btn.style.color = '#94a3b8';
+        btn.textContent = 'Wind: Off';
+        btn.disabled = false;
+    }
+    if (legend) legend.style.display = 'none';
+}
 
 function _satelliteTsToWindTs(ts) {
     // YYYYMMDDTHHMM (30-min cadence) → YYYYMMDDTHH (hourly), floor.
@@ -3837,11 +3852,27 @@ function _satelliteTsToWindTs(ts) {
     return ts.slice(0, 11);  // 'YYYYMMDDTHH'
 }
 
-async function setWindFrame(satelliteTs) {
+// Public entry: debounces rapid scrubs (Open-Meteo free tier = 10 req/min).
+// The most-recent timestamp wins; intermediate scrubs are dropped.
+function setWindFrame(satelliteTs) {
+    const st = window._windState;
+    if (!st.enabled || !st.bbox || !currentMap) return;
+    st.pendingTs = satelliteTs;
+    if (st.debounceTimer) clearTimeout(st.debounceTimer);
+    st.debounceTimer = setTimeout(() => {
+        st.debounceTimer = null;
+        const ts = st.pendingTs;
+        st.pendingTs = null;
+        if (ts) _setWindFrameNow(ts);
+    }, 180);
+}
+
+async function _setWindFrameNow(satelliteTs) {
     const st = window._windState;
     if (!st.enabled || !st.bbox || !currentMap) return;
     const windTs = _satelliteTsToWindTs(satelliteTs);
     if (!windTs || windTs === st.currentTs) return;  // dedupe identical hour
+    const prevTs = st.currentTs;
     st.currentTs = windTs;
     const token = ++st.fetchToken;
     const [s,w,n,e] = st.bbox;
@@ -3852,6 +3883,14 @@ async function setWindFrame(satelliteTs) {
         payload = await r.json();
     } catch (e) {
         console.warn('[WIND] field fetch failed:', e);
+        // Roll back currentTs so a retry on the same hour isn't deduped
+        // away. If no layer exists yet, the toggle is stuck on "Loading…" —
+        // reset it to "Off" so the user can try again.
+        if (token === st.fetchToken) st.currentTs = prevTs;
+        if (!st.layer) {
+            st.enabled = false;
+            _windButtonReset();
+        }
         return;
     }
     if (token !== st.fetchToken || !st.enabled) return;  // superseded
@@ -3877,10 +3916,15 @@ async function setWindFrame(satelliteTs) {
             particleAge: 56,
             lineWidth: 1.0,
             particleMultiplier: 0.0011,
-            opacity: 0.55,          // soften so storm-track dots stay readable
             colorScale: ['#3b82f6','#22d3ee','#a3e635','#facc15','#f97316','#ef4444','#ec4899'],
         }).addTo(currentMap);
         try { st.layer.setZIndex && st.layer.setZIndex(250); } catch(e) {}
+        // leaflet-velocity ignores `opacity` in its options — soften the
+        // canvas directly so storm-track dots stay readable underneath.
+        try {
+            const cvs = st.layer._canvasLayer && st.layer._canvasLayer._canvas;
+            if (cvs) cvs.style.opacity = '0.55';
+        } catch (e) {}
     }
 }
 
@@ -4033,7 +4077,10 @@ function renderMap(data){
     // Forecast track overlay for active storms
     if(window._isActiveStorm){
         const sid=data[0]&&window.stormData?document.getElementById('stormId').value.trim().toUpperCase():'';
-        if(sid){
+        // Guard against duplicate forecast fetches when renderMap re-runs
+        // for the same active storm (e.g. tab refocus, slider re-init).
+        if(sid && window._forecastFetchedSid !== sid){
+            window._forecastFetchedSid = sid;
             fetch(`${API_BASE}/storms/${sid}/forecast`).then(r=>r.ok?r.json():null).then(fc=>{
                 if(!fc||!currentMap)return;
 
@@ -4086,7 +4133,7 @@ function renderMap(data){
                     const allPts=data.map(d=>[d.lat,d.lon]).concat(pts);
                     currentMap.fitBounds(allPts,{padding:[40,40]});
                 }
-            }).catch(()=>{});
+            }).catch(()=>{ window._forecastFetchedSid = null; });
         }
         // (Previously cleared window._isActiveStorm here — that was a bug
         // that broke any post-render code path checking the active flag,
