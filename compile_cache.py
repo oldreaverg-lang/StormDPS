@@ -85,6 +85,7 @@ BASIN_COEFFICIENTS = {
             "WP_HAINAN":       1.10,  # Dense coast + agriculture, limited hardening
             "WP_SOUTH_CHINA":  1.08,  # Guangdong / Hong Kong — massive exposure
             "WP_NORTH_CHINA":  0.98,  # Extratropical transition, lower cumulative exposure
+            "WP_MARIANA":      1.05,  # US territory — Guam Navy / Saipan tourism; dense small-island exposure + military infrastructure
             "WP_GENERAL":      1.00,  # Default: no extra boost beyond base multiplier
         },
     },
@@ -203,6 +204,9 @@ COASTAL_REGIONS = [
     # Central America / Mexico
     (14.0, 23.0, -98.0, -85.0, "Mexico / Central America"),
     # Western Pacific
+    # Mariana Islands (Guam, Saipan, Tinian, Rota) — US territory.
+    # Placed before Japan so Saipan (~15.2°N, 145.7°E) matches here, not Japan.
+    (13.0, 20.5, 144.0, 146.5, "Mariana Islands"),
     (5, 21, 120, 135, "Philippines"),
     (20, 25, 115, 122, "Vietnam / Cambodia"),
     (21, 26, 119, 123, "Taiwan"),
@@ -329,6 +333,7 @@ def determine_wp_sub_basin(snapshots):
     # multiple regions — the tally picks the winner.
     regions = [
         # key,              lat_min, lat_max, lon_min, lon_max
+        ("WP_MARIANA",      13.0,   20.5,    144.0,   146.5),  # Guam, Saipan, Tinian, Rota (US territory)
         ("WP_TAIWAN",       21.5,   25.5,    119.5,   122.5),
         ("WP_PHILIPPINES",   5.0,   20.0,    117.0,   127.0),
         ("WP_VIETNAM",       8.0,   22.0,    102.0,   112.0),
@@ -404,6 +409,10 @@ COASTAL_EXPOSURE_WEIGHTS = {
     "Japan":                    0.80,
     "Thailand / Laos":          0.25,
     "China":                    0.50,
+    # US territory — Guam (Navy / AFB), Saipan, Tinian, Rota.
+    # Similar density class to Taiwan: dense island coast + major US military
+    # infrastructure + tourism economy.
+    "Mariana Islands":          0.55,
     # Default
     "Coast":                    0.20,
 }

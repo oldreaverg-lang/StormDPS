@@ -89,6 +89,17 @@ ZONE_WEIGHTS = {
     "Puerto Rico / USVI":  0.40,
     # Near-miss / small economy island chain
     "Bahamas proximity":   0.15,
+    # Western Pacific — mirrors compile_cache.COASTAL_EXPOSURE_WEIGHTS so WP
+    # storms accumulate duration/breadth credit over coastal waters. Without
+    # these entries, every WP storm gets duration_factor=0, breadth_factor=0
+    # (see the Sinlaku 2026 audit).
+    "Japan":               0.80,
+    "Taiwan":              0.55,
+    "Mariana Islands":     0.55,  # US territory — Guam, Saipan, Tinian, Rota
+    "China":               0.50,
+    "Philippines":         0.35,
+    "Vietnam / Cambodia":  0.30,
+    "Thailand / Laos":     0.25,
     # Default for any near-coast snapshot not in the above list
     "Open Ocean":          0.0,
 }
@@ -107,6 +118,17 @@ COASTAL_BOXES = [
     (17.0, 19.5, -68.0, -64.0, "Puerto Rico / USVI"),  # Caribbean US
     (23.0, 27.5, -80.0, -72.0, "Bahamas proximity"),   # Close enough to FL
     (28.0, 31.0, -94.0, -88.0, "LA / MS coast"),       # Louisiana, Mississippi
+    # --- Western Pacific ---
+    # Placed before Japan so Saipan (15.2°N, 145.7°E) matches Mariana, not Japan.
+    # Mirrors compile_cache.COASTAL_REGIONS. Without these, every WP storm
+    # gets duration_factor=0, breadth_factor=0 (Sinlaku 2026 audit).
+    (13.0, 20.5, 144.0, 146.5, "Mariana Islands"),     # Guam, Saipan, Tinian, Rota
+    (5,    21,   120,   135,   "Philippines"),
+    (20,   25,   115,   122,   "Vietnam / Cambodia"),
+    (21,   26,   119,   123,   "Taiwan"),
+    (24,   45,   123,   145,   "Japan"),
+    (15,   25,   105,   122,   "Thailand / Laos"),
+    (15,   40,   105,   125,   "China"),
 ]
 
 
