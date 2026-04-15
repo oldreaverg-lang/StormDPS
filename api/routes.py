@@ -130,7 +130,9 @@ _GLOBAL_IBTRACS_CACHE_FILE = _GLOBAL_IBTRACS_CACHE_FILE_PATH
 # Bump this when the IKE wind model changes (e.g., Holland profile, quadrant method)
 # DPS formula changes do NOT require a version bump — DPS is client-side.
 # v3: JTWC T+0 parser fix + JMA central-pressure enrichment for WP storms
-_IKE_CACHE_VERSION = "v3"
+# v4: ATCF b-deck (UCAR RAL) as primary source for in-season JTWC storms —
+#     full historical track from storm birth, not just warning T+0 + forecasts.
+_IKE_CACHE_VERSION = "v4"
 
 # Eviction policy: keep at most this many cache files.  When exceeded, the
 # oldest files by mtime are purged.  A typical hurricane season has ~20
@@ -1216,11 +1218,34 @@ async def get_storm_track(
                     _monitor.record_failure("ibtracs", error="ATCF lookup failed", latency_ms=(time.time() - t0) * 1000)
                     snapshots = []
 
-            # 3b) JTWC direct lookup for WP/IO/SH ATCF IDs (e.g. WP042026)
-            #     IBTrACS has multi-month publication lag, so in-season JTWC
-            #     storms (Sinlaku etc.) won't appear there. Fall back to the
-            #     live JTWC warning feed and synthesize a track from the
-            #     current advisory + forecast sections.
+            # 3a) ATCF b-deck (UCAR RAL JTWC mirror) — HISTORY from storm birth
+            #     to latest synoptic analysis. This is our primary source for
+            #     in-season WP/IO/SH storms: IBTrACS has a multi-month publication
+            #     lag and the JTWC warning bulletin only has T+0 + forecasts
+            #     (no history). The b-deck carries the full observed track so
+            #     users see "where the storm has been," not where it's going.
+            if not snapshots and prefix in ("WP", "IO", "SH") and len(storm_id) == 8:
+                t0 = time.time()
+                try:
+                    from services.atcf_bdeck_client import ATCFBDeckClient
+                    async with ATCFBDeckClient() as bdeck:
+                        snapshots = await bdeck.get_storm_track(storm_id)
+                    if snapshots:
+                        source = "jtwc_bdeck"
+                        _monitor.record_success("jtwc_bdeck", latency_ms=(time.time() - t0) * 1000)
+                        logger.info(
+                            f"[TRACK] b-deck matched {storm_id} → {len(snapshots)} observations"
+                        )
+                    else:
+                        _monitor.record_failure("jtwc_bdeck", error="b-deck empty or unavailable", latency_ms=(time.time() - t0) * 1000)
+                except Exception as e:
+                    _monitor.record_failure("jtwc_bdeck", error=f"b-deck lookup failed: {e}", latency_ms=(time.time() - t0) * 1000)
+                    snapshots = []
+
+            # 3b) JTWC warning-bulletin fallback for WP/IO/SH ATCF IDs.
+            #     Only runs if the b-deck above was unavailable. The bulletin
+            #     gives T+0 + forward forecasts; not ideal for a retrospective
+            #     tracker, but better than nothing if UCAR's mirror is down.
             if not snapshots and prefix in ("WP", "IO", "SH") and len(storm_id) == 8:
                 t0 = time.time()
                 try:
