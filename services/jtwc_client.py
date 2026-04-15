@@ -557,15 +557,49 @@ class JTWCClient:
             24 HRS, VALID AT:
             ...
         """
-        # Warnings are sectioned by "---" separators. Everything before the
-        # first separator is the observed T+0 snapshot; after that, each
-        # section starts with "NN HRS, VALID AT:".
+        # Warnings are sectioned by "---" separators. The actual bulletin
+        # layout is:
+        #
+        #    WTPN31 PGTW 150300   <-- WMO header (issuance time, NOT obs time)
+        #    MSGID/...
+        #    1. TYPHOON 04W (SINLAKU) WARNING NR 025
+        #    ---
+        #    WARNING POSITION:    <-- this is the T+0 observation
+        #    150000Z --- NEAR 15.6N 145.2E
+        #    MAX SUSTAINED WINDS - 110 KT...
+        #    ---
+        #    12 HRS, VALID AT:
+        #    ...
+        #
+        # So the first separator sits BEFORE T+0, not after it. We locate
+        # the T+0 block by searching for "WARNING POSITION" (or the raw
+        # observation timestamp pattern), then treat every section after
+        # that which carries "NN HRS, VALID AT:" as a forecast.
         sections = re.split(r"\n\s*---\s*\n", text)
         if not sections:
             return []
 
-        # Parse T+0 from the first section
-        t0_section = sections[0]
+        t0_idx = None
+        for i, sec in enumerate(sections):
+            if re.search(r"WARNING\s+POSITION", sec, re.IGNORECASE):
+                t0_idx = i
+                break
+            # Fallback: any section with a bare DDHHMMZ --- observation stamp
+            # that is not preceded by "HRS, VALID AT" (which is forecasts)
+            if re.search(r"\d{6}Z\s*-{2,}", sec) and not re.search(
+                r"HRS?,?\s*VALID\s+AT", sec, re.IGNORECASE
+            ):
+                t0_idx = i
+                break
+
+        if t0_idx is None:
+            logger.warning(f"[JTWC] Could not locate T+0 block in bulletin for {warning.get('id')}")
+            return []
+
+        t0_section = sections[t0_idx]
+        # T+0 timestamp comes from the observation line (150000Z --- ...),
+        # never from the WMO header, which is the issuance time (typically
+        # 3 hours later) and would shift the whole track off by +3h.
         t0_time = _parse_warning_timestamp(t0_section)
         mv_dir, mv_spd_kt = _parse_movement(t0_section)
 
@@ -582,8 +616,8 @@ class JTWCClient:
         if t0_snap:
             snapshots.append(t0_snap)
 
-        # Forecast sections: find "NN HRS, VALID AT:" sections
-        for section in sections[1:]:
+        # Forecast sections: find "NN HRS, VALID AT:" sections AFTER T+0
+        for section in sections[t0_idx + 1:]:
             hour_match = re.search(
                 r"(\d{1,3})\s*HRS?,?\s*VALID\s+AT",
                 section,
