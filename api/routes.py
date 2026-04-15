@@ -118,7 +118,14 @@ from storage import (
 #           +6 × duration × breadth pts for rainfall-prone WP sub-basins
 #           (JP / S.China / VN / TW). Separates Doksuri-class slow-broad
 #           inland-flood storms from Goni-class small-intense ones.
-_DPS_CACHE_VERSION = "v8-audit-rainfall"
+# v9-wp-coastal (2026-04-15): Sinlaku audit — added Mariana Islands box +
+#           full WP coastal coverage to core/cumulative_dpi.COASTAL_BOXES
+#           and ZONE_WEIGHTS. Before v9, every WP storm had
+#           duration_factor=0 / breadth_factor=0 (coastal boxes were
+#           US-only). Retroactively re-credits Yagi, Hagibis, Haiyan,
+#           Mangkhut, etc. Also fixes Saipan landfall routing via new
+#           Mariana Islands region.
+_DPS_CACHE_VERSION = "v9-wp-coastal"
 
 # Cache for global IBTrACS catalog to avoid repeated large downloads/parses.
 # We also persist a json cache file so restarts can reuse the catalog quickly.
