@@ -493,6 +493,10 @@ class NOAAClient:
         Fetch NHC forecast track and cone for an active storm.
 
         Uses NHC GIS forecast JSON and cone KML/GeoJSON endpoints.
+        NHC only covers Atlantic (AL) and Eastern Pacific (EP) basins.
+        For other basins (WP, IO, SH) this returns an empty result
+        immediately — JTWC does not publish equivalent GeoJSON products.
+
         Returns a dict with forecast_track (list of positions) and
         cone_polygon (list of lat/lon pairs).
         """
@@ -501,6 +505,12 @@ class NOAAClient:
         year = storm_id[4:]
 
         result = {"storm_id": storm_id, "forecast_track": [], "cone_polygon": []}
+
+        # NHC only publishes forecast GeoJSON for AL and EP basins.
+        # Avoid pointless 404s for WP/IO/SH storms.
+        if basin not in ("al", "ep"):
+            logger.debug(f"Skipping NHC forecast track for non-NHC basin: {basin.upper()}")
+            return result
 
         # Fetch forecast track points from NHC GIS
         track_url = f"{NHC_GIS_BASE_URL}/forecast/archive/{basin}{number}{year}_5day_latest.json"

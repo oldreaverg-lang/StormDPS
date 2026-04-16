@@ -30,6 +30,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 
+from api.open_meteo_limiter import open_meteo_get
 from storage import PRESSURE_CACHE_DIR, METAR_CACHE_DIR
 
 logger = logging.getLogger(__name__)
@@ -136,9 +137,7 @@ async def _fetch_open_meteo_pressure(lats: list[float], lons: list[float],
             params["forecast_days"] = 3
 
     async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
-        r = await client.get(base, params=params)
-    if r.status_code != 200:
-        raise HTTPException(502, f"Open-Meteo {r.status_code}: {r.text[:200]}")
+        r = await open_meteo_get(client, base, params, label="PRESSURE")
     body = r.json()
     if isinstance(body, dict):
         body = [body]

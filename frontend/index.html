@@ -2887,8 +2887,11 @@ function stormChipHtml(s){
     const dps=compiled?Math.round(compiled.dps):(s.peak_dps||0);
     const basinTag=(s.basin && s.basin!=='NA')?` <span style="color:var(--text-dim);font-size:.58rem">${s.basin}</span>`:'';
     const dotColor=dps>0?dpsChipColor(dps):catColor(cat);
-    const metaText=dps>0?`DPS ${dps}`:catLabel(cat);
-    return `<div class="preset-chip" data-storm-id="${s.id}" onclick="loadPreset('${s.id}')"><div class="cat-dot" style="background:${dotColor}"></div><span class="chip-name">${s.name}${basinTag}</span><span class="chip-meta">${metaText}</span></div>`;
+    // Storms with no DPS and no category haven't formed yet
+    const notActive = (dps===0 && (cat===0 || cat===undefined || cat===null));
+    const metaText=notActive?'not yet active':(dps>0?`DPS ${dps}`:catLabel(cat));
+    const dimStyle=notActive?' style="opacity:.45"':'';
+    return `<div class="preset-chip" data-storm-id="${s.id}" onclick="loadPreset('${s.id}')"${dimStyle}><div class="cat-dot" style="background:${dotColor}"></div><span class="chip-name">${s.name}${basinTag}</span><span class="chip-meta">${metaText}</span></div>`;
 }
 
 // ============================================================
@@ -3302,7 +3305,12 @@ function renderAll(stormId,data){
     let heroDPS, heroDPSLabel;
     if (compiled) {
         heroDPS = Math.round(compiled.dps);
-        heroDPSLabel = compiled.dps_label + ' · Peak ' + Math.round(compiled.peak_dps);
+        // Only show "Peak X" when peak snapshot ≥ cumulative (avoids confusing
+        // users when the single-snapshot peak is lower than the running total).
+        heroDPSLabel = compiled.dps_label;
+        if (Math.round(compiled.peak_dps) >= heroDPS) {
+            heroDPSLabel += ' · Peak ' + Math.round(compiled.peak_dps);
+        }
     } else {
         // Fallback: use peak single-snapshot DPS as hero (no cumulative data)
         heroDPS = peakDpsObj.score;
@@ -3575,7 +3583,7 @@ function renderSurgeChart(data){
         {label:'Storm Surge (ft)',data:surgeData,borderColor:'#10b981',backgroundColor:'rgba(16,185,129,.08)',borderWidth:2.5,fill:true,tension:.35,pointRadius:0,pointHitRadius:10}
     ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
         onClick:(evt,els)=>{if(els&&els.length){if(window.animationFrameId)stopAnimation();const i=els[0].index;window.currentAnimIndex=i;document.getElementById('scrubSlider').value=i;syncVisualization(i,true)}},
-        plugins:{zoneBands:{zones:SURGE_ZONES},legend:{position:'top',labels:{color:'#e2e8f0',font:{size:11,weight:500},boxWidth:12,padding:14}},tooltip:{backgroundColor:'rgba(10,14,26,.92)',titleColor:'#f1f5f9',bodyColor:'#94a3b8',borderColor:'#1e293b',borderWidth:1,padding:8,cornerRadius:8,displayColors:true,titleFont:{weight:600},callbacks:{label:c=>`Surge Potential: ${c.parsed.y.toFixed(1)} ft`}}},
+        plugins:{subtitle:{display:true,text:'Modeled surge potential if landfall',color:'#64748b',font:{size:10,style:'italic'},padding:{bottom:6}},zoneBands:{zones:SURGE_ZONES},legend:{position:'top',labels:{color:'#e2e8f0',font:{size:11,weight:500},boxWidth:12,padding:14}},tooltip:{backgroundColor:'rgba(10,14,26,.92)',titleColor:'#f1f5f9',bodyColor:'#94a3b8',borderColor:'#1e293b',borderWidth:1,padding:8,cornerRadius:8,displayColors:true,titleFont:{weight:600},callbacks:{label:c=>`Surge Potential: ${c.parsed.y.toFixed(1)} ft`}}},
         scales:{x:{grid:{color:'rgba(30,41,59,.5)',drawBorder:false},ticks:{maxTicksLimit:10,font:{size:10}}},y:{beginAtZero:true,grid:{color:'rgba(30,41,59,.5)',drawBorder:false},title:{display:true,text:'Storm Surge (feet)',color:'#64748b',font:{size:10,weight:500}},ticks:{font:{size:10}}}}}});
 }
 
@@ -4015,6 +4023,50 @@ async function initSatelliteLayer(data) {
     ];
 }
 
+// ── Overlay fetch coalescing + LRU cache ─────────────────────────────────
+// Prevents burst-502s from Open-Meteo rate-limiting during rapid scrubs.
+// Each layer gets its own cache & inflight map; keyed by URL.
+const _overlayCache = { wind: new Map(), pressure: new Map(), precip: new Map() };
+const _overlayInflight = { wind: new Map(), pressure: new Map(), precip: new Map() };
+const _OVERLAY_CACHE_MAX = 12; // keep last N payloads per layer
+
+function _overlayFetch(layer, url) {
+    // 1. LRU cache hit
+    const cache = _overlayCache[layer];
+    if (cache.has(url)) {
+        const val = cache.get(url);
+        cache.delete(url); cache.set(url, val); // refresh LRU order
+        return Promise.resolve(structuredClone(val));
+    }
+    // 2. Coalesce: reuse in-flight promise for same URL
+    const inflight = _overlayInflight[layer];
+    if (inflight.has(url)) return inflight.get(url);
+    // 3. Fetch with retry on 502/429 (rate-limit aware)
+    const p = (async () => {
+        for (let attempt = 0; attempt < 2; attempt++) {
+            const r = await fetch(url);
+            if ((r.status === 502 || r.status === 429) && attempt === 0) {
+                const wait = r.status === 429
+                    ? Math.min(parseFloat(r.headers.get('Retry-After') || '3'), 10) * 1000
+                    : 1200;
+                await new Promise(ok => setTimeout(ok, wait));
+                continue;
+            }
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const data = await r.json();
+            // Store in LRU cache
+            if (cache.size >= _OVERLAY_CACHE_MAX) {
+                cache.delete(cache.keys().next().value); // evict oldest
+            }
+            cache.set(url, data);
+            return structuredClone(data);
+        }
+    })();
+    inflight.set(url, p);
+    p.finally(() => inflight.delete(url));
+    return p;
+}
+
 // ── Wind layer state (mutable across calls) ───────────────────────────────
 // leaflet-velocity overlay backed by /wind/field (Open-Meteo proxy). The
 // satellite slider drives both layers — see setSatelliteFrame below.
@@ -4078,9 +4130,7 @@ async function _setWindFrameNow(satelliteTs) {
     const [s,w,n,e] = st.bbox;
     let payload = null;
     try {
-        const r = await fetch(`${API_BASE}/wind/field?bbox=${s.toFixed(2)},${w.toFixed(2)},${n.toFixed(2)},${e.toFixed(2)}&ts=${windTs}&res=1.0`);
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        payload = await r.json();
+        payload = await _overlayFetch('wind', `${API_BASE}/wind/field?bbox=${s.toFixed(2)},${w.toFixed(2)},${n.toFixed(2)},${e.toFixed(2)}&ts=${windTs}&res=1.0`);
     } catch (e) {
         console.warn('[WIND] field fetch failed:', e);
         // Roll back currentTs so a retry on the same hour isn't deduped
@@ -4387,12 +4437,18 @@ async function _setPressureFrameNow(satelliteTs) {
 
     let field = null;
     try {
-        const r = await fetch(`${API_BASE}/pressure/field?bbox=${s.toFixed(2)},${w.toFixed(2)},${n.toFixed(2)},${e.toFixed(2)}&ts=${presTs}&res=1.0`);
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        field = await r.json();
+        field = await _overlayFetch('pressure', `${API_BASE}/pressure/field?bbox=${s.toFixed(2)},${w.toFixed(2)},${n.toFixed(2)},${e.toFixed(2)}&ts=${presTs}&res=1.0`);
     } catch (e) {
         console.warn('[PRESSURE] field fetch failed:', e);
         if (token === st.fetchToken) st.currentTs = prevTs;
+        // Show error state on the button (mirrors precip behavior)
+        const _pbtn = document.getElementById('pressureToggleBtn');
+        if (_pbtn) {
+            _pbtn.textContent = 'Pressure: Error';
+            _pbtn.style.background  = 'rgba(220,38,38,.18)';
+            _pbtn.style.borderColor = 'rgba(220,38,38,.4)';
+            _pbtn.style.color       = '#fca5a5';
+        }
         if (!st.fillLayer) {
             st.enabled = false;
             _pressureButtonReset();
@@ -4703,9 +4759,7 @@ async function _setPrecipFrameNow(satelliteTs) {
 
     let payload;
     try {
-        const r = await fetch(url);
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        payload = await r.json();
+        payload = await _overlayFetch('precip', url);
     } catch (e) {
         if (token !== st.fetchToken) return;
         console.warn('[PRECIP] fetch failed:', e);

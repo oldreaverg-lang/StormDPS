@@ -1308,7 +1308,14 @@ async def get_storm_track(
                         source = "ibtracs"
                         _monitor.record_success("ibtracs", latency_ms=(time.time() - t0) * 1000)
                     else:
-                        _monitor.record_failure("ibtracs", error="ATCF ID not found", latency_ms=(time.time() - t0) * 1000)
+                        # IBTrACS has a multi-month publication lag — current-year
+                        # storms are expected misses, not service failures.
+                        import datetime as _dt
+                        _storm_year = int(storm_id[4:8]) if len(storm_id) >= 8 else 0
+                        if _storm_year >= _dt.datetime.now().year:
+                            logger.debug(f"[IBTrACS] {storm_id} not in IBTrACS (expected — current season)")
+                        else:
+                            _monitor.record_failure("ibtracs", error="ATCF ID not found", latency_ms=(time.time() - t0) * 1000)
                 except (NOAAClientError, Exception):
                     _monitor.record_failure("ibtracs", error="ATCF lookup failed", latency_ms=(time.time() - t0) * 1000)
                     snapshots = []
@@ -2860,7 +2867,11 @@ async def run_radii_audit(storm_id: str):
                 obs = snapshot_to_observation(latest_ibtracs_snap, source="ibtracs")
                 observations.append(obs)
             else:
-                monitor.record_failure("ibtracs", error=f"No IBTrACS data for {storm_id}")
+                # Current-year storms are expected misses — IBTrACS has multi-month lag
+                import datetime as _dt
+                _storm_yr = int(storm_id[4:8]) if len(storm_id) >= 8 else 0
+                if _storm_yr < _dt.datetime.now().year:
+                    monitor.record_failure("ibtracs", error=f"No IBTrACS data for {storm_id}")
         except (NOAAClientError, Exception) as e:
             monitor.record_failure("ibtracs", error=str(e))
             logger.debug(f"IBTrACS unavailable for {storm_id}: {e}")
