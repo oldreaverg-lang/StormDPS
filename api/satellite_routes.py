@@ -61,7 +61,7 @@ GIBS_BASE = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best"
 _SATELLITES = {
     "goes-east": ("GOES-East_ABI_GeoColor", 7, 10),
     "goes-west": ("GOES-West_ABI_GeoColor", 7, 10),
-    "himawari":  ("Himawari_AHI_Band3_Red_Visible_1km", 7, 10),  # GIBS GeoColor for Himawari
+    "himawari":  ("Himawari_AHI_Band13_Clean_Infrared", 6, 10),  # IR — works day+night (Band3 Visible was blank at night)
     "meteosat-iodc": ("Meteosat-IODC_IR_Brightness_Temperature", 6, 30),
     "meteosat-0":   ("Meteosat-Prime_IR_Brightness_Temperature", 6, 30),
 }

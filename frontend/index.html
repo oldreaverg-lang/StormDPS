@@ -3935,10 +3935,13 @@ async function initSatelliteLayer(data) {
     st.currentIdx = frames.length - 1;  // start on most recent
 
     const tileUrl = `${API_BASE}/satellite/tile/${sat}/${frames[st.currentIdx]}/{z}/{x}/{y}.png`;
+    // GOES layers support zoom 7; Himawari IR + Meteosat IR max out at 6.
+    const nativeZoom = sat.startsWith('goes') ? 7 : 6;
     st.layer = L.tileLayer(tileUrl, {
         opacity: 0.85,
         zIndex: 200,        // above basemap, below track polylines + markers
         maxZoom: 7,
+        maxNativeZoom: nativeZoom,
         attribution: 'NASA GIBS / NOAA / JMA',
         crossOrigin: true,
     }).addTo(currentMap);
