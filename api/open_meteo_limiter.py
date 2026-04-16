@@ -22,8 +22,9 @@ from fastapi import HTTPException
 logger = logging.getLogger(__name__)
 
 # Max concurrent Open-Meteo requests across ALL overlay routes.
+# 3 = one slot per overlay (wind, pressure, precip) so none starves.
 # Env-overridable so we can bump it on a paid tier without redeploying.
-_MAX_CONCURRENT = int(os.getenv("OPEN_METEO_MAX_CONCURRENT", "2"))
+_MAX_CONCURRENT = int(os.getenv("OPEN_METEO_MAX_CONCURRENT", "3"))
 _semaphore: asyncio.Semaphore | None = None
 
 
@@ -50,7 +51,8 @@ async def open_meteo_get(
     """
     sem = _get_semaphore()
 
-    for attempt in range(2):
+    max_attempts = 3
+    for attempt in range(max_attempts):
         async with sem:
             r = await client.get(url, params=params)
 
@@ -58,14 +60,14 @@ async def open_meteo_get(
             return r
 
         if r.status_code == 429:
-            if attempt == 0:
-                # Respect Retry-After if provided, else wait 2s
-                wait = float(r.headers.get("Retry-After", "2"))
-                wait = min(wait, 10.0)  # cap sanity
-                logger.info(f"[{label}] Open-Meteo 429 — retrying in {wait:.1f}s")
+            if attempt < max_attempts - 1:
+                # Respect Retry-After if provided, else progressive backoff
+                base_wait = float(r.headers.get("Retry-After", str(2 + attempt * 2)))
+                wait = min(base_wait, 10.0)  # cap sanity
+                logger.info(f"[{label}] Open-Meteo 429 — retry {attempt+1}/{max_attempts-1} in {wait:.1f}s")
                 await asyncio.sleep(wait)
                 continue
-            # Second 429 — propagate as 429 to client
+            # Exhausted retries — propagate as 429 to client
             raise HTTPException(
                 429,
                 detail="Open-Meteo rate limit exceeded; retry later",
