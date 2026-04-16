@@ -3741,15 +3741,10 @@ window._satelliteState = {
     currentIdx: 0,      // index into frames[]
 };
 
-function chooseSatelliteForLatLon(lat, lon) {
-    let L = lon;
-    if (L > 180) L -= 360;
-    if (L >= -135 && L < -10) return 'goes-east';
-    if (L >= -180 && L < -135) return 'goes-west';
-    if (L >= 60 && L <= 180) return 'himawari';
-    if (L >= 20 && L < 60) return 'meteosat-iodc';
-    return 'meteosat-0';
-}
+// NOTE: lat/lon → satellite mapping now lives server-side (see
+// api/satellite_routes.py::choose_satellite). The frontend asks the
+// /satellite/frames/auto endpoint and reads the chosen satellite name from
+// the response so we can't drift out of sync with backend basin boundaries.
 
 function formatSatelliteFrameLabel(ts) {
     // ts = YYYYMMDDTHHMM → "Apr 15  18:30Z"
@@ -3899,9 +3894,8 @@ async function initSatelliteLayer(data) {
     teardownSatelliteLayer();
     if (!window._isActiveStorm || !data || !data.length || !currentMap) return;
 
-    // Use most recent point's position to pick the satellite
+    // Use most recent point's position; backend picks the right satellite.
     const last = data[data.length - 1];
-    const sat = chooseSatelliteForLatLon(last.lat, last.lon);
 
     // Cover the entire storm window so the timeline scrubber can drive the
     // satellite layer for every observation point — not just the last 24h.
@@ -3914,16 +3908,18 @@ async function initSatelliteLayer(data) {
     const cadenceParam = (hoursParam <= 36) ? 30 : 60;
 
     let frames = [];
+    let sat = null;
     try {
-        const r = await fetch(`${API_BASE}/satellite/frames/${sat}?hours=${hoursParam}&cadence_min=${cadenceParam}`);
+        const r = await fetch(`${API_BASE}/satellite/frames/auto?lat=${last.lat.toFixed(4)}&lon=${last.lon.toFixed(4)}&hours=${hoursParam}&cadence_min=${cadenceParam}`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const body = await r.json();
         frames = body.frames || [];
+        sat = body.satellite || null;
     } catch (e) {
         console.warn('[SATELLITE] frames fetch failed:', e);
         return;
     }
-    if (!frames.length) return;
+    if (!frames.length || !sat) return;
 
     const st = window._satelliteState;
     st.satellite = sat;

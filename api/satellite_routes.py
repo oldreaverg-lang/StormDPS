@@ -123,6 +123,24 @@ def _tile_path(satellite: str, ts: str, z: int, x: int, y: int) -> Path:
 
 # ── Endpoints ───────────────────────────────────────────────────────────────
 
+@router.get("/satellite/frames/auto")
+async def satellite_frames_auto(
+    lat: float = Query(..., description="Storm latitude"),
+    lon: float = Query(..., description="Storm longitude"),
+    hours: int = Query(24, ge=1, le=336),
+    cadence_min: int = Query(30, ge=10, le=60),
+):
+    """Auto-pick the best geostationary satellite for (lat, lon), then return
+    the same payload as ``/satellite/frames/{satellite}``.
+
+    Lets the frontend stop duplicating the lat/lon → satellite mapping logic
+    that lives in ``choose_satellite`` and stay in sync if the basin
+    boundaries are ever adjusted.
+    """
+    sat = choose_satellite(lat, lon)
+    return await satellite_frames(sat, hours=hours, cadence_min=cadence_min)
+
+
 @router.get("/satellite/frames/{satellite}")
 async def satellite_frames(
     satellite: str,
