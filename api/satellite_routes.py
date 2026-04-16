@@ -36,12 +36,10 @@ The choose_satellite() helper below maps a (lat, lon) to one of these names.
 from __future__ import annotations
 
 import logging
-import math
 import os
 import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query, Response
