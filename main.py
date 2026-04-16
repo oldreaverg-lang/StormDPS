@@ -37,10 +37,23 @@ from api.routes import (
     warm_track_cache,
 )
 from api.weather_routes import router as weather_router
-from api.satellite_routes import router as satellite_router
-from api.wind_routes import router as wind_router
-from api.pressure_routes import router as pressure_router
-from api.precip_routes import router as precip_router
+from api.satellite_routes import (
+    router as satellite_router,
+    evict_old_satellite_frames,
+)
+from api.wind_routes import (
+    router as wind_router,
+    evict_old_wind_frames,
+)
+from api.pressure_routes import (
+    router as pressure_router,
+    evict_old_pressure_frames,
+    evict_old_metar_files,
+)
+from api.precip_routes import (
+    router as precip_router,
+    evict_old_precip_frames,
+)
 # surgedps_routes was removed — SurgeDPS runs as its own service now
 from services.weather_data_service import WeatherDataService
 
@@ -147,15 +160,46 @@ async def lifespan(app: FastAPI):
         refresh_active_dps_loop(app.state, interval_seconds=3600)
     )
 
+    # --- STARTUP: periodic overlay-cache eviction ---
+    # Per-route _maybe_evict() runs only on the write path, so quiet routes
+    # never reclaim disk. This loop sweeps every overlay cache (wind, precip,
+    # pressure, METAR, satellite tiles) on the persistent volume on a fixed
+    # cadence, regardless of traffic. Defaults to a 28-day retention window
+    # with a daily sweep — both knobs are env-overridable so the timing can
+    # be tuned without a code change.
+    overlay_max_age_h = int(os.getenv("OVERLAY_CACHE_MAX_AGE_HOURS", str(28 * 24)))
+    overlay_sweep_h   = int(os.getenv("OVERLAY_CACHE_SWEEP_HOURS",   "24"))
+
+    async def evict_overlays_loop():
+        # Stagger first sweep a bit so it doesn't pile onto cold-start work.
+        await asyncio.sleep(300)
+        while True:
+            try:
+                w = evict_old_wind_frames(max_age_hours=overlay_max_age_h)
+                p = evict_old_precip_frames(max_age_hours=overlay_max_age_h)
+                pr = evict_old_pressure_frames(max_age_hours=overlay_max_age_h)
+                m = evict_old_metar_files(max_age_hours=overlay_max_age_h)
+                s = evict_old_satellite_frames(max_age_hours=overlay_max_age_h)
+                logger.info(
+                    f"[OVERLAY EVICT] swept (>{overlay_max_age_h}h): "
+                    f"wind={w} precip={p} pressure={pr} metar={m} satellite={s}"
+                )
+            except Exception as e:
+                logger.warning(f"[OVERLAY EVICT] sweep failed (non-fatal): {e}")
+            await asyncio.sleep(overlay_sweep_h * 3600)
+
+    app.state.overlay_evict_task = asyncio.create_task(evict_overlays_loop())
+
     yield
-    # --- SHUTDOWN: cancel DPS refresh loop ---
-    task = getattr(app.state, "dps_refresh_task", None)
-    if task is not None:
-        task.cancel()
-        try:
-            await task
-        except (asyncio.CancelledError, Exception):
-            pass
+    # --- SHUTDOWN: cancel background loops ---
+    for attr in ("dps_refresh_task", "overlay_evict_task"):
+        task = getattr(app.state, attr, None)
+        if task is not None:
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
 
     # --- SHUTDOWN: close shared httpx.AsyncClient ---
     try:
