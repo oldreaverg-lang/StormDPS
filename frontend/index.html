@@ -547,8 +547,11 @@
                     <input type="hidden" id="satelliteSliderInput" value="0">
                     <button id="satellitePlayBtn" style="display:none"></button>
                     <div style="display:flex;align-items:center;justify-content:space-between;gap:.4rem">
-                        <button id="windToggleBtn" onclick="toggleWindLayer()" disabled title="Loading satellite frames…" style="flex:1;background:rgba(100,116,139,.10);border:1px solid rgba(100,116,139,.25);color:#64748b;padding:.2rem .4rem;border-radius:3px;cursor:not-allowed;font-size:.62rem;font-weight:600;font-family:inherit;opacity:.6">Wind: Off</button>
+                        <button id="satToggleBtn" onclick="toggleSatelliteVisibility()" disabled title="Loading satellite frames…" style="flex:1;background:rgba(100,116,139,.10);border:1px solid rgba(100,116,139,.25);color:#64748b;padding:.2rem .4rem;border-radius:3px;cursor:not-allowed;font-size:.62rem;font-weight:600;font-family:inherit;opacity:.6">Satellite: Off</button>
                         <div id="satelliteName" style="font-size:.55rem;text-transform:uppercase;letter-spacing:.5px;color:#64748b;text-align:right">--</div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:.4rem;margin-top:.3rem">
+                        <button id="windToggleBtn" onclick="toggleWindLayer()" disabled title="Loading satellite frames…" style="flex:1;background:rgba(100,116,139,.10);border:1px solid rgba(100,116,139,.25);color:#64748b;padding:.2rem .4rem;border-radius:3px;cursor:not-allowed;font-size:.62rem;font-weight:600;font-family:inherit;opacity:.6">Wind: Off</button>
                     </div>
                     <div style="display:flex;align-items:center;gap:.4rem;margin-top:.3rem">
                         <button id="pressureToggleBtn" onclick="togglePressureLayer()" disabled title="Loading satellite frames…" style="flex:1;background:rgba(100,116,139,.10);border:1px solid rgba(100,116,139,.25);color:#64748b;padding:.2rem .4rem;border-radius:3px;cursor:not-allowed;font-size:.62rem;font-weight:600;font-family:inherit;opacity:.6">Pressure: Off</button>
@@ -3108,8 +3111,8 @@ async function fetchHistory(){
         if (!data || !data.length) {
             setLoadingStep('stepFetch');
             // Try unified track endpoint (handles ATCF IDs, IBTrACS SIDs, and auto-detection)
-            // skip_points=1 means compute every other point (2x faster), skip_points=0 means all points
-            const r=await fetch(`${API_BASE}/storms/${rawId}/track?grid_resolution_km=15&skip_points=1`);
+            // skip_points=0 means compute every other point (2x faster), skip_points=0 means all points
+            const r=await fetch(`${API_BASE}/storms/${rawId}/track?grid_resolution_km=15&skip_points=0`);
             if(r.ok){
                 data=await r.json();
                 // Store in preload cache for future use this session
@@ -3139,7 +3142,7 @@ async function fetchHistory(){
                         data = PRELOAD_CACHE[resolvedId];
                         console.log(`[NAME-RESOLVE] Cache hit for ${resolvedId}`);
                     } else {
-                        const r3 = await fetch(`${API_BASE}/storms/${resolvedId}/track?grid_resolution_km=15&skip_points=1`);
+                        const r3 = await fetch(`${API_BASE}/storms/${resolvedId}/track?grid_resolution_km=15&skip_points=0`);
                         if(r3.ok){
                             data = await r3.json();
                             if(data && data.length > 0){
@@ -3752,6 +3755,7 @@ window._satelliteState = {
     currentIdx: 0,      // index into frames[]
     irMode: false,      // true → infrared layer, false → visible/GeoColor
     maxZoom: 7,         // max native zoom returned by server for current mode
+    visible: true,      // satellite layer show/hide toggle
 };
 
 // NOTE: lat/lon → satellite mapping now lives server-side (see
@@ -3798,6 +3802,31 @@ function setSatelliteFrame(idx) {
     // Sync the precip layer (no-op if disabled or same hour)
     if (window._precipState && window._precipState.enabled) setPrecipFrame(ts);
 }
+
+// Show/hide the satellite tile layer on the map.
+window.toggleSatelliteVisibility = function() {
+    const st = window._satelliteState;
+    if (!st.layer || !currentMap) return;
+    st.visible = !st.visible;
+    const btn = document.getElementById('satToggleBtn');
+    if (st.visible) {
+        st.layer.addTo(currentMap);
+        if (btn) {
+            btn.textContent    = 'Satellite: On';
+            btn.style.background  = 'rgba(34,211,238,.18)';
+            btn.style.borderColor = 'rgba(34,211,238,.4)';
+            btn.style.color       = '#67e8f9';
+        }
+    } else {
+        currentMap.removeLayer(st.layer);
+        if (btn) {
+            btn.textContent    = 'Satellite: Off';
+            btn.style.background  = 'rgba(100,116,139,.18)';
+            btn.style.borderColor = 'rgba(100,116,139,.4)';
+            btn.style.color       = '#94a3b8';
+        }
+    }
+};
 
 // Toggle between visible (GeoColor) and infrared satellite imagery.
 // Re-inits the satellite layer with the new mode so tiles come from the
@@ -3943,6 +3972,19 @@ function teardownSatelliteLayer() {
         _irBtn.style.color = '#64748b';
         _irBtn.textContent = 'Infrared: Off';
     }
+    // Reset Satellite show/hide toggle.
+    const _satBtn = document.getElementById('satToggleBtn');
+    if (_satBtn) {
+        _satBtn.disabled = true;
+        _satBtn.title = 'Loading satellite frames…';
+        _satBtn.style.cursor = 'not-allowed';
+        _satBtn.style.opacity = '.6';
+        _satBtn.style.background = 'rgba(100,116,139,.10)';
+        _satBtn.style.borderColor = 'rgba(100,116,139,.25)';
+        _satBtn.style.color = '#64748b';
+        _satBtn.textContent = 'Satellite: Off';
+    }
+    st.visible = true;  // reset so next init shows satellite
 }
 
 async function initSatelliteLayer(data) {
@@ -4007,6 +4049,18 @@ async function initSatelliteLayer(data) {
     }
     if (nameEl) nameEl.textContent = sat.replace('-', ' ').toUpperCase();
     if (wrap) wrap.style.display = 'block';
+    // Enable the Satellite show/hide toggle (starts "On" since layer is visible).
+    const _satReady = document.getElementById('satToggleBtn');
+    if (_satReady) {
+        _satReady.disabled = false;
+        _satReady.title = 'Show/hide satellite imagery';
+        _satReady.style.cursor = 'pointer';
+        _satReady.style.opacity = '1';
+        _satReady.textContent = 'Satellite: On';
+        _satReady.style.background  = 'rgba(34,211,238,.18)';
+        _satReady.style.borderColor = 'rgba(34,211,238,.4)';
+        _satReady.style.color       = '#67e8f9';
+    }
     // Satellite is ready — enable the Wind + Pressure toggles.
     const _wbtnReady = document.getElementById('windToggleBtn');
     if (_wbtnReady) {
@@ -5255,7 +5309,10 @@ function syncVisualization(fi,snap){
 
     // Animated center marker
     if(currentMap){
-        currentMap.panTo([lat,lon],{animate:false});
+        // Don't pan when triggered by a marker hover (snap=true) — the instant
+        // pan would move the map under the cursor, firing mouseout and closing
+        // the popup before the user can read it.
+        if(!snap) currentMap.panTo([lat,lon],{animate:false});
         if(!window.animatedMarker){
             window.animatedMarker=L.circleMarker([lat,lon],{
                 radius:8,fillColor:'#ffffff',color:'#6366f1',weight:3,fillOpacity:1,zIndex:1000

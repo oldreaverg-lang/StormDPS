@@ -101,7 +101,7 @@ async def lifespan(app: FastAPI):
     # find everything "already cached" and skip heavy NOAA recomputation.
     async def warm_preload():
         try:
-            result = await generate_preload_bundle(grid_resolution_km=15.0, skip_points=1)
+            result = await generate_preload_bundle(grid_resolution_km=15.0, skip_points=0)
             logger.info(
                 f"[PRELOAD] Warm-up complete: "
                 f"{result['already_cached']} cached, "
