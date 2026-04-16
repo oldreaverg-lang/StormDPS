@@ -58,13 +58,33 @@ GIBS_BASE = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best"
 
 # Satellite → (GIBS layer name, max native zoom, cadence in minutes).
 # GeoColor refresh cadences vary by satellite; we round up to 10-min frames.
+# Two sets: "visible" (true-color / GeoColor — looks great in daytime but may
+# blank at night for non-GOES sats) and "ir" (infrared — always available 24/7,
+# greyscale thermal view).  The frontend lets users toggle between the two.
 _SATELLITES = {
     "goes-east": ("GOES-East_ABI_GeoColor", 7, 10),
     "goes-west": ("GOES-West_ABI_GeoColor", 7, 10),
-    "himawari":  ("Himawari_AHI_Band13_Clean_Infrared", 6, 10),  # IR — works day+night (Band3 Visible was blank at night)
+    "himawari":  ("Himawari_AHI_Band3_Red_Visible_1km", 7, 10),
     "meteosat-iodc": ("Meteosat-IODC_IR_Brightness_Temperature", 6, 30),
     "meteosat-0":   ("Meteosat-Prime_IR_Brightness_Temperature", 6, 30),
 }
+
+_SATELLITES_IR = {
+    "goes-east": ("GOES-East_ABI_Band13_Clean_Infrared", 6, 10),
+    "goes-west": ("GOES-West_ABI_Band13_Clean_Infrared", 6, 10),
+    "himawari":  ("Himawari_AHI_Band13_Clean_Infrared", 6, 10),
+    "meteosat-iodc": ("Meteosat-IODC_IR_Brightness_Temperature", 6, 30),  # already IR
+    "meteosat-0":   ("Meteosat-Prime_IR_Brightness_Temperature", 6, 30),  # already IR
+}
+
+
+def _sat_config(satellite: str, mode: str = "visible"):
+    """Return (layer, max_zoom, cadence) for the given satellite + mode."""
+    table = _SATELLITES_IR if mode == "ir" else _SATELLITES
+    cfg = table.get(satellite)
+    if cfg is None:
+        raise HTTPException(404, f"Unknown satellite '{satellite}'")
+    return cfg
 
 _TILE_CACHE_TTL_HOURS = 48
 _HTTP_TIMEOUT = httpx.Timeout(20.0, connect=5.0)
@@ -115,8 +135,9 @@ def _is_valid_ts(ts: str) -> bool:
         return False
 
 
-def _tile_path(satellite: str, ts: str, z: int, x: int, y: int) -> Path:
-    return SATELLITE_CACHE_DIR / satellite / ts / str(z) / str(x) / f"{y}.png"
+def _tile_path(satellite: str, ts: str, z: int, x: int, y: int, mode: str = "visible") -> Path:
+    prefix = f"{satellite}-{mode}" if mode != "visible" else satellite
+    return SATELLITE_CACHE_DIR / prefix / ts / str(z) / str(x) / f"{y}.png"
 
 
 # ── Endpoints ───────────────────────────────────────────────────────────────
@@ -127,6 +148,7 @@ async def satellite_frames_auto(
     lon: float = Query(..., description="Storm longitude"),
     hours: int = Query(24, ge=1, le=336),
     cadence_min: int = Query(30, ge=10, le=60),
+    mode: str = Query("visible", regex="^(visible|ir)$"),
 ):
     """Auto-pick the best geostationary satellite for (lat, lon), then return
     the same payload as ``/satellite/frames/{satellite}``.
@@ -136,7 +158,7 @@ async def satellite_frames_auto(
     boundaries are ever adjusted.
     """
     sat = choose_satellite(lat, lon)
-    return await satellite_frames(sat, hours=hours, cadence_min=cadence_min)
+    return await satellite_frames(sat, hours=hours, cadence_min=cadence_min, mode=mode)
 
 
 @router.get("/satellite/frames/{satellite}")
@@ -144,6 +166,7 @@ async def satellite_frames(
     satellite: str,
     hours: int = Query(24, ge=1, le=336),
     cadence_min: int = Query(30, ge=10, le=60),
+    mode: str = Query("visible", regex="^(visible|ir)$"),
 ):
     """List the most recent frame timestamps available for a satellite.
 
@@ -152,9 +175,7 @@ async def satellite_frames(
     cadence_min frame for the last *hours* hours. If a frame turns out to be
     missing the proxy returns a 1×1 transparent tile.
     """
-    if satellite not in _SATELLITES:
-        raise HTTPException(404, f"Unknown satellite '{satellite}'")
-    _, _, native_cadence = _SATELLITES[satellite]
+    layer, max_zoom, native_cadence = _sat_config(satellite, mode)
     cadence_min = max(cadence_min, native_cadence)
 
     now = datetime.now(timezone.utc)
@@ -174,6 +195,8 @@ async def satellite_frames(
         "hours": hours,
         "frames": frames,
         "latest": frames[-1] if frames else None,
+        "mode": mode,
+        "max_zoom": max_zoom,
     }
 
 
@@ -192,6 +215,7 @@ async def satellite_tile(
     z: int,
     x: int,
     y: int,
+    mode: str = Query("visible", regex="^(visible|ir)$"),
 ):
     """Serve a Web Mercator slippy tile for *satellite* at frame *ts*.
 
@@ -199,17 +223,15 @@ async def satellite_tile(
     Cache hit → instant disk read. Cache miss → fetch from GIBS, persist,
     serve. Upstream failure → transparent 1×1 PNG so the map keeps working.
     """
-    if satellite not in _SATELLITES:
-        raise HTTPException(404, f"Unknown satellite '{satellite}'")
     if not _is_valid_ts(ts):
         raise HTTPException(400, "Invalid timestamp; expected YYYYMMDDTHHMM")
-    layer, max_zoom, _ = _SATELLITES[satellite]
+    layer, max_zoom, _ = _sat_config(satellite, mode)
     if z < 0 or z > max_zoom:
         # Out-of-range zoom — return transparent so Leaflet doesn't 404-spam.
         return Response(content=_BLANK_PNG, media_type="image/png",
                         headers={"Cache-Control": "public, max-age=86400"})
 
-    path = _tile_path(satellite, ts, z, x, y)
+    path = _tile_path(satellite, ts, z, x, y, mode)
     if path.exists():
         return FileResponse(path, media_type="image/png",
                             headers={"Cache-Control": "public, max-age=86400"})

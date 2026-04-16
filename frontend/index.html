@@ -556,6 +556,9 @@
                     <div style="display:flex;align-items:center;gap:.4rem;margin-top:.3rem">
                         <button id="precipToggleBtn" onclick="togglePrecipLayer()" disabled title="Loading satellite frames…" style="flex:1;background:rgba(100,116,139,.10);border:1px solid rgba(100,116,139,.25);color:#64748b;padding:.2rem .4rem;border-radius:3px;cursor:not-allowed;font-size:.62rem;font-weight:600;font-family:inherit;opacity:.6">Precip: Off</button>
                     </div>
+                    <div style="display:flex;align-items:center;gap:.4rem;margin-top:.3rem">
+                        <button id="irToggleBtn" onclick="toggleIRMode()" disabled title="Loading satellite frames…" style="flex:1;background:rgba(100,116,139,.10);border:1px solid rgba(100,116,139,.25);color:#64748b;padding:.2rem .4rem;border-radius:3px;cursor:not-allowed;font-size:.62rem;font-weight:600;font-family:inherit;opacity:.6">Infrared: Off</button>
+                    </div>
                     <!-- Wind speed color legend (visible when wind layer is on) -->
                     <div id="windLegend" style="display:none;margin-top:.4rem;padding-top:.35rem;border-top:1px solid rgba(148,163,184,.18)">
                         <div style="font-size:.55rem;color:#94a3b8;margin-bottom:.15rem;text-align:center;letter-spacing:.04em">Wind speed (mph)</div>
@@ -3747,6 +3750,8 @@ window._satelliteState = {
     frames: [],         // array of "YYYYMMDDTHHMM" strings
     satellite: null,    // satellite name (goes-east, himawari, etc.)
     currentIdx: 0,      // index into frames[]
+    irMode: false,      // true → infrared layer, false → visible/GeoColor
+    maxZoom: 7,         // max native zoom returned by server for current mode
 };
 
 // NOTE: lat/lon → satellite mapping now lives server-side (see
@@ -3772,7 +3777,8 @@ function setSatelliteFrame(idx) {
     st.currentIdx = idx;
     const ts = st.frames[idx];
     // Rebuild tile URL with the new ts in path
-    const newUrl = `${API_BASE}/satellite/tile/${st.satellite}/${ts}/{z}/{x}/{y}.png`;
+    const modeQ = st.irMode ? '?mode=ir' : '';
+    const newUrl = `${API_BASE}/satellite/tile/${st.satellite}/${ts}/{z}/{x}/{y}.png${modeQ}`;
     st.layer.setUrl(newUrl);
     const lbl = document.getElementById('satelliteFrameLabel');
     if (lbl) lbl.textContent = formatSatelliteFrameLabel(ts);
@@ -3792,6 +3798,35 @@ function setSatelliteFrame(idx) {
     // Sync the precip layer (no-op if disabled or same hour)
     if (window._precipState && window._precipState.enabled) setPrecipFrame(ts);
 }
+
+// Toggle between visible (GeoColor) and infrared satellite imagery.
+// Re-inits the satellite layer with the new mode so tiles come from the
+// correct GIBS product.
+window.toggleIRMode = function() {
+    const st = window._satelliteState;
+    if (!st.satellite || !st.frames.length) return;
+    st.irMode = !st.irMode;
+    // Update the button appearance immediately
+    const btn = document.getElementById('irToggleBtn');
+    if (btn) {
+        if (st.irMode) {
+            btn.textContent    = 'Infrared: On';
+            btn.style.background  = 'rgba(168,85,247,.18)';
+            btn.style.borderColor = 'rgba(168,85,247,.4)';
+            btn.style.color       = '#c4b5fd';
+        } else {
+            btn.textContent    = 'Infrared: Off';
+            btn.style.background  = 'rgba(100,116,139,.18)';
+            btn.style.borderColor = 'rgba(100,116,139,.4)';
+            btn.style.color       = '#94a3b8';
+        }
+    }
+    // Re-init satellite layer — this re-fetches frames with the new mode
+    // which gives us the correct max_zoom for the new GIBS product.
+    if (window.stormData && window.stormData.length) {
+        initSatelliteLayer(window.stormData);
+    }
+};
 
 // Recenter the map on the storm's most-recent (eye) position. Useful when the
 // satellite + wind overlays make the dot harder to spot at a glance.
@@ -3896,6 +3931,18 @@ function teardownSatelliteLayer() {
         const ppleg = document.getElementById('precipLegend');
         if (ppleg) ppleg.style.display = 'none';
     }
+    // Reset IR toggle button (but keep irMode preference — it persists across storms).
+    const _irBtn = document.getElementById('irToggleBtn');
+    if (_irBtn) {
+        _irBtn.disabled = true;
+        _irBtn.title = 'Loading satellite frames…';
+        _irBtn.style.cursor = 'not-allowed';
+        _irBtn.style.opacity = '.6';
+        _irBtn.style.background = 'rgba(100,116,139,.10)';
+        _irBtn.style.borderColor = 'rgba(100,116,139,.25)';
+        _irBtn.style.color = '#64748b';
+        _irBtn.textContent = 'Infrared: Off';
+    }
 }
 
 async function initSatelliteLayer(data) {
@@ -3917,12 +3964,15 @@ async function initSatelliteLayer(data) {
 
     let frames = [];
     let sat = null;
+    let serverMaxZoom = 7;
+    const modeParam = window._satelliteState.irMode ? '&mode=ir' : '';
     try {
-        const r = await fetch(`${API_BASE}/satellite/frames/auto?lat=${last.lat.toFixed(4)}&lon=${last.lon.toFixed(4)}&hours=${hoursParam}&cadence_min=${cadenceParam}`);
+        const r = await fetch(`${API_BASE}/satellite/frames/auto?lat=${last.lat.toFixed(4)}&lon=${last.lon.toFixed(4)}&hours=${hoursParam}&cadence_min=${cadenceParam}${modeParam}`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const body = await r.json();
         frames = body.frames || [];
         sat = body.satellite || null;
+        serverMaxZoom = body.max_zoom || 7;
     } catch (e) {
         console.warn('[SATELLITE] frames fetch failed:', e);
         return;
@@ -3933,15 +3983,15 @@ async function initSatelliteLayer(data) {
     st.satellite = sat;
     st.frames = frames;
     st.currentIdx = frames.length - 1;  // start on most recent
+    st.maxZoom = serverMaxZoom;
 
-    const tileUrl = `${API_BASE}/satellite/tile/${sat}/${frames[st.currentIdx]}/{z}/{x}/{y}.png`;
-    // GOES layers support zoom 7; Himawari IR + Meteosat IR max out at 6.
-    const nativeZoom = sat.startsWith('goes') ? 7 : 6;
+    const modeQ = st.irMode ? '?mode=ir' : '';
+    const tileUrl = `${API_BASE}/satellite/tile/${sat}/${frames[st.currentIdx]}/{z}/{x}/{y}.png${modeQ}`;
     st.layer = L.tileLayer(tileUrl, {
         opacity: 0.85,
         zIndex: 200,        // above basemap, below track polylines + markers
         maxZoom: 7,
-        maxNativeZoom: nativeZoom,
+        maxNativeZoom: st.maxZoom,
         attribution: 'NASA GIBS / NOAA / JMA',
         crossOrigin: true,
     }).addTo(currentMap);
@@ -3987,6 +4037,25 @@ async function initSatelliteLayer(data) {
         _ppbtnReady.style.background = 'rgba(100,116,139,.18)';
         _ppbtnReady.style.borderColor = 'rgba(100,116,139,.4)';
         _ppbtnReady.style.color = '#94a3b8';
+    }
+    // Enable the Infrared toggle and sync its visual state.
+    const _irReady = document.getElementById('irToggleBtn');
+    if (_irReady) {
+        _irReady.disabled = false;
+        _irReady.title = 'Switch satellite imagery between visible and infrared (24/7)';
+        _irReady.style.cursor = 'pointer';
+        _irReady.style.opacity = '1';
+        if (st.irMode) {
+            _irReady.textContent = 'Infrared: On';
+            _irReady.style.background  = 'rgba(168,85,247,.18)';
+            _irReady.style.borderColor = 'rgba(168,85,247,.4)';
+            _irReady.style.color       = '#c4b5fd';
+        } else {
+            _irReady.textContent = 'Infrared: Off';
+            _irReady.style.background  = 'rgba(100,116,139,.18)';
+            _irReady.style.borderColor = 'rgba(100,116,139,.4)';
+            _irReady.style.color       = '#94a3b8';
+        }
     }
     const lbl = document.getElementById('satelliteFrameLabel');
     if (lbl) lbl.textContent = formatSatelliteFrameLabel(frames[st.currentIdx]);
