@@ -349,16 +349,31 @@ async def pressure_stations(
     # AviationWeather wants bbox as: minLat,minLon,maxLat,maxLon
     bbox_param = f"{lat_min:.2f},{lon_min:.2f},{lat_max:.2f},{lon_max:.2f}"
     params = {"bbox": bbox_param, "format": "json", "hours": 2}
+
+    def _stale_or_empty():
+        # If a cached payload exists on disk (even past TTL), serve it rather
+        # than wiping the user's station layer when AviationWeather hiccups.
+        # Bounded by the eviction job (24h) so it can't get arbitrarily stale.
+        if cache_path.exists():
+            try:
+                return JSONResponse(
+                    content=json.loads(cache_path.read_text()),
+                    headers={"X-Metar-Cache": "stale"},
+                )
+            except Exception as e:
+                logger.warning(f"[METAR] stale cache read failed for {cache_path}: {e}")
+        return JSONResponse(content={"stations": [], "ts": None, "source": "metar"})
+
     try:
         async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
             r = await client.get(_METAR_URL, params=params)
     except Exception as e:
         logger.warning(f"[METAR] upstream fetch failed: {e}")
-        return JSONResponse(content={"stations": [], "ts": None, "source": "metar"})
+        return _stale_or_empty()
 
     if r.status_code != 200:
         logger.warning(f"[METAR] upstream {r.status_code}: {r.text[:200]}")
-        return JSONResponse(content={"stations": [], "ts": None, "source": "metar"})
+        return _stale_or_empty()
 
     body = r.json() or []
     if not isinstance(body, list):

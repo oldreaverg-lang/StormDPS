@@ -198,6 +198,19 @@ async def satellite_tile(
         return FileResponse(path, media_type="image/png",
                             headers={"Cache-Control": "public, max-age=86400"})
 
+    # "Known miss" sentinel: GIBS already told us this tile doesn't exist for
+    # this frame (e.g. ocean tiles at night, off-disk corners). Short-circuit
+    # for an hour so we don't burn upstream quota re-asking forever.
+    miss_path = path.with_suffix(".miss")
+    if miss_path.exists():
+        try:
+            miss_age = datetime.now(timezone.utc).timestamp() - miss_path.stat().st_mtime
+        except OSError:
+            miss_age = 0
+        if miss_age < 3600:
+            return Response(content=_BLANK_PNG, media_type="image/png",
+                            headers={"Cache-Control": "public, max-age=3600"})
+
     # GIBS WMTS REST URL. TileMatrixSet for GeoColor is GoogleMapsCompatible_Level7.
     matrix_set = "GoogleMapsCompatible_Level7" if max_zoom >= 7 else "GoogleMapsCompatible_Level6"
     iso_ts = _ts_to_iso(ts)
@@ -221,6 +234,15 @@ async def satellite_tile(
                             headers={"Cache-Control": "public, max-age=86400"})
         else:
             logger.debug(f"[SATELLITE] upstream {r.status_code} for {upstream}")
+            # Definitive 404 → write a sentinel so we don't re-fetch for ~1h.
+            # Network errors (handled in except below) get no sentinel since
+            # those should be retried.
+            if r.status_code in (404, 400):
+                try:
+                    miss_path.parent.mkdir(parents=True, exist_ok=True)
+                    miss_path.touch()
+                except OSError:
+                    pass
     except Exception as e:
         logger.warning(f"[SATELLITE] upstream fetch failed: {type(e).__name__}: {e}")
 

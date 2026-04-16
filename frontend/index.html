@@ -4049,8 +4049,11 @@ function _windButtonReset() {
 
 function _satelliteTsToWindTs(ts) {
     // YYYYMMDDTHHMM (30-min cadence) → YYYYMMDDTHH (hourly), floor.
-    if (!ts || ts.length < 13) return null;
-    return ts.slice(0, 11);  // 'YYYYMMDDTHH'
+    // Strict match: an 11-char hourly ts is also acceptable. Anything else
+    // (junk, undefined, malformed) bails out.
+    if (!ts) return null;
+    const m = String(ts).match(/^(\d{8}T\d{2})(?:\d{2})?$/);
+    return m ? m[1] : null;
 }
 
 // Public entry: debounces rapid scrubs (Open-Meteo free tier = 10 req/min).
@@ -4337,17 +4340,22 @@ function _buildIsobarPolylines(field) {
     const out = [];
     contours.forEach(c => {
         const value = c.value;
-        // Style emphasis on multiples of 8; standard atmosphere stands out.
+        // Style emphasis on multiples of 8; ICAO standard atmosphere = 1013.25.
         const isMain = (value % 8) === 0;
-        const isStd  = Math.abs(value - 1012) < 0.1;
+        const isStd  = Math.abs(value - 1013.25) < 0.5;
         c.coordinates.forEach(poly => {
-            poly.forEach(ring => {
+            // d3-contour MultiPolygon convention: poly[0] is the outer ring,
+            // poly[1..] are holes. Emit all rings as polylines, but mark only
+            // the outer one as label-eligible so contours-with-holes don't
+            // get stamped twice.
+            poly.forEach((ring, idx) => {
                 const ll = ring.map(([x,y]) => toLatLng(x, y));
                 out.push({
                     latlngs: ll,
                     value,
                     isMain,
                     isStd,
+                    isOuter: idx === 0,
                 });
             });
         });
@@ -4439,15 +4447,16 @@ async function _setPressureFrameNow(satelliteTs) {
         try { currentMap.removeLayer(st.isobarLayer); } catch (e) {}
     }
     st.isobarLayer = L.layerGroup();
-    polylines.forEach(({latlngs, value, isMain, isStd}) => {
+    polylines.forEach(({latlngs, value, isMain, isStd, isOuter}) => {
         const weight = isStd ? 1.4 : (isMain ? 1.1 : 0.7);
         const color  = isStd ? 'rgba(255,255,255,.85)' : (isMain ? 'rgba(255,255,255,.65)' : 'rgba(255,255,255,.4)');
         const pl = L.polyline(latlngs, {
             color, weight, opacity: 1, interactive: false,
         });
         st.isobarLayer.addLayer(pl);
-        // Label every 8 hPa isobar at its midpoint.
-        if (isMain && latlngs.length > 4) {
+        // Label every 8 hPa isobar at its midpoint. Skip hole rings so a
+        // contour that wraps a low/high doesn't get stamped twice.
+        if (isMain && isOuter && latlngs.length > 4) {
             const mid = latlngs[Math.floor(latlngs.length / 2)];
             const lbl = L.marker(mid, {
                 interactive: false,
