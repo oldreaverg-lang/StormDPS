@@ -4388,31 +4388,31 @@ const _WF_QUADRANTS = [
     { key: 'NW', start: 270, end: 360 },
 ];
 
-// Ring opacities by wind threshold — 34kt outer envelope, 50kt mid, 64kt inner.
-// The fill COLOR is determined per-frame by the storm's Saffir-Simpson category
-// (see _windfieldCategoryColor below) so every ring shares one color at a given
-// timestep. Opacities stack so overlapping regions (64kt inside 50kt inside
-// 34kt) read darker / more intense, matching the physical wind gradient.
+// Each ring is colored by the WIND SPEED PRESENT IN THAT RING, mapped to
+// the 4-band reference palette (TS yellow, Cat 1-2 orange, Cat 3-4 red,
+// Cat 5 pink). Since both r34 (17.5 m/s) and r50 (25.7 m/s) thresholds
+// fall inside the TS range (18-33 m/s per the legend), BOTH outer rings
+// are yellow -- r50 simply uses a higher opacity so the "strong TS" band
+// reads as a denser yellow against the paler outer envelope. Only r64
+// (>= 33 m/s, the hurricane threshold) can hold Cat 1+ winds, so only r64
+// shifts color with the storm's current category.
 const _WF_RINGS = [
-    { field: 'r64_quadrants', opacity: 0.40, label: '64 kt' },
-    { field: 'r50_quadrants', opacity: 0.28, label: '50 kt' },
-    { field: 'r34_quadrants', opacity: 0.18, label: '34 kt' },
+    { field: 'r64_quadrants', opacity: 0.55, dynamic: true,                                               label: '64 kt' },
+    { field: 'r50_quadrants', opacity: 0.32, fill: '#fcd34d', stroke: '#854d0e',                          label: '50 kt' },
+    { field: 'r34_quadrants', opacity: 0.18, fill: '#fcd34d', stroke: '#854d0e',                          label: '34 kt' },
 ];
 
-// Saffir-Simpson category → color for the windfield fills.
-// Thresholds in m/s correspond to 39 / 74 / 96 / 111 / 130 / 157 mph.
-// Palette per user request: Cat5 pink, Cat4 red, Cat3 orange, Cat2 yellow,
-// Cat1 green, TS blue, sub-TS gray.
-function _windfieldCategoryColor(ms) {
+// Core (r64) color by the storm's current max_wind_ms. Uses the 4-band
+// reference palette from the legacy windfield visualizer -- Cat 5 pink,
+// Cat 3-4 red, Cat 1-2 orange. r64 is only drawn when winds reach >= 64 kt
+// (~ Cat 1), so below that the fallback is never visible; it's there as a
+// safe default if upstream data ever reports r64 at lower intensities.
+function _windfieldCoreColor(ms) {
     const v = +ms;
-    if (!(v > 0)) return { fill: '#64748b', stroke: '#334155' }; // unknown / sub-TS
-    if (v >= 70.2) return { fill: '#ec4899', stroke: '#831843' }; // Cat 5
-    if (v >= 58.1) return { fill: '#ef4444', stroke: '#7f1d1d' }; // Cat 4
-    if (v >= 49.6) return { fill: '#f97316', stroke: '#9a3412' }; // Cat 3
-    if (v >= 42.9) return { fill: '#eab308', stroke: '#713f12' }; // Cat 2
-    if (v >= 33.1) return { fill: '#22c55e', stroke: '#14532d' }; // Cat 1
-    if (v >= 17.4) return { fill: '#3b82f6', stroke: '#1e3a8a' }; // TS
-    return { fill: '#64748b', stroke: '#334155' };                // sub-TS / TD
+    if (v >= 70.2) return { fill: '#ec4899', stroke: '#831843' }; // Cat 5 pink
+    if (v >= 49.6) return { fill: '#ef4444', stroke: '#7f1d1d' }; // Cat 3-4 red
+    if (v >= 33.1) return { fill: '#f97316', stroke: '#9a3412' }; // Cat 1-2 orange
+    return                { fill: '#f97316', stroke: '#9a3412' }; // fallback (r64 shouldn't show here)
 }
 
 function _windfieldDraw(idx) {
@@ -4424,16 +4424,18 @@ function _windfieldDraw(idx) {
     const p = sd[idx];
     if (!p || p.lat == null || p.lon == null) return;
     const lat = +p.lat, lon = +p.lon;
-    const cat = _windfieldCategoryColor(p.max_wind_ms);
+    const core = _windfieldCoreColor(p.max_wind_ms);
     for (const ring of _WF_RINGS) {
         const q = p[ring.field];
         if (!q) continue;
+        const fill   = ring.dynamic ? core.fill   : ring.fill;
+        const stroke = ring.dynamic ? core.stroke : ring.stroke;
         for (const quad of _WF_QUADRANTS) {
             const r = +q[quad.key];
             if (!r || r <= 0) continue;
             const poly = L.polygon(_wfQuadrantPolygon(lat, lon, quad.start, quad.end, r), {
-                color: cat.stroke, weight: 1,
-                fillColor: cat.fill, fillOpacity: ring.opacity,
+                color: stroke, weight: 1,
+                fillColor: fill, fillOpacity: ring.opacity,
                 interactive: false, className: 'wf-quadrant wf-' + ring.field,
             });
             st.group.addLayer(poly);
