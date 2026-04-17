@@ -553,6 +553,10 @@
                     <div style="display:flex;align-items:center;gap:.4rem;margin-top:.3rem">
                         <button id="windToggleBtn" onclick="toggleWindLayer()" disabled title="Loading satellite frames…" style="flex:1;background:rgba(100,116,139,.10);border:1px solid rgba(100,116,139,.25);color:#64748b;padding:.2rem .4rem;border-radius:3px;cursor:not-allowed;font-size:.62rem;font-weight:600;font-family:inherit;opacity:.6">Wind: Off</button>
                     </div>
+                    <!-- Windfield (34/50/64-kt NHC-style wind-radii quadrants; DPS input) -->
+                    <div style="display:flex;align-items:center;gap:.4rem;margin-top:.3rem">
+                        <button id="windfieldToggleBtn" onclick="toggleWindfieldLayer()" disabled title="Loading track…" style="flex:1;background:rgba(100,116,139,.10);border:1px solid rgba(100,116,139,.25);color:#64748b;padding:.2rem .4rem;border-radius:3px;cursor:not-allowed;font-size:.62rem;font-weight:600;font-family:inherit;opacity:.6">Windfield: Off</button>
+                    </div>
                     <div style="display:flex;align-items:center;gap:.4rem;margin-top:.3rem">
                         <button id="pressureToggleBtn" onclick="togglePressureLayer()" disabled title="Loading satellite frames…" style="flex:1;background:rgba(100,116,139,.10);border:1px solid rgba(100,116,139,.25);color:#64748b;padding:.2rem .4rem;border-radius:3px;cursor:not-allowed;font-size:.62rem;font-weight:600;font-family:inherit;opacity:.6">Pressure: Off</button>
                     </div>
@@ -3802,6 +3806,37 @@ function setSatelliteFrame(idx) {
     if (window._pressureState && window._pressureState.enabled) setPressureFrame(ts);
     // Sync the precip layer (no-op if disabled or same hour)
     if (window._precipState && window._precipState.enabled) setPrecipFrame(ts);
+
+    // Sync the windfield (wind-radii quadrants) + storm-timeline marker to
+    // the frame's nearest storm index. Without this, the "current position"
+    // storm icon stays pinned at the latest track point while the satellite
+    // and pressure fields show a past frame — which reads as the pressure
+    // minimum being misaligned from the storm center.
+    if (window.stormData && window.stormData.length) {
+        const tsMs = window._satTsToMs(ts);
+        if (!isNaN(tsMs)) {
+            let bestSi = 0, bestDiff = Infinity;
+            for (let i = 0; i < window.stormData.length; i++) {
+                const t = Date.parse(window.stormData[i].timestamp);
+                if (isNaN(t)) continue;
+                const diff = Math.abs(t - tsMs);
+                if (diff < bestDiff) { bestDiff = diff; bestSi = i; }
+            }
+            if (window._windfieldState && window._windfieldState.enabled
+                && typeof window.setWindfieldFrameByIdx === 'function') {
+                window.setWindfieldFrameByIdx(bestSi);
+            }
+            // Snap the storm-timeline marker to the frame's storm index so
+            // the "current" track icon lines up with the satellite frame.
+            const curSi = Math.floor(window.currentAnimIndex || 0);
+            if (bestSi !== curSi && typeof syncVisualization === 'function') {
+                window.currentAnimIndex = bestSi;
+                const scrub = document.getElementById('scrubSlider');
+                if (scrub) scrub.value = bestSi;
+                try { syncVisualization(bestSi, true); } catch (e) {}
+            }
+        }
+    }
 }
 
 // Show/hide the satellite tile layer on the map.
@@ -3973,6 +4008,29 @@ function teardownSatelliteLayer(opts) {
         const ppleg = document.getElementById('precipLegend');
         if (ppleg) ppleg.style.display = 'none';
     }
+    // Tear down the windfield (wind-radii quadrants) layer. Data comes from
+    // stormData[i].r34_quadrants so there's no server state to drop, but we
+    // still remove the polygon group and reset the toggle button.
+    const wf = window._windfieldState;
+    if (wf) {
+        if (wf.group && currentMap) {
+            try { currentMap.removeLayer(wf.group); } catch(e) {}
+        }
+        wf.group = null;
+        wf.enabled = false;
+        wf.currentIdx = -1;
+        const wfbtn = document.getElementById('windfieldToggleBtn');
+        if (wfbtn) {
+            wfbtn.disabled = true;
+            wfbtn.title = 'Loading track…';
+            wfbtn.style.cursor = 'not-allowed';
+            wfbtn.style.opacity = '.6';
+            wfbtn.style.background = 'rgba(100,116,139,.10)';
+            wfbtn.style.borderColor = 'rgba(100,116,139,.25)';
+            wfbtn.style.color = '#64748b';
+            wfbtn.textContent = 'Windfield: Off';
+        }
+    }
     // Reset IR toggle button (but keep irMode preference — it persists across storms).
     const _irBtn = document.getElementById('irToggleBtn');
     if (_irBtn) {
@@ -4117,6 +4175,27 @@ async function initSatelliteLayer(data, opts) {
         _ppbtnReady.style.borderColor = 'rgba(100,116,139,.4)';
         _ppbtnReady.style.color = '#94a3b8';
     }
+    // Enable the Windfield toggle iff the track actually has per-point quadrant
+    // data. Synthetic Holland-only tracks (older archives, JTWC before radii
+    // were published) will leave this button disabled with a tooltip explaining.
+    const _wfReady = document.getElementById('windfieldToggleBtn');
+    if (_wfReady) {
+        const hasRadii = Array.isArray(data) && data.some(p => p && p.r34_quadrants);
+        if (hasRadii) {
+            _wfReady.disabled = false;
+            _wfReady.title = 'Toggle 34/50/64-kt wind radii (NHC-style quadrants, DPS input)';
+            _wfReady.style.cursor = 'pointer';
+            _wfReady.style.opacity = '1';
+            _wfReady.style.background = 'rgba(100,116,139,.18)';
+            _wfReady.style.borderColor = 'rgba(100,116,139,.4)';
+            _wfReady.style.color = '#94a3b8';
+        } else {
+            _wfReady.disabled = true;
+            _wfReady.title = 'No per-point wind-radii available for this storm';
+            _wfReady.style.cursor = 'not-allowed';
+            _wfReady.style.opacity = '.5';
+        }
+    }
     // Enable the Infrared toggle and sync its visual state.
     const _irReady = document.getElementById('irToggleBtn');
     if (_irReady) {
@@ -4236,6 +4315,130 @@ function _overlayFetch(layer, url) {
     inflight.set(url, p);
     p.finally(() => inflight.delete(url));
     return p;
+}
+
+// ── Windfield (wind-radii quadrants) layer state ──────────────────────────
+// NHC-style 34/50/64-kt wind-radii polygons, drawn from
+// stormData[i].r34_quadrants / r50_quadrants / r64_quadrants (nautical miles
+// per compass quadrant). No backend call — everything needed is already on
+// the track payload. Rendered for the CURRENT frame only (matches the
+// single-frame pattern used by Wind/Pressure/Precip). DPS formula uses
+// R34 area as a size input, so keeping this layer visible is operationally
+// meaningful, not just cosmetic.
+window._windfieldState = {
+    group: null,          // L.layerGroup holding the quadrant polygons
+    enabled: false,
+    currentIdx: -1,       // stormData index currently drawn
+};
+
+// Convert a point + bearing + distance (nm) into a lat/lon using the
+// rhumb-line (flat-earth) approximation. Good enough for radii ≤ 300 nm.
+function _wfOffsetLL(lat, lon, bearingDeg, distNm) {
+    const R = 3440.065;                       // Earth radius in nm
+    const br = bearingDeg * Math.PI / 180;
+    const lat1 = lat * Math.PI / 180;
+    const lon1 = lon * Math.PI / 180;
+    const d = distNm / R;
+    const lat2 = Math.asin(Math.sin(lat1) * Math.cos(d)
+                           + Math.cos(lat1) * Math.sin(d) * Math.cos(br));
+    const lon2 = lon1 + Math.atan2(Math.sin(br) * Math.sin(d) * Math.cos(lat1),
+                                   Math.cos(d) - Math.sin(lat1) * Math.sin(lat2));
+    return [lat2 * 180 / Math.PI, ((lon2 * 180 / Math.PI + 540) % 360) - 180];
+}
+
+// Build one quadrant arc polygon: sweeps from startBearing to endBearing
+// (in degrees, clockwise) in 5° steps, rim at distance `radNm` nm, closes
+// back through the storm center so the polygon is a pie slice.
+function _wfQuadrantPolygon(lat, lon, startBearing, endBearing, radNm) {
+    const pts = [[lat, lon]];
+    for (let b = startBearing; b <= endBearing; b += 5) {
+        pts.push(_wfOffsetLL(lat, lon, b, radNm));
+    }
+    pts.push(_wfOffsetLL(lat, lon, endBearing, radNm));
+    pts.push([lat, lon]);
+    return pts;
+}
+
+// Quadrant bearings (compass degrees, clockwise from N):
+//   NE = 0…90, SE = 90…180, SW = 180…270, NW = 270…360
+const _WF_QUADRANTS = [
+    { key: 'NE', start:   0, end:  90 },
+    { key: 'SE', start:  90, end: 180 },
+    { key: 'SW', start: 180, end: 270 },
+    { key: 'NW', start: 270, end: 360 },
+];
+
+// Ring style by wind threshold — 34kt outer envelope, 50kt mid, 64kt inner.
+// Fill opacities stack so overlapping regions read darker / more intense.
+const _WF_RINGS = [
+    { field: 'r64_quadrants', color: '#ef4444', stroke: '#7f1d1d', opacity: 0.28, label: '64 kt' },
+    { field: 'r50_quadrants', color: '#f97316', stroke: '#9a3412', opacity: 0.22, label: '50 kt' },
+    { field: 'r34_quadrants', color: '#eab308', stroke: '#713f12', opacity: 0.18, label: '34 kt' },
+];
+
+function _windfieldDraw(idx) {
+    const st = window._windfieldState;
+    if (!st.enabled || !st.group) return;
+    st.group.clearLayers();
+    const sd = window.stormData;
+    if (!sd || idx == null || idx < 0 || idx >= sd.length) return;
+    const p = sd[idx];
+    if (!p || p.lat == null || p.lon == null) return;
+    const lat = +p.lat, lon = +p.lon;
+    for (const ring of _WF_RINGS) {
+        const q = p[ring.field];
+        if (!q) continue;
+        for (const quad of _WF_QUADRANTS) {
+            const r = +q[quad.key];
+            if (!r || r <= 0) continue;
+            const poly = L.polygon(_wfQuadrantPolygon(lat, lon, quad.start, quad.end, r), {
+                color: ring.stroke, weight: 1,
+                fillColor: ring.color, fillOpacity: ring.opacity,
+                interactive: false, className: 'wf-quadrant wf-' + ring.field,
+            });
+            st.group.addLayer(poly);
+        }
+    }
+    st.currentIdx = idx;
+}
+
+// Public sync hook: called from setSatelliteFrame whenever the active frame
+// changes. Snaps the drawn quadrants to the storm position matching that ts.
+window.setWindfieldFrameByIdx = function(stormIdx) {
+    const st = window._windfieldState;
+    if (!st || !st.enabled) return;
+    _windfieldDraw(Math.max(0, Math.min(stormIdx, (window.stormData||[]).length - 1)));
+};
+
+function toggleWindfieldLayer() {
+    const st = window._windfieldState;
+    const btn = document.getElementById('windfieldToggleBtn');
+    if (st.enabled) {
+        st.enabled = false;
+        if (st.group && currentMap) { try { currentMap.removeLayer(st.group); } catch(e) {} }
+        st.group = null;
+        if (btn) {
+            btn.textContent = 'Windfield: Off';
+            btn.style.background  = 'rgba(100,116,139,.18)';
+            btn.style.borderColor = 'rgba(100,116,139,.4)';
+            btn.style.color       = '#94a3b8';
+        }
+        return;
+    }
+    if (!currentMap) return;
+    st.enabled = true;
+    st.group = L.layerGroup().addTo(currentMap);
+    if (btn) {
+        btn.textContent = 'Windfield: On';
+        btn.style.background  = 'rgba(234,179,8,.18)';
+        btn.style.borderColor = 'rgba(234,179,8,.45)';
+        btn.style.color       = '#fde68a';
+    }
+    // Draw at whatever frame the storm timeline is currently on.
+    const stormIdx = (window.currentAnimIndex != null)
+        ? Math.floor(window.currentAnimIndex)
+        : ((window.stormData || []).length - 1);
+    _windfieldDraw(stormIdx);
 }
 
 // ── Wind layer state (mutable across calls) ───────────────────────────────

@@ -58,7 +58,12 @@ _FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 _ARCHIVE_URL  = "https://archive-api.open-meteo.com/v1/era5"
 _HTTP_TIMEOUT = httpx.Timeout(25.0, connect=5.0)
 
-_MAX_GRID_POINTS = 900   # 30 × 30 — safe under Open-Meteo's batch cap
+_MAX_GRID_POINTS = 350   # ~18×18 — keeps the Open-Meteo URL under ~6KB.
+#                         # Previously 900, but for bboxes ≳17° on a side the
+#                         # comma-separated lat/lon list pushed the request URL
+#                         # past Open-Meteo's accepted length and their gateway
+#                         # returned an error that we mapped to 502. Matches
+#                         # the caps already used by pressure_routes / precip_routes.
 _MIN_RES_DEG     = 0.5
 _MAX_RES_DEG     = 2.0
 _DEFAULT_RES_DEG = 1.0
