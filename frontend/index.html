@@ -4388,13 +4388,32 @@ const _WF_QUADRANTS = [
     { key: 'NW', start: 270, end: 360 },
 ];
 
-// Ring style by wind threshold — 34kt outer envelope, 50kt mid, 64kt inner.
-// Fill opacities stack so overlapping regions read darker / more intense.
+// Ring opacities by wind threshold — 34kt outer envelope, 50kt mid, 64kt inner.
+// The fill COLOR is determined per-frame by the storm's Saffir-Simpson category
+// (see _windfieldCategoryColor below) so every ring shares one color at a given
+// timestep. Opacities stack so overlapping regions (64kt inside 50kt inside
+// 34kt) read darker / more intense, matching the physical wind gradient.
 const _WF_RINGS = [
-    { field: 'r64_quadrants', color: '#ef4444', stroke: '#7f1d1d', opacity: 0.28, label: '64 kt' },
-    { field: 'r50_quadrants', color: '#f97316', stroke: '#9a3412', opacity: 0.22, label: '50 kt' },
-    { field: 'r34_quadrants', color: '#eab308', stroke: '#713f12', opacity: 0.18, label: '34 kt' },
+    { field: 'r64_quadrants', opacity: 0.40, label: '64 kt' },
+    { field: 'r50_quadrants', opacity: 0.28, label: '50 kt' },
+    { field: 'r34_quadrants', opacity: 0.18, label: '34 kt' },
 ];
+
+// Saffir-Simpson category → color for the windfield fills.
+// Thresholds in m/s correspond to 39 / 74 / 96 / 111 / 130 / 157 mph.
+// Palette per user request: Cat5 pink, Cat4 red, Cat3 orange, Cat2 yellow,
+// Cat1 green, TS blue, sub-TS gray.
+function _windfieldCategoryColor(ms) {
+    const v = +ms;
+    if (!(v > 0)) return { fill: '#64748b', stroke: '#334155' }; // unknown / sub-TS
+    if (v >= 70.2) return { fill: '#ec4899', stroke: '#831843' }; // Cat 5
+    if (v >= 58.1) return { fill: '#ef4444', stroke: '#7f1d1d' }; // Cat 4
+    if (v >= 49.6) return { fill: '#f97316', stroke: '#9a3412' }; // Cat 3
+    if (v >= 42.9) return { fill: '#eab308', stroke: '#713f12' }; // Cat 2
+    if (v >= 33.1) return { fill: '#22c55e', stroke: '#14532d' }; // Cat 1
+    if (v >= 17.4) return { fill: '#3b82f6', stroke: '#1e3a8a' }; // TS
+    return { fill: '#64748b', stroke: '#334155' };                // sub-TS / TD
+}
 
 function _windfieldDraw(idx) {
     const st = window._windfieldState;
@@ -4405,6 +4424,7 @@ function _windfieldDraw(idx) {
     const p = sd[idx];
     if (!p || p.lat == null || p.lon == null) return;
     const lat = +p.lat, lon = +p.lon;
+    const cat = _windfieldCategoryColor(p.max_wind_ms);
     for (const ring of _WF_RINGS) {
         const q = p[ring.field];
         if (!q) continue;
@@ -4412,8 +4432,8 @@ function _windfieldDraw(idx) {
             const r = +q[quad.key];
             if (!r || r <= 0) continue;
             const poly = L.polygon(_wfQuadrantPolygon(lat, lon, quad.start, quad.end, r), {
-                color: ring.stroke, weight: 1,
-                fillColor: ring.color, fillOpacity: ring.opacity,
+                color: cat.stroke, weight: 1,
+                fillColor: cat.fill, fillOpacity: ring.opacity,
                 interactive: false, className: 'wf-quadrant wf-' + ring.field,
             });
             st.group.addLayer(poly);
