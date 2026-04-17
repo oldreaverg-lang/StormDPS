@@ -4001,6 +4001,7 @@ function teardownSatelliteLayer(opts) {
         pp.enabled = false;
         pp.bbox = null;
         pp.currentTs = null;
+        pp.inflightTs = null;
         pp.lastPayload = null;
         pp.lastBounds = null;
         const ppbtn = document.getElementById('precipToggleBtn');
@@ -4131,7 +4132,12 @@ async function initSatelliteLayer(data, opts) {
         maxNativeZoom: st.maxZoom,
         attribution: 'NASA GIBS / NOAA / JMA',
         crossOrigin: true,
-    }).addTo(currentMap);
+    });
+    // Respect the user's Satellite show/hide toggle: only attach the tile
+    // layer to the map if satellite is currently visible. Without this guard,
+    // flipping the IR toggle while Satellite is Off triggers an init that
+    // re-attaches the tile layer, overriding the user's intent.
+    if (st.visible) st.layer.addTo(currentMap);
 
     // Wire slider UI
     const slider = document.getElementById('satelliteSliderInput');
@@ -4673,6 +4679,7 @@ window._pressureState = {
     bbox:         null,    // [s,w,n,e] cached by initSatelliteLayer
     currentTs:    null,    // YYYYMMDDTHH (hourly)
     fetchToken:   0,
+    stationToken: 0,       // independent token for _refreshPressureStations
     debounceTimer: null,
     pendingTs:    null,
 };
@@ -4770,7 +4777,12 @@ function _buildIsobarPolylines(field) {
     const la1 = field.la1, lo1 = field.lo1;
     const dx  = field.dx,  dy  = field.dy;
     // Convert grid (x, y) → lat/lon. y=0 is the top row (highest lat).
-    const toLatLng = (x, y) => [la1 - y * dy, lo1 + x * dx];
+    // d3-contour treats integer coordinates as CELL CORNERS, not sample
+    // positions — sample (i, j) appears at output coord (i+0.5, j+0.5).
+    // Subtract 0.5 before scaling so isobars line up with the color-fill
+    // layer (which is half-cell-expanded in _setPressureFrameNow and also
+    // treats samples as cell centers).
+    const toLatLng = (x, y) => [la1 - (y - 0.5) * dy, lo1 + (x - 0.5) * dx];
     const out = [];
     contours.forEach(c => {
         const value = c.value;
@@ -4929,6 +4941,9 @@ async function _setPressureFrameNow(satelliteTs) {
 async function _refreshPressureStations() {
     const st = window._pressureState;
     if (!st.bbox || !currentMap) return;
+    // Dedicated token so two quick scrubs don't let a slow first fetch
+    // paint its stale pills over the fresher second fetch's pills.
+    const token = ++st.stationToken;
     const [s,w,n,e] = st.bbox;
     let body = null;
     try {
@@ -4939,6 +4954,8 @@ async function _refreshPressureStations() {
         console.warn('[PRESSURE] stations fetch failed:', e);
         return;
     }
+    // Bail if a newer station refresh has already been kicked off.
+    if (token !== st.stationToken || !st.enabled || !st.showStations) return;
     const stations = (body && body.stations) || [];
     if (st.stationLayer) {
         try { currentMap.removeLayer(st.stationLayer); } catch (e) {}
@@ -5025,6 +5042,7 @@ window._precipState = {
     showCloud:     true,
     bbox:          null,
     currentTs:     null,
+    inflightTs:    null,    // guards against duplicate in-flight fetches
     fetchToken:    0,
     debounceTimer: null,
     pendingTs:     null,
@@ -5146,6 +5164,12 @@ async function _setPrecipFrameNow(satelliteTs) {
     if (!m) return;
     const ts = `${m[1]}${m[2]}${m[3]}T${m[4]}`;
     if (st.currentTs === ts) return;
+    // Also bail if we've already kicked off (but not yet rendered) a fetch
+    // for this same hour — the post-await write of st.currentTs was too
+    // late to gate a second call that slipped through during the await,
+    // causing a redundant network request for identical data.
+    if (st.inflightTs === ts) return;
+    st.inflightTs = ts;
 
     const token = ++st.fetchToken;
     const bbox  = st.bbox.map(v => v.toFixed(2)).join(',');
@@ -5159,6 +5183,9 @@ async function _setPrecipFrameNow(satelliteTs) {
     try {
         payload = await _overlayFetch('precip', url);
     } catch (e) {
+        // Clear the in-flight marker so a retry for the same ts isn't
+        // permanently suppressed by the early-return guard above.
+        if (st.inflightTs === ts) st.inflightTs = null;
         if (token !== st.fetchToken) return;
         console.warn('[PRECIP] fetch failed:', e);
         if (btn) {
@@ -5169,7 +5196,10 @@ async function _setPrecipFrameNow(satelliteTs) {
         }
         return;
     }
-    if (token !== st.fetchToken || !st.enabled) return;
+    if (token !== st.fetchToken || !st.enabled) {
+        if (st.inflightTs === ts) st.inflightTs = null;
+        return;
+    }
 
     // Half-cell expand — see the matching note in _setPressureFrameNow. Samples
     // are at cell centers, so the bounds need to extend dx/2, dy/2 beyond the
@@ -5216,6 +5246,7 @@ async function _setPrecipFrameNow(satelliteTs) {
     st.currentTs   = ts;
     st.lastPayload = payload;
     st.lastBounds  = bounds;
+    if (st.inflightTs === ts) st.inflightTs = null;
     if (btn) {
         btn.textContent       = 'Precip: On';
         btn.style.background  = 'rgba(96,165,250,.20)';
@@ -5278,6 +5309,7 @@ function togglePrecipLayer() {
             st[k] = null;
         });
         st.currentTs = null;
+        st.inflightTs = null;
         _precipButtonReset();
     } else {
         if (!window._satelliteState || !window._satelliteState.frames.length || !st.bbox) {
