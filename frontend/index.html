@@ -548,7 +548,10 @@
                     <button id="satellitePlayBtn" style="display:none"></button>
                     <div style="display:flex;align-items:center;justify-content:space-between;gap:.4rem">
                         <button id="satToggleBtn" onclick="toggleSatelliteVisibility()" disabled title="Loading satellite frames…" style="flex:1;background:rgba(100,116,139,.10);border:1px solid rgba(100,116,139,.25);color:#64748b;padding:.2rem .4rem;border-radius:3px;cursor:not-allowed;font-size:.62rem;font-weight:600;font-family:inherit;opacity:.6">Satellite: Off</button>
-                        <div id="satelliteName" style="font-size:.55rem;text-transform:uppercase;letter-spacing:.5px;color:#64748b;text-align:right">--</div>
+                        <div style="display:flex;flex-direction:column;align-items:flex-end;line-height:1.1">
+                            <div id="satelliteName" style="font-size:.55rem;text-transform:uppercase;letter-spacing:.5px;color:#64748b;text-align:right">--</div>
+                            <div id="satelliteProductLabel" title="NASA GIBS product used for this view" style="font-size:.5rem;color:#94a3b8;text-align:right;font-style:italic">&nbsp;</div>
+                        </div>
                     </div>
                     <div style="display:flex;align-items:center;gap:.4rem;margin-top:.3rem">
                         <button id="windToggleBtn" onclick="toggleWindLayer()" disabled title="Loading satellite frames…" style="flex:1;background:rgba(100,116,139,.10);border:1px solid rgba(100,116,139,.25);color:#64748b;padding:.2rem .4rem;border-radius:3px;cursor:not-allowed;font-size:.62rem;font-weight:600;font-family:inherit;opacity:.6">Wind: Off</button>
@@ -3759,6 +3762,7 @@ window._satelliteState = {
     currentIdx: 0,      // index into frames[]
     irMode: false,      // true → infrared layer, false → visible/GeoColor
     maxZoom: 7,         // max native zoom returned by server for current mode
+    layerLabel: '',     // human-readable product label (e.g. "GeoColor", "Band 13 IR")
     visible: true,      // satellite layer show/hide toggle
     sessionToken: 0,    // bumped on each initSatelliteLayer; stale awaits bail out
 };
@@ -3925,10 +3929,15 @@ function teardownSatelliteLayer(opts) {
         st.frames = [];
         st.satellite = null;
         st.currentIdx = 0;
+        st.layerLabel = '';
         const slider = document.getElementById('satelliteSlider');
         if (slider) slider.style.display = 'none';
         const syncEl = document.getElementById('syncedSatTs');
         if (syncEl) syncEl.style.display = 'none';
+        const nameEl = document.getElementById('satelliteName');
+        if (nameEl) nameEl.textContent = '--';
+        const labelEl = document.getElementById('satelliteProductLabel');
+        if (labelEl) labelEl.textContent = '\u00a0';
     }
     // On a full storm teardown we also wipe wind/pressure/precip since they're
     // bbox-tied to the session. On an IR toggle (keepOverlays=true) we leave
@@ -4085,6 +4094,7 @@ async function initSatelliteLayer(data, opts) {
     let frames = [];
     let sat = null;
     let serverMaxZoom = 7;
+    let layerLabel = '';
     const modeParam = targetIrMode ? '&mode=ir' : '';
     try {
         const r = await fetch(`${API_BASE}/satellite/frames/auto?lat=${last.lat.toFixed(4)}&lon=${last.lon.toFixed(4)}&hours=${hoursParam}&cadence_min=${cadenceParam}${modeParam}`);
@@ -4093,6 +4103,7 @@ async function initSatelliteLayer(data, opts) {
         frames = body.frames || [];
         sat = body.satellite || null;
         serverMaxZoom = body.max_zoom || 7;
+        layerLabel = body.layer_label || '';
     } catch (e) {
         console.warn('[SATELLITE] frames fetch failed:', e);
         return;
@@ -4106,6 +4117,7 @@ async function initSatelliteLayer(data, opts) {
     st.frames = frames;
     st.currentIdx = frames.length - 1;  // start on most recent
     st.maxZoom = serverMaxZoom;
+    st.layerLabel = layerLabel;
 
     const modeQ = targetIrMode ? '?mode=ir' : '';
     const tileUrl = `${API_BASE}/satellite/tile/${sat}/${frames[st.currentIdx]}/{z}/{x}/{y}.png${modeQ}`;
@@ -4131,6 +4143,8 @@ async function initSatelliteLayer(data, opts) {
         slider.value = st.currentIdx;
     }
     if (nameEl) nameEl.textContent = sat.replace('-', ' ').toUpperCase();
+    const labelEl = document.getElementById('satelliteProductLabel');
+    if (labelEl) labelEl.textContent = layerLabel || '\u00a0';
     if (wrap) wrap.style.display = 'block';
     // Enable the Satellite show/hide toggle (starts "On" since layer is visible).
     const _satReady = document.getElementById('satToggleBtn');

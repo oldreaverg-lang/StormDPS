@@ -24,11 +24,17 @@ Why proxy at all? Three reasons:
      directories get pruned automatically.
 
 Satellite mapping (basin → satellite name):
-    GOES-East  : Atlantic, East Pacific, Caribbean              (lon -135 ..  -10)
-    GOES-West  : Central / East Pacific, west of GOES-East      (lon -180 .. -135)
-    Himawari   : West Pacific, eastern Indian Ocean, Australia  (lon   60 ..  180)
-    Meteosat-IODC: western Indian Ocean                         (lon   20 ..   60)
-    Meteosat-0 : Atlantic east of GOES-East / Africa            (lon  -10 ..   20)
+    GOES-East  : Atlantic, Caribbean, west Africa & east Atlantic (lon -135 ..  20)
+    GOES-West  : Central / East Pacific, west of GOES-East        (lon -180 .. -135)
+    Himawari   : Indian Ocean, West Pacific, Australia            (lon   20 .. 180)
+
+Meteosat is intentionally not in the list: NASA GIBS publishes zero Meteosat
+layers as of 2026-04. Storms that would have routed to Meteosat fall back to
+the nearest geostationary that GIBS does carry (GOES-East reaching into west
+Africa, Himawari reaching into the western Indian Ocean). Imagery quality
+drops off at those extreme viewing angles but tiles render instead of going
+blank. See docs/CACHING.md for upgrade options (custom RAMMB/SLIDER/JMA
+proxy would reinstate true GeoColor for these basins).
 
 The choose_satellite() helper below maps a (lat, lon) to one of these names.
 """
@@ -56,30 +62,35 @@ router = APIRouter()
 # / IR-blended nighttime composite, the same look Zoom Earth uses.
 GIBS_BASE = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best"
 
-# Satellite → (GIBS layer name, max native zoom, cadence in minutes).
-# GeoColor refresh cadences vary by satellite; we round up to 10-min frames.
-# Two sets: "visible" (true-color / GeoColor — looks great in daytime but may
-# blank at night for non-GOES sats) and "ir" (infrared — always available 24/7,
-# greyscale thermal view).  The frontend lets users toggle between the two.
+# Satellite → (GIBS layer name, max native zoom, cadence in minutes, UI label).
+# Two sets: "visible" (daytime-look product) and "ir" (infrared — always 24/7
+# thermal view). The frontend lets users toggle between the two.
+#
+# Product choice rationale:
+#   * GOES-East/West "visible" use GeoColor (true-color day + IR-blended night).
+#   * Himawari "visible" uses the Air Mass RGB composite. NASA GIBS does not
+#     publish a Himawari GeoColor, and the only alternative ("Band 3 Red
+#     Visible 1km") is a single grayscale band that goes black at night and
+#     reads as "IR leaking into satellite" to users — so Air Mass (a colorful
+#     RGB available 24/7) is the better default. See commit history for the
+#     original Band 3 experiment.
+#   * IR is Band 13 (~10.3µm) for all GOES + Himawari — the canonical cloud
+#     top thermal band.
 _SATELLITES = {
-    "goes-east": ("GOES-East_ABI_GeoColor", 7, 10),
-    "goes-west": ("GOES-West_ABI_GeoColor", 7, 10),
-    "himawari":  ("Himawari_AHI_Band3_Red_Visible_1km", 7, 10),
-    "meteosat-iodc": ("Meteosat-IODC_IR_Brightness_Temperature", 6, 30),
-    "meteosat-0":   ("Meteosat-Prime_IR_Brightness_Temperature", 6, 30),
+    "goes-east": ("GOES-East_ABI_GeoColor",       7, 10, "GeoColor"),
+    "goes-west": ("GOES-West_ABI_GeoColor",       7, 10, "GeoColor"),
+    "himawari":  ("Himawari_AHI_Air_Mass",        6, 10, "Air Mass RGB"),
 }
 
 _SATELLITES_IR = {
-    "goes-east": ("GOES-East_ABI_Band13_Clean_Infrared", 6, 10),
-    "goes-west": ("GOES-West_ABI_Band13_Clean_Infrared", 6, 10),
-    "himawari":  ("Himawari_AHI_Band13_Clean_Infrared", 6, 10),
-    "meteosat-iodc": ("Meteosat-IODC_IR_Brightness_Temperature", 6, 30),  # already IR
-    "meteosat-0":   ("Meteosat-Prime_IR_Brightness_Temperature", 6, 30),  # already IR
+    "goes-east": ("GOES-East_ABI_Band13_Clean_Infrared", 6, 10, "Band 13 IR"),
+    "goes-west": ("GOES-West_ABI_Band13_Clean_Infrared", 6, 10, "Band 13 IR"),
+    "himawari":  ("Himawari_AHI_Band13_Clean_Infrared",  6, 10, "Band 13 IR"),
 }
 
 
 def _sat_config(satellite: str, mode: str = "visible"):
-    """Return (layer, max_zoom, cadence) for the given satellite + mode."""
+    """Return (layer, max_zoom, cadence_min, ui_label) for the satellite + mode."""
     table = _SATELLITES_IR if mode == "ir" else _SATELLITES
     cfg = table.get(satellite)
     if cfg is None:
@@ -98,20 +109,25 @@ _EVICT_INTERVAL = timedelta(hours=1)
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
 def choose_satellite(lat: float, lon: float) -> str:
-    """Pick the best geostationary satellite for a given storm position."""
-    # Normalize lon to -180..180
+    """Pick the best geostationary satellite for a given storm position.
+
+    GIBS does not publish Meteosat layers, so we split the Meteosat-covered
+    basins (west Africa / east Atlantic / Indian Ocean) between GOES-East
+    and Himawari. The split point (lon=20°E) roughly bisects the coverage
+    gap; storms near the split land at edge-view quality for whichever
+    satellite they get assigned, but the tiles render.
+    """
     if lon > 180:
         lon -= 360
-    if -135 <= lon < -10:
-        return "goes-east"
     if -180 <= lon < -135:
         return "goes-west"
-    if 60 <= lon <= 180:
-        return "himawari"
-    if 20 <= lon < 60:
-        return "meteosat-iodc"
-    # -10 .. 20 (Africa / E. Atlantic) → Meteosat-0
-    return "meteosat-0"
+    if -135 <= lon < 20:
+        # GOES-East naturally covers to about -10°E; extending to 20°E
+        # means west African basin storms render at edge-view quality
+        # instead of getting blank Meteosat tiles.
+        return "goes-east"
+    # 20 .. 180 → Himawari (covers Indian Ocean edge, West Pacific, Australia).
+    return "himawari"
 
 
 def _round_to_cadence(dt: datetime, cadence_min: int) -> datetime:
@@ -136,8 +152,41 @@ def _is_valid_ts(ts: str) -> bool:
 
 
 def _tile_path(satellite: str, ts: str, z: int, x: int, y: int, mode: str = "visible") -> Path:
-    prefix = f"{satellite}-{mode}" if mode != "visible" else satellite
+    """Cache path for a given tile.
+
+    Prefix scheme: ``<satellite>-<variant>``. Historically the visible prefix
+    was bare (``himawari/…``) — fine while the underlying layer never changed.
+    Now that the Himawari visible upstream has changed (Band 3 → Air Mass)
+    we bake the variant name into the prefix so old-product tiles already on
+    disk aren't served for requests expecting the new product. Old bare
+    ``himawari/`` dirs will age out on the normal 48h eviction.
+    """
+    if mode == "ir":
+        prefix = f"{satellite}-ir"
+    elif satellite == "himawari":
+        # Air Mass RGB (swapped from Band 3 Red Visible 1km in April 2026).
+        prefix = "himawari-airmass"
+    else:
+        # goes-east / goes-west → GeoColor (unchanged; keep bare prefix).
+        prefix = satellite
     return SATELLITE_CACHE_DIR / prefix / ts / str(z) / str(x) / f"{y}.png"
+
+
+# ── Option 3 placeholder: alternative-provider proxy ────────────────────────
+# Neither GIBS nor our current proxy serves Himawari GeoColor (Zoom-Earth
+# style) or Meteosat of any kind. A future enhancement would be to add a
+# second provider backend that reprojects RAMMB SLIDER (CIRA) or JMA's
+# Real-Time Web tiles into Web Mercator. Both use non-slippy tiling schemes
+# and would need:
+#
+#   * a coordinate-system reprojector (their grid → EPSG:3857),
+#   * tile stitching logic (their grid and slippy grid don't align 1:1),
+#   * licensing review (RAMMB attribution; JMA has explicit redistribution
+#     terms; EUMETSAT requires registration),
+#   * a second cache partition (e.g. satellite/himawari-rammb/).
+#
+# Left as a hook here so the next pass knows where to plug it in.
+_PROVIDER: str = "gibs"   # "gibs" is the only supported provider today.
 
 
 # ── Endpoints ───────────────────────────────────────────────────────────────
@@ -175,7 +224,7 @@ async def satellite_frames(
     cadence_min frame for the last *hours* hours. If a frame turns out to be
     missing the proxy returns a 1×1 transparent tile.
     """
-    layer, max_zoom, native_cadence = _sat_config(satellite, mode)
+    layer, max_zoom, native_cadence, ui_label = _sat_config(satellite, mode)
     cadence_min = max(cadence_min, native_cadence)
 
     now = datetime.now(timezone.utc)
@@ -197,6 +246,8 @@ async def satellite_frames(
         "latest": frames[-1] if frames else None,
         "mode": mode,
         "max_zoom": max_zoom,
+        "layer": layer,          # upstream GIBS identifier (debugging aid)
+        "layer_label": ui_label, # short human label for the UI caption
     }
 
 
@@ -225,7 +276,7 @@ async def satellite_tile(
     """
     if not _is_valid_ts(ts):
         raise HTTPException(400, "Invalid timestamp; expected YYYYMMDDTHHMM")
-    layer, max_zoom, _ = _sat_config(satellite, mode)
+    layer, max_zoom, _, _ = _sat_config(satellite, mode)
     if z < 0 or z > max_zoom:
         # Out-of-range zoom — return transparent so Leaflet doesn't 404-spam.
         return Response(content=_BLANK_PNG, media_type="image/png",
