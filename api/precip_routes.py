@@ -56,9 +56,12 @@ _EVICT_INTERVAL = timedelta(hours=1)
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
 def _bbox_key(lat0: float, lon0: float, lat1: float, lon1: float, res: float) -> str:
+    # Preserve longitude order so a dateline-crossing bbox (w > e) keys to a
+    # different cache entry than the same endpoints non-wrapping.
     s, n = sorted((float(lat0), float(lat1)))
-    w, e = sorted((float(lon0), float(lon1)))
-    return f"{s:+06.1f}_{w:+07.1f}_{n:+06.1f}_{e:+07.1f}_r{res:.2f}"
+    w, e = float(lon0), float(lon1)
+    cross = "x" if w > e else "n"
+    return f"{s:+06.1f}_{w:+07.1f}_{n:+06.1f}_{e:+07.1f}_{cross}_r{res:.2f}"
 
 
 def _parse_ts(ts: str) -> datetime:
@@ -72,21 +75,30 @@ def _parse_ts(ts: str) -> datetime:
 
 def _build_grid(lat0: float, lon0: float, lat1: float, lon1: float, res: float
                 ) -> tuple[list[float], list[float], int, int, float]:
-    """Build a regular row-major grid (top row = highest lat)."""
+    """Build a regular row-major grid (top row = highest lat).
+
+    Longitudes are dateline-aware: lon0 > lon1 signals a wrap east across
+    180°; span becomes (lon1 + 360) - lon0 and emitted sample longitudes are
+    normalized into [-180, 180] so Open-Meteo accepts them as ordinary points.
+    """
     lat_min, lat_max = sorted([lat0, lat1])
-    lon_min, lon_max = sorted([lon0, lon1])
-    nx = max(2, int(math.floor((lon_max - lon_min) / res)) + 1)
+    if lon0 <= lon1:
+        lon_span = lon1 - lon0
+    else:
+        lon_span = (lon1 + 360.0) - lon0
+    nx = max(2, int(math.floor(lon_span / res)) + 1)
     ny = max(2, int(math.floor((lat_max - lat_min) / res)) + 1)
     while nx * ny > _MAX_GRID_POINTS:
         res *= 1.25
-        nx = max(2, int(math.floor((lon_max - lon_min) / res)) + 1)
+        nx = max(2, int(math.floor(lon_span / res)) + 1)
         ny = max(2, int(math.floor((lat_max - lat_min) / res)) + 1)
     lats: list[float] = []
     lons: list[float] = []
     for j in range(ny):
         lat = lat_max - j * res
         for i in range(nx):
-            lon = lon_min + i * res
+            lon_raw = lon0 + i * res
+            lon = ((lon_raw + 540.0) % 360.0) - 180.0
             lats.append(round(lat, 4))
             lons.append(round(lon, 4))
     return lats, lons, ny, nx, res
@@ -103,10 +115,13 @@ async def _fetch_open_meteo_precip_cloud(lats: list[float], lons: list[float],
     is_archive = ts_dt < now - timedelta(days=7)
     base = _ARCHIVE_URL if is_archive else _FORECAST_URL
 
+    # `cloud_cover` is the current Open-Meteo parameter name; `cloudcover`
+    # still works via back-compat today but has returned None for some time
+    # ranges in practice. Use the canonical name and read either shape below.
     params = {
         "latitude":  ",".join(f"{x:.4f}" for x in lats),
         "longitude": ",".join(f"{x:.4f}" for x in lons),
-        "hourly":    "precipitation,cloudcover",
+        "hourly":    "precipitation,cloud_cover",
         "timezone":  "UTC",
     }
     if is_archive:
@@ -133,7 +148,9 @@ async def _fetch_open_meteo_precip_cloud(lats: list[float], lons: list[float],
         h = entry.get("hourly") or {}
         times = h.get("time") or []
         ps    = h.get("precipitation") or []
-        cs    = h.get("cloudcover") or []
+        # Accept either naming — upstream has been transitioning from the
+        # legacy `cloudcover` to the canonical `cloud_cover`.
+        cs    = h.get("cloud_cover") or h.get("cloudcover") or []
         try:
             idx = times.index(target_iso)
             pv = ps[idx] if idx < len(ps) else None
@@ -152,8 +169,14 @@ def _build_field_payload(lats: list[float], lons: list[float],
                          ny: int, nx: int, res: float,
                          precip: list[float | None],
                          cloud:  list[float | None],
-                         ts_dt: datetime) -> dict:
-    """Pack precip + cloud into co-registered grids the frontend can rasterize."""
+                         ts_dt: datetime,
+                         lon_w: float, lon_e: float) -> dict:
+    """Pack precip + cloud into co-registered grids the frontend can rasterize.
+
+    lon_w / lon_e are the requested west/east edges. For a dateline-crossing
+    bbox (lon_w > lon_e), lo2 is reported as lon_e + 360 so the frontend's
+    imageOverlay sees a monotonically-increasing longitude axis.
+    """
     pclean: list[float] = [round(float(v), 2) if v is not None else 0.0 for v in precip]
     cclean: list[float] = [round(float(v), 1) if v is not None else 0.0 for v in cloud]
     # p_min/p_max should reflect *measured* values, not the None→0 substitution
@@ -165,7 +188,8 @@ def _build_field_payload(lats: list[float], lons: list[float],
     c_rows: list[list[float]] = [cclean[j * nx:(j + 1) * nx] for j in range(ny)]
 
     la1 = max(lats); la2 = min(lats)
-    lo1 = min(lons); lo2 = max(lons)
+    lo1 = lon_w
+    lo2 = lon_e if lon_e >= lon_w else lon_e + 360.0
     return {
         "ts":     ts_dt.strftime("%Y%m%dT%H"),
         "ny":     ny,
@@ -227,7 +251,7 @@ async def precip_field(
         logger.error(f"[PRECIP] Open-Meteo fetch failed: {type(e).__name__}: {e}")
         raise HTTPException(502, "precip upstream unavailable")
 
-    payload = _build_field_payload(lats, lons, ny, nx, eff_res, precip, cloud, ts_dt)
+    payload = _build_field_payload(lats, lons, ny, nx, eff_res, precip, cloud, ts_dt, lon0, lon1)
 
     try:
         cache_path.parent.mkdir(parents=True, exist_ok=True)

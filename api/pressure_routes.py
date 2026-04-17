@@ -61,17 +61,20 @@ _EVICT_INTERVAL = timedelta(hours=1)
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
 def _bbox_key(lat0: float, lon0: float, lat1: float, lon1: float, res: float) -> str:
-    # Normalize corner order so callers passing swapped corners hit the same
-    # cache entry as the canonical (south,west,north,east) ordering.
+    # Normalize latitude order but *preserve* longitude order so a
+    # dateline-crossing range (w > e) caches separately from a same-endpoints
+    # non-wrapping range.
     s, n = sorted((float(lat0), float(lat1)))
-    w, e = sorted((float(lon0), float(lon1)))
-    return f"{s:+06.1f}_{w:+07.1f}_{n:+06.1f}_{e:+07.1f}_r{res:.1f}"
+    w, e = float(lon0), float(lon1)
+    cross = "x" if w > e else "n"
+    return f"{s:+06.1f}_{w:+07.1f}_{n:+06.1f}_{e:+07.1f}_{cross}_r{res:.1f}"
 
 
 def _metar_key(lat0: float, lon0: float, lat1: float, lon1: float) -> str:
     s, n = sorted((float(lat0), float(lat1)))
-    w, e = sorted((float(lon0), float(lon1)))
-    return f"{s:+06.1f}_{w:+07.1f}_{n:+06.1f}_{e:+07.1f}"
+    w, e = float(lon0), float(lon1)
+    cross = "x" if w > e else "n"
+    return f"{s:+06.1f}_{w:+07.1f}_{n:+06.1f}_{e:+07.1f}_{cross}"
 
 
 def _parse_ts(ts: str) -> datetime:
@@ -88,21 +91,30 @@ def _build_grid(lat0: float, lon0: float, lat1: float, lon1: float, res: float
     """Build a regular row-major grid (top row = highest lat).
 
     Returns (lats, lons, ny, nx, effective_res).
+
+    Longitudes are interpreted with a dateline-aware convention: lon0 > lon1
+    signals a bbox that wraps east across the dateline, so span is
+    (lon1 + 360) - lon0. Emitted lon samples are normalized into [-180, 180]
+    so Open-Meteo accepts them as ordinary point lookups.
     """
     lat_min, lat_max = sorted([lat0, lat1])
-    lon_min, lon_max = sorted([lon0, lon1])
-    nx = max(2, int(math.floor((lon_max - lon_min) / res)) + 1)
+    if lon0 <= lon1:
+        lon_span = lon1 - lon0
+    else:
+        lon_span = (lon1 + 360.0) - lon0
+    nx = max(2, int(math.floor(lon_span / res)) + 1)
     ny = max(2, int(math.floor((lat_max - lat_min) / res)) + 1)
     while nx * ny > _MAX_GRID_POINTS:
         res *= 1.25
-        nx = max(2, int(math.floor((lon_max - lon_min) / res)) + 1)
+        nx = max(2, int(math.floor(lon_span / res)) + 1)
         ny = max(2, int(math.floor((lat_max - lat_min) / res)) + 1)
     lats: list[float] = []
     lons: list[float] = []
     for j in range(ny):
         lat = lat_max - j * res
         for i in range(nx):
-            lon = lon_min + i * res
+            lon_raw = lon0 + i * res
+            lon = ((lon_raw + 540.0) % 360.0) - 180.0
             lats.append(round(lat, 4))
             lons.append(round(lon, 4))
     return lats, lons, ny, nx, res
@@ -162,8 +174,15 @@ async def _fetch_open_meteo_pressure(lats: list[float], lons: list[float],
 def _build_field_payload(lats: list[float], lons: list[float],
                          ny: int, nx: int, res: float,
                          pressures: list[float | None],
-                         ts_dt: datetime) -> dict:
-    """Pack into a compact grid the frontend can color + contour."""
+                         ts_dt: datetime,
+                         lon_w: float, lon_e: float) -> dict:
+    """Pack into a compact grid the frontend can color + contour.
+
+    lon_w / lon_e are the requested western/eastern edges. For a
+    dateline-crossing bbox (lon_w > lon_e numerically), we emit lo2 as
+    lon_e + 360 so the frontend's imageOverlay + d3-contour math sees a
+    monotonically-increasing longitude axis.
+    """
     # Replace Nones with the row median so isobar contouring stays smooth.
     clean: list[float] = []
     valid = [p for p in pressures if p is not None]
@@ -177,7 +196,8 @@ def _build_field_payload(lats: list[float], lons: list[float],
         rows.append(clean[j * nx:(j + 1) * nx])
 
     la1 = max(lats); la2 = min(lats)
-    lo1 = min(lons); lo2 = max(lons)
+    lo1 = lon_w
+    lo2 = lon_e if lon_e >= lon_w else lon_e + 360.0
     return {
         "ts":   ts_dt.strftime("%Y%m%dT%H"),
         "ny":   ny,
@@ -210,6 +230,8 @@ async def pressure_field(
     except ValueError:
         raise HTTPException(400, "bbox values must be numeric")
 
+    # Clamp lats; preserve the lon0/lon1 ordering so a dateline-crossing
+    # bbox (lon0 > lon1) is routed through the wrapping grid builder.
     lat0 = max(-60.0, min(60.0, lat0)); lat1 = max(-60.0, min(60.0, lat1))
     lon0 = max(-180.0, min(180.0, lon0)); lon1 = max(-180.0, min(180.0, lon1))
 
@@ -238,7 +260,7 @@ async def pressure_field(
         logger.error(f"[PRESSURE] Open-Meteo fetch failed: {type(e).__name__}: {e}")
         raise HTTPException(502, "pressure upstream unavailable")
 
-    payload = _build_field_payload(lats, lons, ny, nx, eff_res, pressures, ts_dt)
+    payload = _build_field_payload(lats, lons, ny, nx, eff_res, pressures, ts_dt, lon0, lon1)
 
     try:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -331,9 +353,12 @@ async def pressure_stations(
         raise HTTPException(400, "bbox values must be numeric")
 
     lat_min, lat_max = sorted([lat0, lat1])
-    lon_min, lon_max = sorted([lon0, lon1])
+    # Preserve original lon0/lon1 ordering so dateline-crossing bboxes are
+    # routed through the two-halves query path below. The cache key keys
+    # on the original endpoints (with a wrap marker) via _metar_key.
+    crosses_dateline = lon0 > lon1
 
-    key = _metar_key(lat_min, lon_min, lat_max, lon_max)
+    key = _metar_key(lat0, lon0, lat1, lon1)
     cache_path = METAR_CACHE_DIR / f"{key}.json"
     if cache_path.exists():
         try:
@@ -344,9 +369,19 @@ async def pressure_stations(
         except Exception as e:
             logger.warning(f"[METAR] cache read failed for {cache_path}: {e}")
 
-    # AviationWeather wants bbox as: minLat,minLon,maxLat,maxLon
-    bbox_param = f"{lat_min:.2f},{lon_min:.2f},{lat_max:.2f},{lon_max:.2f}"
-    params = {"bbox": bbox_param, "format": "json", "hours": 2}
+    # AviationWeather wants bbox as: minLat,minLon,maxLat,maxLon and doesn't
+    # accept dateline-crossing ranges natively. For a wrapping bbox we issue
+    # two sub-queries — one for [lon0, 180] and one for [-180, lon1] — and
+    # merge the station lists before thinning.
+    if not crosses_dateline:
+        lon_min, lon_max = sorted([lon0, lon1])
+        bbox_params = [f"{lat_min:.2f},{lon_min:.2f},{lat_max:.2f},{lon_max:.2f}"]
+    else:
+        bbox_params = [
+            f"{lat_min:.2f},{lon0:.2f},{lat_max:.2f},180.00",
+            f"{lat_min:.2f},-180.00,{lat_max:.2f},{lon1:.2f}",
+        ]
+    params_list = [{"bbox": bp, "format": "json", "hours": 2} for bp in bbox_params]
 
     def _stale_or_empty():
         # If a cached payload exists on disk (even past TTL), serve it rather
@@ -362,20 +397,27 @@ async def pressure_stations(
                 logger.warning(f"[METAR] stale cache read failed for {cache_path}: {e}")
         return JSONResponse(content={"stations": [], "ts": None, "source": "metar"})
 
+    body: list = []
     try:
         async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
-            r = await client.get(_METAR_URL, params=params)
+            for params in params_list:
+                r = await client.get(_METAR_URL, params=params)
+                if r.status_code != 200:
+                    logger.warning(f"[METAR] upstream {r.status_code}: {r.text[:200]}")
+                    # If one half of a dateline pair fails, keep what we have
+                    # so we don't blank the entire panel on a transient error.
+                    continue
+                sub = r.json() or []
+                if isinstance(sub, list):
+                    body.extend(sub)
     except Exception as e:
         logger.warning(f"[METAR] upstream fetch failed: {e}")
         return _stale_or_empty()
 
-    if r.status_code != 200:
-        logger.warning(f"[METAR] upstream {r.status_code}: {r.text[:200]}")
+    if not body and not crosses_dateline:
+        # Single-query path with no rows is indistinguishable from an upstream
+        # outage for the user; keep serving stale data rather than clearing.
         return _stale_or_empty()
-
-    body = r.json() or []
-    if not isinstance(body, list):
-        body = []
 
     # Build the station list with one observation per ICAO (most recent).
     by_icao: dict[str, dict] = {}
@@ -432,12 +474,21 @@ async def pressure_stations(
     if len(stations) > max_stations:
         # Pick a bucket size such that count/bucket ≈ max_stations
         cells = max(4, int(math.sqrt(max_stations)))
+        # Dateline-aware longitude span: for a crossing bbox, the east edge
+        # is (lon1 + 360) in the unwrapped frame; we use that to size buckets.
+        lon_start = lon0
+        lon_span = (lon1 - lon0) if not crosses_dateline else ((lon1 + 360.0) - lon0)
         dlat = (lat_max - lat_min) / cells or 1
-        dlon = (lon_max - lon_min) / cells or 1
+        dlon = lon_span / cells or 1
         seen: dict[tuple[int, int], dict] = {}
         for s in stations:
+            # Unwrap the station longitude into the same frame as lon_start so
+            # bucket indices are contiguous across the dateline.
+            slon = s["lon"]
+            if crosses_dateline and slon < lon_start:
+                slon += 360.0
             cy = int((s["lat"] - lat_min) / dlat)
-            cx = int((s["lon"] - lon_min) / dlon)
+            cx = int((slon - lon_start) / dlon)
             seen.setdefault((cy, cx), s)
         stations = list(seen.values())[:max_stations]
 

@@ -75,12 +75,15 @@ _EVICT_INTERVAL = timedelta(hours=1)
 def _bbox_key(lat0: float, lon0: float, lat1: float, lon1: float, res: float) -> str:
     """Stable directory key for a bbox at a given resolution.
 
-    Normalizes corner order so callers passing swapped corners hit the same
-    cache entry as the canonical (south,west,north,east) ordering.
+    Normalizes latitude order so swapped north/south corners hit the same
+    cache entry. Longitude order is *preserved* — a wrapping (w > e)
+    range is a legitimately different bbox (crosses the dateline) and
+    must not collide with a non-wrapping range of the same endpoints.
     """
     s, n = sorted((float(lat0), float(lat1)))
-    w, e = sorted((float(lon0), float(lon1)))
-    return f"{s:+06.1f}_{w:+07.1f}_{n:+06.1f}_{e:+07.1f}_r{res:.1f}"
+    w, e = float(lon0), float(lon1)
+    cross = "x" if w > e else "n"
+    return f"{s:+06.1f}_{w:+07.1f}_{n:+06.1f}_{e:+07.1f}_{cross}_r{res:.1f}"
 
 
 def _parse_ts(ts: str) -> datetime:
@@ -98,18 +101,27 @@ def _build_grid(lat0: float, lon0: float, lat1: float, lon1: float, res: float
     """Build a regular lat/lon grid covering the bbox at *res* degrees.
 
     Returns (lats_list_per_point, lons_list_per_point, ny, nx) in row-major
-    order — top row first (highest lat), each row left-to-right (lowest lon
-    first). This matches the layout leaflet-velocity expects.
+    order — top row first (highest lat), each row left-to-right (starting
+    at the western edge). This matches the layout leaflet-velocity expects.
+
+    Longitudes are interpreted with a dateline-aware convention:
+      - lon0 <= lon1: normal range, span = lon1 - lon0
+      - lon0 >  lon1: dateline-crossing, range walks east from lon0 past
+        +180°, wraps to -180°, and continues to lon1. Span is
+        (lon1 + 360) - lon0. Emitted lon samples are normalized into
+        [-180, 180] so Open-Meteo accepts them as ordinary points.
     """
-    # Snap corners to res, ensure lat0<lat1, lon0<lon1
     lat_min, lat_max = sorted([lat0, lat1])
-    lon_min, lon_max = sorted([lon0, lon1])
-    nx = max(2, int(math.floor((lon_max - lon_min) / res)) + 1)
+    if lon0 <= lon1:
+        lon_span = lon1 - lon0
+    else:
+        lon_span = (lon1 + 360.0) - lon0  # wrap east across the dateline
+    nx = max(2, int(math.floor(lon_span / res)) + 1)
     ny = max(2, int(math.floor((lat_max - lat_min) / res)) + 1)
     # Cap to keep API calls in budget
     while nx * ny > _MAX_GRID_POINTS:
         res *= 1.25
-        nx = max(2, int(math.floor((lon_max - lon_min) / res)) + 1)
+        nx = max(2, int(math.floor(lon_span / res)) + 1)
         ny = max(2, int(math.floor((lat_max - lat_min) / res)) + 1)
     lats: list[float] = []
     lons: list[float] = []
@@ -117,7 +129,9 @@ def _build_grid(lat0: float, lon0: float, lat1: float, lon1: float, res: float
     for j in range(ny):
         lat = lat_max - j * res
         for i in range(nx):
-            lon = lon_min + i * res
+            lon_raw = lon0 + i * res
+            # Normalize to [-180, 180] so dateline-wrapping samples stay valid.
+            lon = ((lon_raw + 540.0) % 360.0) - 180.0
             lats.append(round(lat, 4))
             lons.append(round(lon, 4))
     return lats, lons, ny, nx
@@ -205,8 +219,15 @@ async def _fetch_open_meteo(lats: list[float], lons: list[float],
 def _build_velocity_payload(lats: list[float], lons: list[float],
                             ny: int, nx: int,
                             speeds: list[float|None], dirs: list[float|None],
-                            ts_dt: datetime) -> list[dict]:
-    """Convert speed+direction grid into leaflet-velocity's two-record JSON."""
+                            ts_dt: datetime,
+                            lon_w: float, lon_e: float) -> list[dict]:
+    """Convert speed+direction grid into leaflet-velocity's two-record JSON.
+
+    lon_w / lon_e are the western and eastern edges of the grid *as
+    requested* — for a dateline-crossing bbox, lon_w > lon_e numerically.
+    We preserve that ordering in the leaflet-velocity header by emitting
+    lo2 as lon_e+360 so (lo2 - lo1) / (nx-1) gives the correct dx.
+    """
     u_data: list[float] = []
     v_data: list[float] = []
     for i in range(len(lats)):
@@ -219,7 +240,11 @@ def _build_velocity_payload(lats: list[float], lons: list[float],
         v_data.append(round(v, 2))
 
     la1 = max(lats); la2 = min(lats)
-    lo1 = min(lons); lo2 = max(lons)
+    # Use the *requested* west/east edges so a dateline-crossing bbox
+    # reports monotonically-increasing longitudes (Leaflet wraps values
+    # beyond ±180 back onto the map).
+    lo1 = lon_w
+    lo2 = lon_e if lon_e >= lon_w else lon_e + 360.0
     dx = round((lo2 - lo1) / max(1, nx - 1), 4)
     dy = round((la1 - la2) / max(1, ny - 1), 4)
     ref_time = ts_dt.strftime("%Y-%m-%d %H:00:00")
@@ -294,7 +319,9 @@ async def wind_field(
     except ValueError:
         raise HTTPException(400, "bbox values must be numeric")
 
-    # Clamp to keep things sane.
+    # Clamp lats to keep things sane; longitudes are allowed to be in any
+    # order so a dateline-crossing bbox (lon0 > lon1) can walk east through
+    # 180° without collapsing to a near-global grid.
     lat0 = max(-60.0, min(60.0, lat0)); lat1 = max(-60.0, min(60.0, lat1))
     lon0 = max(-180.0, min(180.0, lon0)); lon1 = max(-180.0, min(180.0, lon1))
 
@@ -323,7 +350,7 @@ async def wind_field(
         logger.error(f"[WIND] Open-Meteo fetch failed: {type(e).__name__}: {e}")
         raise HTTPException(502, "wind upstream unavailable")
 
-    payload = _build_velocity_payload(lats, lons, ny, nx, speeds, dirs, ts_dt)
+    payload = _build_velocity_payload(lats, lons, ny, nx, speeds, dirs, ts_dt, lon0, lon1)
 
     # Persist the full payload atomically so it survives a writer crash.
     try:

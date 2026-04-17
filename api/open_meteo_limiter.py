@@ -15,6 +15,7 @@ This module provides:
 import asyncio
 import logging
 import os
+import random
 
 import httpx
 from fastapi import HTTPException
@@ -61,9 +62,14 @@ async def open_meteo_get(
 
         if r.status_code == 429:
             if attempt < max_attempts - 1:
-                # Respect Retry-After if provided, else progressive backoff
+                # Respect Retry-After if provided, else progressive backoff.
                 base_wait = float(r.headers.get("Retry-After", str(2 + attempt * 2)))
-                wait = min(base_wait, 10.0)  # cap sanity
+                # Add a small random jitter (0–0.5s) so a burst of concurrent
+                # 429s — wind + pressure + precip all rate-limited together
+                # — don't all wake up at the same instant and thunder the
+                # upstream a second time. Per-call delta is bounded so we
+                # never stretch beyond the 10s cap.
+                wait = min(base_wait, 10.0) + random.uniform(0.0, 0.5)
                 logger.info(f"[{label}] Open-Meteo 429 — retry {attempt+1}/{max_attempts-1} in {wait:.1f}s")
                 await asyncio.sleep(wait)
                 continue
