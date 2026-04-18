@@ -4721,11 +4721,11 @@ function _pressureButtonReset() {
     if (legend) legend.style.display = 'none';
 }
 
-// Color ramp: 970 mb (deep blue) → 1013 mb (white) → 1045 mb (deep red).
+// Color ramp: 900 mb (extreme low) → 1013 mb (white) → 1048 mb (deep red).
+// Extended low-end so deep tropical cyclone eyes (900-970 hPa) show a
+// meaningful gradient instead of being clipped to a flat dark blue.
 // Matches the Pressure legend gradient.
 function _pressureColor(hpa) {
-    // Extended low-end so deep tropical cyclone eyes (900-970 hPa) show a
-    // meaningful gradient instead of being clipped to a flat dark blue.
     const stops = [
         [900,  [0,   0,   60]],  // extreme low (Cat 5 eye)
         [920,  [10,  20,  110]], // very deep
@@ -4871,7 +4871,7 @@ async function _setPressureFrameNow(satelliteTs) {
                     ? window.stormData[_curIdx] : null;
     let s, w, n, e;
     if (_curPt && _curPt.lat != null && _curPt.lon != null) {
-        const PAD = 10; // ±10° → 20°×20° box → ~0.65°/cell at 500-pt cap
+        const PAD = 10; // ±10° → 20°×20° box → ~0.65°/cell at 625-pt cap
         s = Math.max(-60, _curPt.lat - PAD);
         n = Math.min( 60, _curPt.lat + PAD);
         w = _curPt.lon - PAD;
@@ -5835,4 +5835,14 @@ function toggleMapLegend() {
 
 // ---- PWA Service Worker Registration ----
 if ('serviceWorker' in navigator) {
-    window.addEventLis
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/frontend/sw.js').then(reg => {
+            console.log('[SW] Registered, scope:', reg.scope);
+        }).catch(err => {
+            console.log('[SW] Registration failed (non-fatal):', err.message);
+        });
+    });
+}
+</script>
+</body>
+</html>
