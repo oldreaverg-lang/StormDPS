@@ -7,7 +7,7 @@ single animation-scrub triggers 3 concurrent requests per frame and
 quickly blows the rate budget.
 
 This module provides:
-  - A process-wide asyncio Semaphore (default: 2 concurrent requests)
+  - A process-wide asyncio Semaphore (default: 3 concurrent requests)
   - A 429-aware wrapper that retries once after the Retry-After period
   - Proper error mapping: upstream 429 → client 429 (not 502)
 """

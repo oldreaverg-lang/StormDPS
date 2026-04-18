@@ -50,6 +50,8 @@ class IKEResponse(BaseModel):
     r34_nm: Optional[float] = Field(None, description="Max radius of 34-kt winds (nautical miles)")
     r64_nm: Optional[float] = Field(None, description="Max radius of 64-kt winds (nautical miles)")
     r34_quadrants: Optional[QuadrantRadii] = Field(None, description="34-kt wind radii per quadrant (nm)")
+    r50_quadrants: Optional[QuadrantRadii] = Field(None, description="50-kt wind radii per quadrant (nm)")
+    r64_quadrants: Optional[QuadrantRadii] = Field(None, description="64-kt wind radii per quadrant (nm)")
     forward_speed_knots: Optional[float] = Field(None, description="Storm forward speed (knots)")
     forward_direction_deg: Optional[float] = Field(None, description="Storm heading (degrees, 0=N)")
     radii_confidence: Optional[float] = Field(

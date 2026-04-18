@@ -279,9 +279,14 @@ def compute_storm_ike(storm_id: str, sid: str, rows: list) -> tuple:
                 if vals:
                     r64_nm = round(sum(vals) / len(vals) / 1852, 1)
 
-            r34_quads_nm = None
-            if snap.r34_quadrants_m:
-                r34_quads_nm = {k: round(v / 1852, 1) for k, v in snap.r34_quadrants_m.items() if v}
+            def _quads_nm(qmap):
+                if not qmap:
+                    return None
+                return {k: round(v / 1852, 1) for k, v in qmap.items() if v}
+
+            r34_quads_nm = _quads_nm(snap.r34_quadrants_m)
+            r50_quads_nm = _quads_nm(snap.r50_quadrants_m)
+            r64_quads_nm = _quads_nm(snap.r64_quadrants_m)
 
             result = {
                 "storm_id": snap.storm_id,
@@ -299,6 +304,8 @@ def compute_storm_ike(storm_id: str, sid: str, rows: list) -> tuple:
                 "r34_nm": r34_nm,
                 "r64_nm": r64_nm,
                 "r34_quadrants": r34_quads_nm,
+                "r50_quadrants": r50_quads_nm,
+                "r64_quadrants": r64_quads_nm,
                 "forward_speed_knots": round(snap.forward_speed_ms * 1.94384, 1) if snap.forward_speed_ms else None,
                 "forward_direction_deg": round(snap.forward_direction_deg, 0) if snap.forward_direction_deg else None,
             }

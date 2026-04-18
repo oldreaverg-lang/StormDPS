@@ -313,14 +313,19 @@ def _ike_to_response(result, snapshot=None) -> IKEResponse:
     from api.schemas import QuadrantRadii
 
     # Build quadrant radii if available
-    r34_quads = None
-    if snapshot and snapshot.r34_quadrants_m:
-        r34_quads = QuadrantRadii(
-            NE=round(meters_to_nm(snapshot.r34_quadrants_m.get("NE", 0) or 0), 1),
-            SE=round(meters_to_nm(snapshot.r34_quadrants_m.get("SE", 0) or 0), 1),
-            SW=round(meters_to_nm(snapshot.r34_quadrants_m.get("SW", 0) or 0), 1),
-            NW=round(meters_to_nm(snapshot.r34_quadrants_m.get("NW", 0) or 0), 1),
+    def _build_quads(qmap):
+        if not qmap:
+            return None
+        return QuadrantRadii(
+            NE=round(meters_to_nm(qmap.get("NE", 0) or 0), 1),
+            SE=round(meters_to_nm(qmap.get("SE", 0) or 0), 1),
+            SW=round(meters_to_nm(qmap.get("SW", 0) or 0), 1),
+            NW=round(meters_to_nm(qmap.get("NW", 0) or 0), 1),
         )
+
+    r34_quads = _build_quads(snapshot.r34_quadrants_m if snapshot else None)
+    r50_quads = _build_quads(snapshot.r50_quadrants_m if snapshot else None)
+    r64_quads = _build_quads(snapshot.r64_quadrants_m if snapshot else None)
 
     # Look up latest radii audit confidence for this storm
     radii_confidence = None
@@ -349,6 +354,8 @@ def _ike_to_response(result, snapshot=None) -> IKEResponse:
         r34_nm=round(meters_to_nm(snapshot.r34_m), 1) if snapshot and snapshot.r34_m else None,
         r64_nm=round(meters_to_nm(snapshot.r64_m), 1) if snapshot and snapshot.r64_m else None,
         r34_quadrants=r34_quads,
+        r50_quadrants=r50_quads,
+        r64_quadrants=r64_quads,
         forward_speed_knots=round(ms_to_knots(snapshot.forward_speed_ms), 1) if snapshot and snapshot.forward_speed_ms else None,
         forward_direction_deg=round(snapshot.forward_direction_deg, 1) if snapshot and snapshot.forward_direction_deg is not None else None,
         radii_confidence=radii_confidence,
@@ -1557,6 +1564,8 @@ def _ike_responses_to_engine_snapshots(responses: list) -> list[dict]:
             "forward_speed_knots": d.get("forward_speed_knots") or 0.0,
             "ike_total_tj": d.get("ike_total_tj") or 0.0,
             "r34_quadrants": d.get("r34_quadrants"),
+            "r50_quadrants": d.get("r50_quadrants"),
+            "r64_quadrants": d.get("r64_quadrants"),
         })
     return out
 

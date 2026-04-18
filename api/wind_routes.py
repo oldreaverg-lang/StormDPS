@@ -29,7 +29,7 @@ $PERSISTENT_DATA_DIR/cache/wind/<bbox_key>/<ts>.json. Repeat hits are served
 from disk in microseconds.
 
 Open-Meteo free tier allows up to ~10K calls/day and ~600 location-coords per
-single request; for safety we cap the grid at 30×30 = 900 points per call.
+single request; for safety we cap the grid at ~18×18 = 350 points per call.
 """
 
 from __future__ import annotations
