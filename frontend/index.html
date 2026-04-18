@@ -3870,10 +3870,10 @@ window.toggleSatelliteVisibility = function() {
 
 // Toggle between visible (GeoColor) and infrared satellite imagery.
 // Re-inits the satellite layer with the new mode so tiles come from the
-// correct GIBS product.
+// correct GIBS product. IR can be toggled even when Satellite is Off —
+// it will initialize the satellite layer in IR mode independently.
 window.toggleIRMode = function() {
     const st = window._satelliteState;
-    if (!st.satellite || !st.frames.length) return;
     st.irMode = !st.irMode;
     // Update the button appearance immediately
     const btn = document.getElementById('irToggleBtn');
@@ -4425,8 +4425,15 @@ function _windfieldDraw(idx) {
     if (!p || p.lat == null || p.lon == null) return;
     const lat = +p.lat, lon = +p.lon;
     const core = _windfieldCoreColor(p.max_wind_ms);
+    // Symmetric fallback map: when per-quadrant radii are absent, synthesise
+    // equal quadrants from the scalar r_nm value so rings always render.
+    const _symFallback = {
+        r34_quadrants: p.r34_nm ? { NE: p.r34_nm, SE: p.r34_nm, SW: p.r34_nm, NW: p.r34_nm } : null,
+        r50_quadrants: p.r50_nm ? { NE: p.r50_nm, SE: p.r50_nm, SW: p.r50_nm, NW: p.r50_nm } : null,
+        r64_quadrants: p.r64_nm ? { NE: p.r64_nm, SE: p.r64_nm, SW: p.r64_nm, NW: p.r64_nm } : null,
+    };
     for (const ring of _WF_RINGS) {
-        const q = p[ring.field];
+        const q = p[ring.field] || _symFallback[ring.field];
         if (!q) continue;
         const fill   = ring.dynamic ? core.fill   : ring.fill;
         const stroke = ring.dynamic ? core.stroke : ring.stroke;
@@ -5205,7 +5212,7 @@ function setPrecipFrame(satelliteTs) {
 
 async function _setPrecipFrameNow(satelliteTs) {
     const st = window._precipState;
-    if (!st.enabled || !st.bbox || !currentMap) return;
+    if (!st.enabled || !currentMap) return;
     // Round satellite ts (e.g. "20260413T1130") to the hour the model sample lives at.
     const m = String(satelliteTs).match(/^(\d{4})(\d{2})(\d{2})T(\d{2})/);
     if (!m) return;
@@ -5219,7 +5226,25 @@ async function _setPrecipFrameNow(satelliteTs) {
     st.inflightTs = ts;
 
     const token = ++st.fetchToken;
-    const bbox  = st.bbox.map(v => v.toFixed(2)).join(',');
+
+    // Use a storm-centered 20°×20° bbox (same approach as pressure) so grid
+    // density stays focused on the storm rather than the full track extent.
+    const _curIdx = window._windfieldState && window._windfieldState.currentIdx;
+    const _curPt  = (window.stormData && _curIdx != null && _curIdx >= 0)
+                    ? window.stormData[_curIdx] : null;
+    let bboxArr;
+    if (_curPt && _curPt.lat != null && _curPt.lon != null) {
+        const PAD = 10;
+        const ps = Math.max(-60, _curPt.lat - PAD);
+        const pn = Math.min( 60, _curPt.lat + PAD);
+        const pw = _curPt.lon - PAD;
+        const pe = _curPt.lon + PAD;
+        bboxArr = [ps, pw, pn, pe];
+    } else {
+        if (!st.bbox) return;
+        bboxArr = st.bbox;
+    }
+    const bbox = bboxArr.map(v => v.toFixed(2)).join(',');
     const url   = `${API_BASE}/precip/field?bbox=${bbox}&ts=${ts}&res=0.5`;
 
     const btn = document.getElementById('precipToggleBtn');

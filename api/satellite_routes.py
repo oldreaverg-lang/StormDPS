@@ -68,18 +68,17 @@ GIBS_BASE = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best"
 #
 # Product choice rationale:
 #   * GOES-East/West "visible" use GeoColor (true-color day + IR-blended night).
-#   * Himawari "visible" uses the Air Mass RGB composite. NASA GIBS does not
-#     publish a Himawari GeoColor, and the only alternative ("Band 3 Red
-#     Visible 1km") is a single grayscale band that goes black at night and
-#     reads as "IR leaking into satellite" to users — so Air Mass (a colorful
-#     RGB available 24/7) is the better default. See commit history for the
-#     original Band 3 experiment.
+#   * Himawari "visible" uses Band 3 Red Visible 1km — natural white-cloud
+#     imagery that renders just like the Zoom Earth look during daytime.
+#     Air Mass RGB was tried but GIBS returns 400 errors for it and the
+#     green tint is confusing; Band 3 is preferable even though it dims at
+#     night (IR toggle handles nighttime coverage).
 #   * IR is Band 13 (~10.3µm) for all GOES + Himawari — the canonical cloud
 #     top thermal band.
 _SATELLITES = {
-    "goes-east": ("GOES-East_ABI_GeoColor",       7, 10, "GeoColor"),
-    "goes-west": ("GOES-West_ABI_GeoColor",       7, 10, "GeoColor"),
-    "himawari":  ("Himawari_AHI_Air_Mass",        6, 10, "Air Mass RGB"),
+    "goes-east": ("GOES-East_ABI_GeoColor",            7, 10, "GeoColor"),
+    "goes-west": ("GOES-West_ABI_GeoColor",            7, 10, "GeoColor"),
+    "himawari":  ("Himawari_AHI_Band3_Red_Visible_1km", 7, 10, "Band 3 Visible"),
 }
 
 _SATELLITES_IR = {

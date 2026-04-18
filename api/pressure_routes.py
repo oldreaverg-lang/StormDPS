@@ -43,10 +43,10 @@ _ARCHIVE_URL  = "https://archive-api.open-meteo.com/v1/era5"
 _METAR_URL    = "https://aviationweather.gov/api/data/metar"
 _HTTP_TIMEOUT = httpx.Timeout(25.0, connect=5.0)
 
-_MAX_GRID_POINTS = 625   # 25×25 — frontend now uses a storm-centered 20°×20°
-                         # bbox so the grid rarely auto-coarsens past 0.5°/cell.
-                         # Each coord pair is ~7 chars; 625 pairs ≈ 4.4KB URL —
-                         # safe under Cloudflare's 8KB upstream URL cap.
+_MAX_GRID_POINTS = 350   # ~18×18 — keeps the Open-Meteo URL under ~5KB.
+                         # The frontend now uses a storm-centered 20°×20° bbox
+                         # so even at 350 pts the grid hits ~1.2°/cell — 2.5×
+                         # finer than the old full-track bbox (~3°/cell).
 _MIN_RES_DEG     = 0.25
 _MAX_RES_DEG     = 2.0
 _DEFAULT_RES_DEG = 0.5
