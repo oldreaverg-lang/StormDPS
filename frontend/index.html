@@ -4534,12 +4534,14 @@ function setWindFrame(satelliteTs) {
     if (!st.enabled || !st.bbox || !currentMap) return;
     st.pendingTs = satelliteTs;
     if (st.debounceTimer) clearTimeout(st.debounceTimer);
+    // 500ms debounce — wind frames hit Open-Meteo on cache miss (30s+) so
+    // we absorb rapid scrubs before committing to a fetch.
     st.debounceTimer = setTimeout(() => {
         st.debounceTimer = null;
         const ts = st.pendingTs;
         st.pendingTs = null;
         if (ts) _setWindFrameNow(ts);
-    }, 180);
+    }, 500);
 }
 
 async function _setWindFrameNow(satelliteTs) {

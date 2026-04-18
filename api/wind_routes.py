@@ -56,7 +56,7 @@ router = APIRouter()
 
 _FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 _ARCHIVE_URL  = "https://archive-api.open-meteo.com/v1/era5"
-_HTTP_TIMEOUT = httpx.Timeout(25.0, connect=5.0)
+_HTTP_TIMEOUT = httpx.Timeout(45.0, connect=20.0)  # Open-Meteo can be slow to accept connections under load
 
 _MAX_GRID_POINTS = 350   # ~18×18 — keeps the Open-Meteo URL under ~6KB.
 #                         # Previously 900, but for bboxes ≳17° on a side the

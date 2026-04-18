@@ -22,19 +22,30 @@ from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
 
-# Max concurrent Open-Meteo requests across ALL overlay routes.
-# 3 = one slot per overlay (wind, pressure, precip) so none starves.
-# Env-overridable so we can bump it on a paid tier without redeploying.
-_MAX_CONCURRENT = int(os.getenv("OPEN_METEO_MAX_CONCURRENT", "3"))
-_semaphore: asyncio.Semaphore | None = None
+# Per-overlay concurrency limits.
+# Wind gets 1 slot — it fetches many historical frames and must not starve
+# the others. Pressure and precip each get 1 slot so they always progress
+# even when wind is busy burning through the track.
+# All limits are env-overridable without a redeploy.
+_MAX_CONCURRENT_WIND     = int(os.getenv("OPEN_METEO_MAX_WIND",     "1"))
+_MAX_CONCURRENT_PRESSURE = int(os.getenv("OPEN_METEO_MAX_PRESSURE", "1"))
+_MAX_CONCURRENT_PRECIP   = int(os.getenv("OPEN_METEO_MAX_PRECIP",   "1"))
+_MAX_CONCURRENT_DEFAULT  = int(os.getenv("OPEN_METEO_MAX_CONCURRENT","1"))
+
+_semaphores: dict[str, asyncio.Semaphore] = {}
 
 
-def _get_semaphore() -> asyncio.Semaphore:
-    """Lazy-init so the semaphore lives on the running event loop."""
-    global _semaphore
-    if _semaphore is None:
-        _semaphore = asyncio.Semaphore(_MAX_CONCURRENT)
-    return _semaphore
+def _get_semaphore(label: str) -> asyncio.Semaphore:
+    """Lazy-init per-label semaphore on the running event loop."""
+    key = label.upper()
+    if key not in _semaphores:
+        limits = {
+            "WIND":     _MAX_CONCURRENT_WIND,
+            "PRESSURE": _MAX_CONCURRENT_PRESSURE,
+            "PRECIP":   _MAX_CONCURRENT_PRECIP,
+        }
+        _semaphores[key] = asyncio.Semaphore(limits.get(key, _MAX_CONCURRENT_DEFAULT))
+    return _semaphores[key]
 
 
 async def open_meteo_get(
@@ -50,7 +61,7 @@ async def open_meteo_get(
     Raises HTTPException(429) on rate-limit exhaustion or
     HTTPException(502) on other upstream failures.
     """
-    sem = _get_semaphore()
+    sem = _get_semaphore(label)
 
     max_attempts = 3
     for attempt in range(max_attempts):
