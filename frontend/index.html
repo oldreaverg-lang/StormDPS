@@ -4724,14 +4724,20 @@ function _pressureButtonReset() {
 // Color ramp: 970 mb (deep blue) → 1013 mb (white) → 1045 mb (deep red).
 // Matches the Pressure legend gradient.
 function _pressureColor(hpa) {
+    // Extended low-end so deep tropical cyclone eyes (900-970 hPa) show a
+    // meaningful gradient instead of being clipped to a flat dark blue.
     const stops = [
-        [970,  [30,  58,  138]], // #1e3a8a
-        [988,  [59,  130, 246]], // #3b82f6
-        [1004, [103, 232, 249]], // #67e8f9
-        [1013, [248, 250, 252]], // #f8fafc
-        [1024, [253, 230, 138]], // #fde68a
-        [1035, [249, 115, 22]],  // #f97316
-        [1045, [127, 29,  29]],  // #7f1d1d
+        [900,  [0,   0,   60]],  // extreme low (Cat 5 eye)
+        [920,  [10,  20,  110]], // very deep
+        [940,  [20,  45,  155]], // deep
+        [960,  [30,  80,  200]], // moderate low
+        [975,  [50,  120, 240]], // low
+        [990,  [80,  170, 250]], // below normal
+        [1004, [148, 224, 252]], // near normal low
+        [1013, [248, 250, 252]], // neutral (sea level)
+        [1022, [253, 234, 160]], // slight high
+        [1032, [249, 155, 50]],  // high
+        [1048, [127, 29,  29]],  // strong high
     ];
     if (hpa <= stops[0][0]) return stops[0][1];
     if (hpa >= stops[stops.length-1][0]) return stops[stops.length-1][1];
@@ -4846,7 +4852,7 @@ function setPressureFrame(satelliteTs) {
 
 async function _setPressureFrameNow(satelliteTs) {
     const st = window._pressureState;
-    if (!st.enabled || !st.bbox || !currentMap) return;
+    if (!st.enabled || !currentMap) return;
     // Pressure is hourly (same as wind). Accept either YYYYMMDDTHH (11 chars)
     // or YYYYMMDDTHHMM (13 chars) and normalize to the 11-char hourly form.
     const _presM = satelliteTs && satelliteTs.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})/);
@@ -4855,11 +4861,30 @@ async function _setPressureFrameNow(satelliteTs) {
     const prevTs = st.currentTs;
     st.currentTs = presTs;
     const token = ++st.fetchToken;
-    const [s,w,n,e] = st.bbox;
+
+    // Use a storm-centered 20°×20° bbox that follows the current storm
+    // position rather than the full-track bbox. This keeps grid density
+    // focused on the area of interest and avoids the massive coarsening
+    // (~3°/cell) that occurs when the full track spans 30-50°.
+    const _curIdx = window._windfieldState && window._windfieldState.currentIdx;
+    const _curPt  = (window.stormData && _curIdx != null && _curIdx >= 0)
+                    ? window.stormData[_curIdx] : null;
+    let s, w, n, e;
+    if (_curPt && _curPt.lat != null && _curPt.lon != null) {
+        const PAD = 10; // ±10° → 20°×20° box → ~0.65°/cell at 500-pt cap
+        s = Math.max(-60, _curPt.lat - PAD);
+        n = Math.min( 60, _curPt.lat + PAD);
+        w = _curPt.lon - PAD;
+        e = _curPt.lon + PAD;
+    } else {
+        // Fallback to the pre-computed track bbox if no position is available.
+        if (!st.bbox) return;
+        [s, w, n, e] = st.bbox;
+    }
 
     let field = null;
     try {
-        field = await _overlayFetch('pressure', `${API_BASE}/pressure/field?bbox=${s.toFixed(2)},${w.toFixed(2)},${n.toFixed(2)},${e.toFixed(2)}&ts=${presTs}&res=1.0`);
+        field = await _overlayFetch('pressure', `${API_BASE}/pressure/field?bbox=${s.toFixed(2)},${w.toFixed(2)},${n.toFixed(2)},${e.toFixed(2)}&ts=${presTs}&res=0.5`);
     } catch (e) {
         console.warn('[PRESSURE] field fetch failed:', e);
         if (token === st.fetchToken) st.currentTs = prevTs;
@@ -5810,14 +5835,4 @@ function toggleMapLegend() {
 
 // ---- PWA Service Worker Registration ----
 if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/frontend/sw.js').then(reg => {
-            console.log('[SW] Registered, scope:', reg.scope);
-        }).catch(err => {
-            console.log('[SW] Registration failed (non-fatal):', err.message);
-        });
-    });
-}
-</script>
-</body>
-</html>
+    window.addEventLis
