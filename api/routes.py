@@ -2317,19 +2317,28 @@ async def _refresh_global_catalog_async() -> list[dict]:
             logger.debug("[IBTRACS] Catalog freshened while waiting for lock")
             return _GLOBAL_IBTRACS_CATALOG_CACHE
 
-        # Fetch from IBTrACS (may be slow on first run) but time out if it takes too long
-        catalog: list[dict] = []
+        # Fetch from IBTrACS (may be slow on first run) but time out if it takes too long.
+        # Timeout covers the full 8.8MB download from NCEI; Railway egress can be
+        # slow so we allow 90s rather than 45s before giving up.
+        noaa_catalog: list[dict] = []
+        ibtracs_ok = False
         cache_dir = _PERSISTENT_DATA / "cache"
-        async with NOAAClient(timeout=60.0, cache_dir=str(cache_dir)) as client:
+        async with NOAAClient(timeout=120.0, cache_dir=str(cache_dir)) as client:
             try:
-                catalog = await asyncio.wait_for(
-                    client.get_ibtracs_catalog(1851, 2099), timeout=45.0
+                noaa_catalog = await asyncio.wait_for(
+                    client.get_ibtracs_catalog(1851, 2099), timeout=90.0
                 )
-                logger.info(f"[IBTRACS] Fetched catalog: {len(catalog)} storms")
+                ibtracs_ok = True
+                logger.info(f"[IBTRACS] Fetched catalog: {len(noaa_catalog)} storms")
             except asyncio.TimeoutError:
-                logger.warning("[IBTRACS] Catalog fetch timed out")
-            except Exception as e:
-                logger.warning(f"[IBTRACS] Catalog fetch failed: {type(e).__name__}: {e}")
+                logger.error("[IBTRACS] Catalog fetch timed out after 90s")
+            except Exception:
+                # exception() logs the full traceback — the prior warning() call
+                # swallowed the stack and hid root-cause info (TLS errors, DNS,
+                # upstream 5xx, etc.).
+                logger.exception("[IBTRACS] Catalog fetch failed")
+
+        catalog = list(noaa_catalog)
 
         # Merge custom storms (future years, etc.)
         try:
@@ -2341,27 +2350,46 @@ async def _refresh_global_catalog_async() -> list[dict]:
                 if sid and sid not in existing_ids:
                     catalog.append(storm)
                     existing_ids.add(sid)
-        except Exception as e:
-            logger.warning(f"[IBTRACS] Custom storms load failed: {e}")
+        except Exception:
+            logger.exception("[IBTRACS] Custom storms load failed")
 
-        # ── Fail-open: if NOAA gave us nothing but we have prior data, keep it ──
-        if not catalog and _GLOBAL_IBTRACS_CATALOG_CACHE:
+        # ── Fail-open: if NOAA upstream actually failed, never replace a good
+        # cached catalog with a custom-only one. Previously, a NOAA failure
+        # followed by a successful custom-storm load produced a non-empty
+        # [custom_only] list, which bypassed this guard and poisoned the
+        # cache for the full 6h TTL — that's how production ended up serving
+        # ~10 storms instead of ~600 after a single transient NCEI blip.
+        if not ibtracs_ok and _GLOBAL_IBTRACS_CATALOG_CACHE:
             logger.warning(
-                "[IBTRACS] Refresh produced empty catalog; keeping existing "
+                "[IBTRACS] NOAA fetch failed; keeping existing "
                 f"{len(_GLOBAL_IBTRACS_CATALOG_CACHE)}-storm cache"
             )
             return _GLOBAL_IBTRACS_CATALOG_CACHE
 
-        # Cache for quick future responses
+        # Still cache a fallback when NOAA failed AND we had nothing prior
+        # (e.g. fresh install): serves custom storms until NOAA recovers,
+        # but marks the timestamp as stale so the next request triggers a
+        # retry instead of waiting the full TTL.
         _GLOBAL_IBTRACS_CATALOG_CACHE = catalog
-        _GLOBAL_IBTRACS_CATALOG_TIMESTAMP = datetime.utcnow()
-        try:
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            _atomic_write_json(_GLOBAL_IBTRACS_CACHE_FILE, catalog)
-            # Also write the compact index for fast startup loads.
-            _write_ibtracs_index(catalog)
-        except Exception as e:
-            logger.debug(f"[IBTRACS] Could not write catalog cache: {e}")
+        if ibtracs_ok:
+            _GLOBAL_IBTRACS_CATALOG_TIMESTAMP = datetime.utcnow()
+        else:
+            # Force the next call to re-fetch by leaving the timestamp stale.
+            _GLOBAL_IBTRACS_CATALOG_TIMESTAMP = datetime.utcnow() - _GLOBAL_IBTRACS_CATALOG_TTL
+
+        # Only persist a real NOAA catalog to disk — never a custom-only one,
+        # or a cold restart would read the stub back and treat it as authoritative.
+        if ibtracs_ok:
+            try:
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                _atomic_write_json(_GLOBAL_IBTRACS_CACHE_FILE, catalog)
+                _write_ibtracs_index(catalog)
+                logger.info(
+                    f"[IBTRACS] Persisted {len(catalog)}-storm catalog to "
+                    f"{_GLOBAL_IBTRACS_CACHE_FILE}"
+                )
+            except Exception:
+                logger.exception("[IBTRACS] Could not write catalog cache")
 
         return catalog
 
@@ -2384,6 +2412,72 @@ async def warm_ibtracs_catalog() -> dict:
     except Exception as e:
         logger.warning(f"[IBTRACS WARM] failed: {e}")
         return {"storms": 0, "error": str(e)}
+
+
+@router.post("/admin/warm-ibtracs")
+async def admin_warm_ibtracs(token: str = Query(..., description="Admin token")):
+    """Force-refresh the IBTrACS catalog on demand, bypassing the 6h TTL.
+
+    Use when the startup warm failed silently and the year-tab accordion is
+    empty on prod. Returns structured diagnostics (bytes downloaded, parse
+    time, on-disk path, sample storm count per year) so an operator can
+    see what went wrong without tailing logs.
+
+    Security: requires ADMIN_TOKEN env var to be set; the provided `token`
+    query param must match exactly. If ADMIN_TOKEN is unset, the endpoint
+    is disabled entirely (returns 503) to prevent an unauthenticated refresh
+    storm from hammering NCEI.
+    """
+    expected = os.getenv("ADMIN_TOKEN")
+    if not expected:
+        raise HTTPException(503, "admin endpoints disabled (ADMIN_TOKEN unset)")
+    if token != expected:
+        raise HTTPException(403, "invalid token")
+
+    global _GLOBAL_IBTRACS_CATALOG_CACHE, _GLOBAL_IBTRACS_CATALOG_TIMESTAMP
+
+    # Force a refetch by invalidating the in-memory cache timestamp.
+    prior_count = len(_GLOBAL_IBTRACS_CATALOG_CACHE or [])
+    _GLOBAL_IBTRACS_CATALOG_TIMESTAMP = None
+
+    t0 = datetime.utcnow()
+    try:
+        catalog = await _refresh_global_catalog_async()
+    except Exception as e:
+        logger.exception("[IBTRACS ADMIN] refresh raised")
+        raise HTTPException(500, f"refresh failed: {type(e).__name__}: {e}")
+    elapsed = (datetime.utcnow() - t0).total_seconds()
+
+    # Report disk state so the operator can confirm the file actually landed.
+    cache_file = _GLOBAL_IBTRACS_CACHE_FILE
+    disk_size_mb = 0.0
+    disk_mtime_iso = None
+    try:
+        if cache_file.exists():
+            disk_size_mb = round(cache_file.stat().st_size / (1024 * 1024), 2)
+            disk_mtime_iso = datetime.fromtimestamp(cache_file.stat().st_mtime).isoformat()
+    except OSError:
+        pass
+
+    # Year histogram for quick visual sanity check.
+    by_year: dict[int, int] = {}
+    for s in catalog or []:
+        y = s.get("year")
+        if isinstance(y, int):
+            by_year[y] = by_year.get(y, 0) + 1
+
+    return {
+        "ok": True,
+        "storms_returned": len(catalog or []),
+        "prior_cache_size": prior_count,
+        "elapsed_seconds": round(elapsed, 2),
+        "disk_cache": {
+            "path": str(cache_file),
+            "size_mb": disk_size_mb,
+            "mtime": disk_mtime_iso,
+        },
+        "storms_by_year": dict(sorted(by_year.items(), reverse=True)),
+    }
 
 
 @router.get("/storms/catalog/global")
