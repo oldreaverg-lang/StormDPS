@@ -4068,6 +4068,32 @@ function teardownSatelliteLayer(opts) {
     st.visible = true;  // reset so next init shows satellite
 }
 
+// Dateline-aware padded bbox for a storm track. Returns [s, w, n, e] with
+// w > e signalling a dateline-crossing range (the backend's grid builder
+// reads that as "walk east across 180°"). Extracted so historic-storm
+// setup can reuse it without going through the satellite-layer init path.
+function _computeStormBbox(data, pad) {
+    const lats = data.map(d => d.lat), lons = data.map(d => d.lon);
+    const _normLon = (x) => ((x + 540) % 360) - 180;
+    const srt = [...lons].sort((a, b) => a - b);
+    let w, e;
+    if (srt.length <= 1) {
+        w = e = srt[0] || 0;
+    } else {
+        let maxGap = 360 - (srt[srt.length - 1] - srt[0]);
+        let gapIdx = -1;
+        for (let i = 1; i < srt.length; i++) {
+            const g = srt[i] - srt[i - 1];
+            if (g > maxGap) { maxGap = g; gapIdx = i; }
+        }
+        if (gapIdx > 0) { w = srt[gapIdx]; e = srt[gapIdx - 1]; }
+        else            { w = srt[0];      e = srt[srt.length - 1]; }
+    }
+    const s = Math.max(-60, Math.min(...lats) - pad);
+    const n = Math.min( 60, Math.max(...lats) + pad);
+    return [s, _normLon(w - pad), n, _normLon(e + pad)];
+}
+
 async function initSatelliteLayer(data, opts) {
     const keepOverlays = !!(opts && opts.keepOverlays);
     const st = window._satelliteState;
@@ -4248,49 +4274,47 @@ async function initSatelliteLayer(data, opts) {
     // Cache the storm bbox on the wind + pressure states so both layers can
     // fetch matching frames without re-deriving it. ±5° padding gives the
     // wind particles room to flow off the storm center; pressure benefits
-    // from a wider context so the synoptic field reads correctly.
-    //
-    // Dateline-aware: a storm whose longitudes span the ±180° seam (e.g.
-    // western-Pacific tracks with samples at 172 and -178) would otherwise
-    // produce a ~360° wide bbox when min/max is taken naively, and the
-    // backend would auto-coarsen into a near-useless global grid. We detect
-    // the wrap by finding the *largest angular gap* between consecutive
-    // sorted longitudes — the grid "runs" in the arc opposite that gap.
-    const lats=data.map(d=>d.lat), lons=data.map(d=>d.lon);
-    const _normLon = (x) => ((x + 540) % 360) - 180;
-    function _datelineAwareWE(lonsArr) {
-        if (!lonsArr.length) return { w: 0, e: 0 };
-        if (lonsArr.length === 1) return { w: lonsArr[0], e: lonsArr[0] };
-        const srt = [...lonsArr].sort((a, b) => a - b);
-        // Gap through the dateline from max back to min (wrap-around).
-        let maxGap = 360 - (srt[srt.length - 1] - srt[0]);
-        let gapIdx = -1;
-        for (let i = 1; i < srt.length; i++) {
-            const g = srt[i] - srt[i - 1];
-            if (g > maxGap) { maxGap = g; gapIdx = i; }
-        }
-        if (gapIdx > 0) {
-            // The largest gap is *inside* the -180..180 range — the data
-            // wraps around the dateline. West edge is right after the gap,
-            // east edge is right before it.
-            return { w: srt[gapIdx], e: srt[gapIdx - 1] };
-        }
-        return { w: srt[0], e: srt[srt.length - 1] };
+    // from a wider context (±8°) so the synoptic field reads correctly.
+    window._windState.bbox     = _computeStormBbox(data, 5);
+    window._pressureState.bbox = _computeStormBbox(data, 8);
+    window._precipState.bbox   = _computeStormBbox(data, 5);
+}
+
+// Historic/archived storms can't show satellite tiles (GIBS archive depth
+// is ~14 days), so initSatelliteLayer bails before enabling any overlay
+// toggles. Wind (leaflet-velocity backed by ERA5) and Windfield (pure
+// client-side wind radii) don't need satellite imagery — wire them up here
+// so the historic-storm workflow still gets a working wind map.
+function enableHistoricOverlays(data) {
+    if (!data || !data.length || !currentMap) return;
+    window._windState.bbox = _computeStormBbox(data, 5);
+
+    const wbtn = document.getElementById('windToggleBtn');
+    if (wbtn) {
+        wbtn.disabled = false;
+        wbtn.title = 'Toggle wind particle overlay (ERA5 reanalysis)';
+        wbtn.style.cursor = 'pointer';
+        wbtn.style.opacity = '1';
+        wbtn.style.background = 'rgba(100,116,139,.18)';
+        wbtn.style.borderColor = 'rgba(100,116,139,.4)';
+        wbtn.style.color = '#94a3b8';
     }
-    function _paddedBbox(pad) {
-        const s = Math.max(-60, Math.min(...lats) - pad);
-        const n = Math.min( 60, Math.max(...lats) + pad);
-        const { w, e } = _datelineAwareWE(lons);
-        // Apply pad, then normalize back to [-180, 180]. The resulting
-        // bbox preserves w > e when it wraps the dateline — the backend's
-        // grid builder reads that as a signal to walk east across 180°.
-        return [s, _normLon(w - pad), n, _normLon(e + pad)];
+    const wfbtn = document.getElementById('windfieldToggleBtn');
+    if (wfbtn) {
+        const hasRadii = data.some(p => p && p.r34_quadrants);
+        if (hasRadii) {
+            wfbtn.disabled = false;
+            wfbtn.title = 'Toggle 34/50/64-kt wind radii (NHC-style quadrants, DPS input)';
+            wfbtn.style.cursor = 'pointer';
+            wfbtn.style.opacity = '1';
+            wfbtn.style.background = 'rgba(100,116,139,.18)';
+            wfbtn.style.borderColor = 'rgba(100,116,139,.4)';
+            wfbtn.style.color = '#94a3b8';
+        } else {
+            wfbtn.disabled = true;
+            wfbtn.title = 'No per-point wind-radii available for this storm';
+        }
     }
-    window._windState.bbox     = _paddedBbox(5);
-    // Slightly larger pad for pressure so isobars don't clip the viewport.
-    window._pressureState.bbox = _paddedBbox(8);
-    // Precip uses the same pad as wind — focused on the storm itself.
-    window._precipState.bbox   = _paddedBbox(5);
 }
 
 // ── Overlay fetch coalescing + LRU cache ─────────────────────────────────
@@ -4674,8 +4698,8 @@ function toggleWindLayer() {
         }
         if (legend) legend.style.display = 'none';
     } else {
-        if (!window._satelliteState || !window._satelliteState.frames.length || !st.bbox) {
-            console.warn('[WIND] cannot enable — satellite slider not initialized');
+        if (!st.bbox) {
+            console.warn('[WIND] cannot enable — no bbox cached');
             return;
         }
         st.enabled = true;
@@ -4688,7 +4712,26 @@ function toggleWindLayer() {
             btn.textContent = 'Wind: Loading…';
             btn.disabled = true;
         }
-        const satTs = window._satelliteState.frames[window._satelliteState.currentIdx];
+        // Active storms drive off the satellite slider; historic storms fall
+        // back to the current storm-timeline position (no sat slider exists).
+        let satTs = null;
+        const satSt = window._satelliteState;
+        if (satSt && satSt.frames && satSt.frames.length) {
+            satTs = satSt.frames[satSt.currentIdx];
+        } else if (window.stormData && window.stormData.length && window._tsMsToSatTsString) {
+            const len = window.stormData.length;
+            const idx = Math.max(0, Math.min(
+                Math.floor(window.currentAnimIndex != null ? window.currentAnimIndex : len - 1),
+                len - 1));
+            const d = window.stormData[idx];
+            if (d && d.timestamp) satTs = window._tsMsToSatTsString(new Date(d.timestamp).getTime());
+        }
+        if (!satTs) {
+            console.warn('[WIND] no timestamp source available');
+            st.enabled = false;
+            _windButtonReset();
+            return;
+        }
         setWindFrame(satTs);
     }
 }
@@ -5476,6 +5519,10 @@ function renderMap(data){
     // position, fetches a list of frame timestamps from /satellite/frames, and
     // overlays a Leaflet TileLayer that scrubs through frames via the slider.
     initSatelliteLayer(data);
+    // Historic storms bail out of initSatelliteLayer early (no GIBS archive
+    // beyond ~14 days). Wire up the Wind + Windfield toggles directly — they
+    // don't need satellite imagery to function.
+    if (!window._isActiveStorm) enableHistoricOverlays(data);
 
     // Forecast track overlay for active storms
     if(window._isActiveStorm){
@@ -5649,9 +5696,23 @@ function syncVisualization(fi,snap){
         // Update wind field overlay
         updateWindField(bi);
 
-        // Drive satellite + wind layers from the storm timeline (active only)
-        if (window._isActiveStorm && d1 && d1.timestamp && window.syncOverlaysToTimestampMs) {
-            syncOverlaysToTimestampMs(new Date(d1.timestamp).getTime());
+        // Drive overlays from the storm timeline. Active storms snap to the
+        // nearest satellite frame via syncOverlaysToTimestampMs. Historic
+        // storms have no satellite slider, so we drive the wind + windfield
+        // layers directly from the track timestamp / index.
+        if (d1 && d1.timestamp) {
+            if (window._isActiveStorm && window.syncOverlaysToTimestampMs) {
+                syncOverlaysToTimestampMs(new Date(d1.timestamp).getTime());
+            } else {
+                if (window._windState && window._windState.enabled && window._tsMsToSatTsString) {
+                    const satTs = window._tsMsToSatTsString(new Date(d1.timestamp).getTime());
+                    if (satTs) setWindFrame(satTs);
+                }
+                if (window._windfieldState && window._windfieldState.enabled
+                    && typeof window.setWindfieldFrameByIdx === 'function') {
+                    window.setWindfieldFrameByIdx(bi);
+                }
+            }
         }
 
         // Refresh the Storm Card with the snapshot at this timeline position.
