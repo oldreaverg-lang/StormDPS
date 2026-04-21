@@ -2,7 +2,12 @@
 // Bump CACHE_NAME on release so any stale satellite tiles cached under the
 // previous version (before we excluded tiles from the SW cache) get evicted
 // on the next activate.
-const CACHE_NAME = 'stormdps-v2';
+//
+// v3: HTML navigations are now network-first (was cache-first); this keeps
+// code deploys from being masked by a stale cached index.html. Older SWs on
+// users' devices will reactivate and pick up this file because the byte
+// content changed — they don't have to hard-refresh.
+const CACHE_NAME = 'stormdps-v3';
 const STATIC_ASSETS = [
   '/',
   '/frontend/index.html',
@@ -79,7 +84,31 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Static assets: cache-first
+  // HTML navigations: network-first with cache fallback.
+  // Cache-first on index.html let code deploys go unseen until the user
+  // cleared site data or we bumped CACHE_NAME. Now: always try the network,
+  // fall back to the cached copy only if offline. Still works offline-first
+  // because the 'install' step pre-caches index.html.
+  const isHtml = event.request.mode === 'navigate'
+              || event.request.destination === 'document'
+              || url.pathname === '/'
+              || url.pathname.endsWith('.html');
+  if (isHtml) {
+    event.respondWith(
+      fetch(event.request)
+        .then(response => {
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request).then(c => c || caches.match('/')))
+    );
+    return;
+  }
+
+  // Everything else (CSS, JS libraries, fonts, images): cache-first.
   event.respondWith(
     caches.match(event.request).then(cached => {
       if (cached) return cached;
