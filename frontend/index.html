@@ -3144,12 +3144,47 @@ function renderAll(stormId,data){
     // accordion. Per-snapshot scores are matched to snapshots by timestamp.
     // Falls back to legacy client-side scaling only when the bundle has no
     // dpi_timeseries (e.g. very old cached bundles).
+    //
+    // LINEAR INTERPOLATION between compiled points: the track endpoint
+    // interpolates to 3-hour cadence (~47 points for a 5-day storm) but the
+    // compiled dpi_timeseries is 6-hour cadence (~24 points). Without this
+    // bridge, every other snapshot would fall back to the client-side
+    // calculateDPS formula, producing a sawtooth oscillation in the chart
+    // (server value, client value, server value, client value, …). The two
+    // formulas are similar but not identical, so the mismatch read as
+    // random-looking ~15–30 point swings between adjacent timestamps.
     const _compiledForScale = getCompiledScore(stormId, name, data[0] ? new Date(data[0].timestamp).getFullYear() : null);
     if (_compiledForScale && Array.isArray(_compiledForScale.dpi_timeseries) && _compiledForScale.dpi_timeseries.length) {
-        const seriesByTs = {};
-        _compiledForScale.dpi_timeseries.forEach(pt => { if (pt && pt.t) seriesByTs[pt.t] = pt.dpi; });
+        const sorted = _compiledForScale.dpi_timeseries
+            .filter(pt => pt && pt.t && typeof pt.dpi === 'number')
+            .map(pt => ({ t: Date.parse(pt.t), dpi: pt.dpi }))
+            .filter(pt => !isNaN(pt.t))
+            .sort((a, b) => a.t - b.t);
         data.forEach(d => {
-            const srv = seriesByTs[d.timestamp];
+            const t = Date.parse(d.timestamp);
+            if (isNaN(t) || !sorted.length) return;
+            let srv;
+            // Find bracketing compiled points and linearly interpolate.
+            let lo = 0, hi = sorted.length - 1;
+            if (t <= sorted[0].t) {
+                srv = sorted[0].dpi;
+            } else if (t >= sorted[hi].t) {
+                srv = sorted[hi].dpi;
+            } else {
+                // Binary search for the largest index with sorted[i].t <= t
+                while (lo < hi - 1) {
+                    const mid = (lo + hi) >> 1;
+                    if (sorted[mid].t <= t) lo = mid; else hi = mid;
+                }
+                const before = sorted[lo];
+                const after = sorted[hi];
+                if (after.t === before.t) {
+                    srv = before.dpi;
+                } else {
+                    const frac = (t - before.t) / (after.t - before.t);
+                    srv = before.dpi + (after.dpi - before.dpi) * frac;
+                }
+            }
             if (typeof srv === 'number') {
                 const s = Math.min(100, Math.round(srv));
                 d.dps = Object.assign({}, d.dps, {
