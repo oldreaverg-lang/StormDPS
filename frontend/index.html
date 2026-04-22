@@ -4067,6 +4067,15 @@ function teardownSatelliteLayer(opts) {
         _satBtn.textContent = 'Satellite: Off';
     }
     st.visible = true;  // reset so next init shows satellite
+
+    // Restore any overlay-row visibility that enableHistoricOverlays may have
+    // hidden for the previous storm. Without this, switching historic → active
+    // would leave Satellite/IR/Pressure/Precip rows invisible on the new storm
+    // even though their buttons get re-enabled by the active-storm init path.
+    ['satToggleBtn', 'irToggleBtn', 'pressureToggleBtn', 'precipToggleBtn'].forEach(id => {
+        const b = document.getElementById(id);
+        if (b && b.parentElement) b.parentElement.style.display = '';
+    });
 }
 
 // Dateline-aware padded bbox for a storm track. Returns [s, w, n, e] with
@@ -4280,6 +4289,22 @@ async function initSatelliteLayer(data, opts) {
 function enableHistoricOverlays(data) {
     if (!data || !data.length || !currentMap) return;
     window._windState.bbox = _computeStormBbox(data, 5);
+
+    // Unhide the overlay-control panel. initSatelliteLayer normally does this
+    // when wiring up active-storm satellite frames, but it bails early for
+    // historic storms, leaving every overlay button invisible even though
+    // we've enabled them programmatically.
+    const panel = document.getElementById('satelliteSlider');
+    if (panel) panel.style.display = 'block';
+
+    // Hide the overlays that aren't meaningful for historic storms (satellite
+    // imagery / IR only covers ~14 days of GIBS archive; pressure + precip
+    // are already shown in the side charts for historic analysis). Wind +
+    // Windfield are the only overlays the user wants on the map here.
+    ['satToggleBtn', 'irToggleBtn', 'pressureToggleBtn', 'precipToggleBtn'].forEach(id => {
+        const b = document.getElementById(id);
+        if (b && b.parentElement) b.parentElement.style.display = 'none';
+    });
 
     const wbtn = document.getElementById('windToggleBtn');
     if (wbtn) {
