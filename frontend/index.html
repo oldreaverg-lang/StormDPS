@@ -5506,13 +5506,36 @@ function renderMap(data){
         window.mapMarkers.push(m);
     });
 
-    // Auto-zoom to fit storm track — small delay ensures mobile container is sized
-    setTimeout(()=>{
+    // Auto-zoom to fit storm track. A single setTimeout() isn't enough —
+    // if the map container is still sizing up when we call invalidateSize()
+    // (common on mobile viewport settling, or when a flex/grid parent hasn't
+    // finished layout), Leaflet records a wrong pane origin and fitBounds
+    // computes a view against that stale origin. Tiles load correctly but
+    // get positioned hundreds of pixels outside the #map clip region and
+    // the user sees a blank grey square even though everything downloaded.
+    //
+    // Fix: attach a ResizeObserver to the map div so any container resize
+    // re-flushes invalidateSize + fitBounds. Disconnect after 5s since by
+    // then the container is definitely stable and Leaflet's own window
+    // resize handler will cover later user-driven changes.
+    const _flushMapLayout = () => {
+        if (!currentMap) return;
         currentMap.invalidateSize();
-        const bounds=L.latLngBounds(data.map(d=>[d.lat,d.lon]));
-        const isMobile=window.innerWidth<=900;
-        currentMap.fitBounds(bounds,{padding:isMobile?[20,20]:[40,40],maxZoom:8});
-    },150);
+        const bounds = L.latLngBounds(data.map(d => [d.lat, d.lon]));
+        const isMobile = window.innerWidth <= 900;
+        currentMap.fitBounds(bounds, { padding: isMobile ? [20,20] : [40,40], maxZoom: 8 });
+    };
+    setTimeout(_flushMapLayout, 150);
+    try {
+        if (typeof ResizeObserver !== 'undefined') {
+            const _mapDiv = document.getElementById('map');
+            const ro = new ResizeObserver(() => _flushMapLayout());
+            ro.observe(_mapDiv);
+            setTimeout(() => { try { ro.disconnect(); } catch(e) {} }, 5000);
+        }
+    } catch (e) {
+        console.warn('[MAP] ResizeObserver setup failed:', e);
+    }
 
     // ── Live satellite layer (active storms only) ─────────────────────────
     // Picks the right geostationary satellite based on the storm's most-recent
