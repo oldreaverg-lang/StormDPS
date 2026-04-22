@@ -4507,6 +4507,13 @@ function _satelliteTsToWindTs(ts) {
 function setWindFrame(satelliteTs) {
     const st = window._windState;
     if (!st.enabled || !st.bbox || !currentMap) return;
+    // Skip wind fetches during animation playback. Hourly wind frames hit
+    // Open-Meteo (10 req/min free tier); a 60-snapshot storm animating at
+    // 1fps produces 60 requests/min — 6x over the limit, which returns
+    // HTTP 429 firehose and the animation stack-traces fill the console.
+    // Wind updates still run for manual scrubs (onScrub) and when the user
+    // pauses, which is when users actually want to read wind values.
+    if (window.animationFrameId) return;
     st.pendingTs = satelliteTs;
     if (st.debounceTimer) clearTimeout(st.debounceTimer);
     // 500ms debounce — wind frames hit Open-Meteo on cache miss (30s+) so
