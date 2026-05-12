@@ -21,6 +21,7 @@ pydantic-settings==2.7.1
 # --- CORS / Security ---
 python-dotenv==1.0.1
 python-multipart==0.0.20
+slowapi>=0.1.9,<0.2
 
 # --- Optional: Google Cloud / WeatherNext 2 integration ---
 # Uncomment when deploying with Google Cloud credentials:

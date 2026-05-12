@@ -27,6 +27,11 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from slowapi.util import get_remote_address
+
 from api.routes import (
     router,
     generate_preload_bundle,
@@ -217,6 +222,11 @@ async def lifespan(app: FastAPI):
             logger.error(f"[SHUTDOWN] Error closing WeatherDataService: {e}")
 
 
+# Docs (/docs, /redoc, /openapi.json) are public-by-default in FastAPI and
+# enumerate every admin/DELETE/POST route. Disable in prod and require an
+# explicit opt-in env var to enable them.
+_docs_enabled = os.getenv("ENABLE_API_DOCS", "false").lower() in ("1", "true", "yes")
+
 app = FastAPI(
     title="Hurricane DPI API",
     description=(
@@ -227,15 +237,66 @@ app = FastAPI(
     ),
     version="1.0.0",
     lifespan=lifespan,
+    docs_url="/docs" if _docs_enabled else None,
+    redoc_url="/redoc" if _docs_enabled else None,
+    openapi_url="/openapi.json" if _docs_enabled else None,
 )
 
 # ---------------------------------------------------------------------------
 # Middleware
 # ---------------------------------------------------------------------------
+# Starlette applies middleware "last added = outermost". Order matters here:
+#   - SlowAPI is added FIRST so it runs immediately before the route handler.
+#   - CORS is added LAST so it wraps rate-limit 429 responses too (otherwise
+#     the browser surfaces a confusing CORS error instead of the 429 body).
 
-# CORS — allow all origins for development.
-# In production, set ALLOWED_ORIGINS env var to a comma-separated list.
-allowed_origins = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+# Rate limiting — per-IP global default. Tunable via env vars. Honors
+# Cloudflare's CF-Connecting-IP header so per-IP limits work behind the proxy.
+def _client_ip(request: Request) -> str:
+    cf_ip = request.headers.get("cf-connecting-ip")
+    if cf_ip:
+        return cf_ip
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()
+    return get_remote_address(request)
+
+_default_rate = os.getenv("RATE_LIMIT_DEFAULT", "300/minute")
+limiter = Limiter(
+    key_func=_client_ip,
+    default_limits=[_default_rate],
+    headers_enabled=True,
+)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
+
+# GZip — compress API responses for mobile bandwidth efficiency
+app.add_middleware(GZipMiddleware, minimum_size=500)
+
+# CORS — production must set ALLOWED_ORIGINS to an explicit list. Default
+# is dev-localhost only (NEVER "*"). `*` plus allow_credentials is rejected
+# by browsers and would still let any site call write endpoints.
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "").strip()
+if _raw_origins:
+    allowed_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+else:
+    allowed_origins = [
+        "http://localhost:8000",
+        "http://localhost:8080",
+        "http://127.0.0.1:8000",
+        "http://127.0.0.1:8080",
+    ]
+    logger.warning(
+        "ALLOWED_ORIGINS env var not set — falling back to localhost-only CORS. "
+        "Set ALLOWED_ORIGINS=https://yourdomain.com,... in production."
+    )
+# Wildcard is incompatible with allow_credentials and would defeat the
+# point of the whitelist; refuse to honor it.
+if "*" in allowed_origins:
+    logger.warning("ALLOWED_ORIGINS contained '*' — stripping; set explicit origins.")
+    allowed_origins = [o for o in allowed_origins if o != "*"]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
@@ -245,9 +306,6 @@ app.add_middleware(
     expose_headers=["X-Request-Id", "X-Response-Time"],
     max_age=600,  # Cache preflight for 10 min (reduces OPTIONS roundtrips on mobile)
 )
-
-# GZip — compress API responses for mobile bandwidth efficiency
-app.add_middleware(GZipMiddleware, minimum_size=500)
 
 # ---------------------------------------------------------------------------
 # Routes

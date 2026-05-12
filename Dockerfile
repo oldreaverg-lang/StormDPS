@@ -38,6 +38,14 @@ COPY . .
 # Falls back to /app/data when env var is not set
 RUN mkdir -p /app/persistent/cache/ike /app/persistent/validation
 
+# Run as a non-root user. Owns /app and /app/persistent so the volume
+# mount is writable. Railway mounts volumes preserving ownership of the
+# mount point, so the chown here applies before the volume attaches.
+RUN groupadd --system --gid 1001 app \
+    && useradd  --system --uid 1001 --gid app --home /app --shell /usr/sbin/nologin app \
+    && chown -R app:app /app
+USER app
+
 # Railway sets PORT automatically (8080); default to 8080 for consistency
 ENV PORT=8080
 

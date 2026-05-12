@@ -43,8 +43,9 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
+import hmac
 import httpx
-from fastapi import APIRouter, Body, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
 from api.schemas import (
@@ -68,6 +69,37 @@ from core.valuation import compute_valuation
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+# ------------------------------------------------------------------
+# Admin auth + path-sanitization helpers
+# ------------------------------------------------------------------
+def require_admin(x_admin_token: Optional[str] = Header(None, alias="X-Admin-Token")):
+    """Reject requests without a valid admin token.
+
+    Token is read from the ADMIN_TOKEN env var on each request so it can be
+    rotated without a restart. If ADMIN_TOKEN is unset, the gated endpoint
+    is disabled entirely (503) — refuses to fall back to "no auth".
+    """
+    expected = os.getenv("ADMIN_TOKEN")
+    if not expected:
+        raise HTTPException(503, "admin endpoints disabled (ADMIN_TOKEN unset)")
+    if not x_admin_token or not hmac.compare_digest(x_admin_token, expected):
+        raise HTTPException(403, "invalid or missing admin token")
+    return True
+
+
+_SAFE_STORM_ID_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
+
+
+def _safe_storm_id(storm_id: str) -> str:
+    """Strip anything that isn't [A-Za-z0-9_-] from a storm_id before using
+    it in a filesystem glob. Prevents callers passing `*` / `[abc]` /
+    `../foo` to wipe arbitrary cache files."""
+    cleaned = "".join(c for c in (storm_id or "") if c in _SAFE_STORM_ID_CHARS)
+    if not cleaned:
+        raise HTTPException(400, "invalid storm_id")
+    return cleaned
 
 # FIX 2: Custom ThreadPoolExecutor for CPU-bound IKE computations
 _IKE_EXECUTOR = ThreadPoolExecutor(
@@ -1653,20 +1685,21 @@ async def get_storm_dps(
     return JSONResponse(content=bundle)
 
 
-@router.delete("/cache/dps/{storm_id}")
+@router.delete("/cache/dps/{storm_id}", dependencies=[Depends(require_admin)])
 async def clear_storm_dps_cache(storm_id: str):
     """Clear the cached DPS bundle for a single storm (forces recomputation)."""
+    safe = _safe_storm_id(storm_id)
     cleared = 0
-    for f in _DPS_CACHE_DIR.glob(f"{storm_id}_*.json"):
+    for f in _DPS_CACHE_DIR.glob(f"{safe}_*.json"):
         try:
             f.unlink()
             cleared += 1
         except OSError:
             pass
-    return {"cleared": cleared, "storm_id": storm_id}
+    return {"cleared": cleared, "storm_id": safe}
 
 
-@router.delete("/cache/dps")
+@router.delete("/cache/dps", dependencies=[Depends(require_admin)])
 async def clear_all_dps_cache():
     """Clear the entire DPS cache (forces full recomputation on next request)."""
     cleared = 0
@@ -2025,17 +2058,18 @@ async def get_cache_stats():
     }
 
 
-@router.delete("/cache/ike/{storm_id}")
+@router.delete("/cache/ike/{storm_id}", dependencies=[Depends(require_admin)])
 async def clear_storm_cache(storm_id: str):
     """Clear cached IKE results for a specific storm."""
+    safe = _safe_storm_id(storm_id)
     cleared = 0
-    for f in _IKE_CACHE_DIR.glob(f"{storm_id}_*.json"):
+    for f in _IKE_CACHE_DIR.glob(f"{safe}_*.json"):
         f.unlink()
         cleared += 1
-    return {"cleared": cleared, "storm_id": storm_id}
+    return {"cleared": cleared, "storm_id": safe}
 
 
-@router.delete("/cache/ike")
+@router.delete("/cache/ike", dependencies=[Depends(require_admin)])
 async def clear_all_ike_cache():
     """Clear all cached IKE results (forces full recomputation)."""
     cleared = 0
@@ -2143,7 +2177,7 @@ async def get_preload_bundle():
         return JSONResponse(content=bundle)
 
 
-@router.post("/preload/generate")
+@router.post("/preload/generate", dependencies=[Depends(require_admin)])
 async def generate_preload_bundle(
     grid_resolution_km: float = Query(15.0, ge=1.0, le=50.0),
     skip_points: int = Query(1, ge=0, le=10),
@@ -2414,8 +2448,8 @@ async def warm_ibtracs_catalog() -> dict:
         return {"storms": 0, "error": str(e)}
 
 
-@router.post("/admin/warm-ibtracs")
-async def admin_warm_ibtracs(token: str = Query(..., description="Admin token")):
+@router.post("/admin/warm-ibtracs", dependencies=[Depends(require_admin)])
+async def admin_warm_ibtracs():
     """Force-refresh the IBTrACS catalog on demand, bypassing the 6h TTL.
 
     Use when the startup warm failed silently and the year-tab accordion is
@@ -2423,17 +2457,8 @@ async def admin_warm_ibtracs(token: str = Query(..., description="Admin token"))
     time, on-disk path, sample storm count per year) so an operator can
     see what went wrong without tailing logs.
 
-    Security: requires ADMIN_TOKEN env var to be set; the provided `token`
-    query param must match exactly. If ADMIN_TOKEN is unset, the endpoint
-    is disabled entirely (returns 503) to prevent an unauthenticated refresh
-    storm from hammering NCEI.
+    Auth: requires the X-Admin-Token header to match the ADMIN_TOKEN env var.
     """
-    expected = os.getenv("ADMIN_TOKEN")
-    if not expected:
-        raise HTTPException(503, "admin endpoints disabled (ADMIN_TOKEN unset)")
-    if token != expected:
-        raise HTTPException(403, "invalid token")
-
     global _GLOBAL_IBTRACS_CATALOG_CACHE, _GLOBAL_IBTRACS_CATALOG_TIMESTAMP
 
     # Force a refetch by invalidating the in-memory cache timestamp.
@@ -2445,7 +2470,7 @@ async def admin_warm_ibtracs(token: str = Query(..., description="Admin token"))
         catalog = await _refresh_global_catalog_async()
     except Exception as e:
         logger.exception("[IBTRACS ADMIN] refresh raised")
-        raise HTTPException(500, f"refresh failed: {type(e).__name__}: {e}")
+        raise HTTPException(500, "refresh failed")
     elapsed = (datetime.utcnow() - t0).total_seconds()
 
     # Report disk state so the operator can confirm the file actually landed.
@@ -2878,7 +2903,7 @@ async def get_storm_accuracy(storm_id: str):
     return result
 
 
-@router.post("/validation/outcome")
+@router.post("/validation/outcome", dependencies=[Depends(require_admin)])
 async def record_storm_outcome(
     storm_id: str = Body(...),
     peak_wind_kt: float = Body(None),
@@ -2916,7 +2941,7 @@ async def record_storm_outcome(
 # WIND RADII AUDIT ENDPOINTS
 # ==================================================================
 
-@router.post("/audit/radii/{storm_id}")
+@router.post("/audit/radii/{storm_id}", dependencies=[Depends(require_admin)])
 async def run_radii_audit(storm_id: str):
     """
     Trigger a wind radii cross-validation audit for an active storm.
