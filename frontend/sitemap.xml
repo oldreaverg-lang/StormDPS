@@ -1,38 +1,67 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+
+    <!-- Landing pages -->
     <url>
         <loc>https://stormdps.com/</loc>
         <changefreq>daily</changefreq>
         <priority>1.0</priority>
     </url>
     <url>
-        <loc>https://stormdps.com/#storm=AL122005</loc>
+        <loc>https://stormdps.com/methodology</loc>
         <changefreq>monthly</changefreq>
-        <priority>0.8</priority>
+        <priority>0.9</priority>
     </url>
     <url>
-        <loc>https://stormdps.com/#storm=AL092008</loc>
+        <loc>https://stormdps.com/data</loc>
         <changefreq>monthly</changefreq>
-        <priority>0.8</priority>
+        <priority>0.9</priority>
     </url>
     <url>
-        <loc>https://stormdps.com/#storm=AL182012</loc>
-        <changefreq>monthly</changefreq>
+        <loc>https://stormdps.com/surgedps</loc>
+        <changefreq>weekly</changefreq>
         <priority>0.8</priority>
     </url>
-    <url>
-        <loc>https://stormdps.com/#storm=AL092017</loc>
-        <changefreq>monthly</changefreq>
-        <priority>0.8</priority>
-    </url>
-    <url>
-        <loc>https://stormdps.com/#storm=AL072018</loc>
-        <changefreq>monthly</changefreq>
-        <priority>0.8</priority>
-    </url>
-    <url>
-        <loc>https://stormdps.com/#storm=AL052019</loc>
-        <changefreq>monthly</changefreq>
-        <priority>0.8</priority>
-    </url>
+
+    <!-- Preset storms (each gets its own SSR'd landing page) -->
+    <url><loc>https://stormdps.com/storm/AL122005</loc><priority>0.8</priority></url> <!-- Katrina -->
+    <url><loc>https://stormdps.com/storm/AL092024</loc><priority>0.8</priority></url> <!-- Helene -->
+    <url><loc>https://stormdps.com/storm/AL152017</loc><priority>0.8</priority></url> <!-- Maria -->
+    <url><loc>https://stormdps.com/storm/AL112017</loc><priority>0.8</priority></url> <!-- Irma -->
+    <url><loc>https://stormdps.com/storm/AL092022</loc><priority>0.8</priority></url> <!-- Ian -->
+    <url><loc>https://stormdps.com/storm/AL142018</loc><priority>0.8</priority></url> <!-- Michael -->
+    <url><loc>https://stormdps.com/storm/AL142024</loc><priority>0.8</priority></url> <!-- Milton -->
+    <url><loc>https://stormdps.com/storm/AL182012</loc><priority>0.8</priority></url> <!-- Sandy -->
+    <url><loc>https://stormdps.com/storm/AL092008</loc><priority>0.8</priority></url> <!-- Ike -->
+    <url><loc>https://stormdps.com/storm/AL092017</loc><priority>0.8</priority></url> <!-- Harvey -->
+    <url><loc>https://stormdps.com/storm/AL052019</loc><priority>0.8</priority></url> <!-- Dorian -->
+    <url><loc>https://stormdps.com/storm/AL062018</loc><priority>0.8</priority></url> <!-- Florence -->
+    <url><loc>https://stormdps.com/storm/AL102023</loc><priority>0.8</priority></url> <!-- Idalia -->
+    <url><loc>https://stormdps.com/storm/AL022024</loc><priority>0.8</priority></url> <!-- Beryl -->
+
+    <!-- Additional notable Atlantic storms -->
+    <url><loc>https://stormdps.com/storm/AL072018</loc><priority>0.7</priority></url> <!-- Chris/Beryl-era -->
+    <url><loc>https://stormdps.com/storm/AL092021</loc><priority>0.7</priority></url> <!-- Ida -->
+    <url><loc>https://stormdps.com/storm/AL112020</loc><priority>0.7</priority></url> <!-- Laura -->
+    <url><loc>https://stormdps.com/storm/AL192020</loc><priority>0.7</priority></url> <!-- Sally -->
+    <url><loc>https://stormdps.com/storm/AL262020</loc><priority>0.7</priority></url> <!-- Eta -->
+    <url><loc>https://stormdps.com/storm/AL072020</loc><priority>0.7</priority></url> <!-- Isaias -->
+    <url><loc>https://stormdps.com/storm/AL202020</loc><priority>0.7</priority></url> <!-- Teddy/Delta era -->
+    <url><loc>https://stormdps.com/storm/AL252020</loc><priority>0.7</priority></url> <!-- Delta -->
+    <url><loc>https://stormdps.com/storm/AL282020</loc><priority>0.7</priority></url> <!-- Iota -->
+    <url><loc>https://stormdps.com/storm/AL082016</loc><priority>0.7</priority></url> <!-- Hermine -->
+    <url><loc>https://stormdps.com/storm/AL142016</loc><priority>0.7</priority></url> <!-- Matthew -->
+    <url><loc>https://stormdps.com/storm/AL112015</loc><priority>0.7</priority></url> <!-- Joaquin -->
+    <url><loc>https://stormdps.com/storm/AL042019</loc><priority>0.7</priority></url> <!-- Barry -->
+
+    <!-- Notable East Pacific storms -->
+    <url><loc>https://stormdps.com/storm/EP202015</loc><priority>0.7</priority></url> <!-- Patricia -->
+    <url><loc>https://stormdps.com/storm/EP142023</loc><priority>0.7</priority></url> <!-- Otis -->
+    <url><loc>https://stormdps.com/storm/EP182018</loc><priority>0.7</priority></url> <!-- Willa -->
+
+    <!-- Notable West Pacific storms (IBTrACS SIDs where useful for SEO) -->
+    <url><loc>https://stormdps.com/storm/WP312013</loc><priority>0.7</priority></url> <!-- Haiyan -->
+    <url><loc>https://stormdps.com/storm/WP262018</loc><priority>0.7</priority></url> <!-- Mangkhut -->
+    <url><loc>https://stormdps.com/storm/WP192024</loc><priority>0.7</priority></url> <!-- Yagi -->
+
 </urlset>

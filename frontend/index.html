@@ -48,6 +48,27 @@
     }
     </script>
 
+    <!-- Dataset schema — surfaces the historical hurricane DB in Google Dataset Search -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "Dataset",
+        "name": "StormDPS Historical Hurricane Database",
+        "description": "Historical Destructive Power Scores (DPS) for major tropical cyclones from 1970 to the present, with peak winds, central pressure, wind-field radii, duration, damage estimates, and basin metadata. Modern open-data alternative to the Saffir-Simpson Category scale.",
+        "url": "https://stormdps.com/data",
+        "keywords": ["hurricane", "tropical cyclone", "Destructive Power Score", "Saffir-Simpson alternative", "IBTrACS", "HURDAT2", "storm surge", "Integrated Kinetic Energy", "open weather data"],
+        "license": "https://creativecommons.org/licenses/by/4.0/",
+        "isAccessibleForFree": true,
+        "creator": {"@type": "Organization", "name": "StormDPS", "url": "https://stormdps.com"},
+        "publisher": {"@type": "Organization", "name": "StormDPS", "url": "https://stormdps.com"},
+        "temporalCoverage": "1970-01-01/..",
+        "distribution": [
+            {"@type": "DataDownload", "encodingFormat": "text/csv", "contentUrl": "https://stormdps.com/historical_storms_db.csv"},
+            {"@type": "DataDownload", "encodingFormat": "application/json", "contentUrl": "https://stormdps.com/historical_storms_db.json"}
+        ]
+    }
+    </script>
+
     <link rel="icon" type="image/x-icon" href="/frontend/favicon.ico">
     <link rel="icon" type="image/png" sizes="32x32" href="/frontend/logo-32.png">
     <link rel="manifest" href="/frontend/manifest.json">
@@ -2566,26 +2587,54 @@ function startActiveStormPolling(intervalMs=300000){ // 5 minutes
 // Start polling on page load
 startActiveStormPolling();
 
-// Auto-load storm from URL hash ONLY when opened from an external link
-// (not on refresh within the same tab). This preserves shareable links
-// while always showing the welcome screen on a normal visit.
-(function checkHashOnLoad() {
+// Initial-storm dispatch on page load.
+//
+// Three entry points are supported, in priority order:
+//   1. window.__INITIAL_STORM_ID — set by the server-rendered /storm/{id}
+//      pages so the SPA auto-loads the storm the URL refers to.
+//   2. /storm/{id} pathname — same as above but for any client-side hit
+//      (e.g. a back-button restore where __INITIAL_STORM_ID didn't render).
+//   3. #storm=ID legacy hash — pre-fills the search box only (existing
+//      behavior, preserved so old shared links still work).
+(function dispatchInitialStorm() {
+    // Server-rendered hint takes precedence.
+    let stormId = (typeof window.__INITIAL_STORM_ID === 'string' && window.__INITIAL_STORM_ID) || '';
+
+    if (!stormId) {
+        const pathMatch = window.location.pathname.match(/^\/storm\/([A-Za-z0-9_-]{1,32})\/?$/);
+        if (pathMatch) stormId = pathMatch[1];
+    }
+
+    if (stormId) {
+        document.getElementById('stormId').value = stormId;
+        // Auto-load — this URL was hit deliberately (shared link, search result, etc.)
+        try { fetchHistory(); } catch (e) { console.warn('Auto-load failed:', e); }
+        return;
+    }
+
+    // Legacy hash fallback — pre-fill but don't auto-load.
     const hash = window.location.hash;
     if (hash && hash.startsWith('#storm=')) {
-        // If the page was navigated to from an external source (shared link),
-        // performance.navigation.type or the PerformanceNavigationTiming API
-        // can distinguish. But the simplest approach: clear the hash on load
-        // so the welcome page shows, but pre-fill the search field so the user
-        // can click Visualize to load it.
-        const stormId = decodeURIComponent(hash.slice(7));
-        if (stormId) {
-            document.getElementById('stormId').value = stormId;
+        const hashId = decodeURIComponent(hash.slice(7));
+        if (hashId) {
+            document.getElementById('stormId').value = hashId;
             history.replaceState(null, '', window.location.pathname);
         }
     }
 })();
-// Also handle hash changes (back/forward navigation)
-window.addEventListener('hashchange', function() {
+
+// Browser back/forward navigation between storm pages.
+window.addEventListener('popstate', function() {
+    const pathMatch = window.location.pathname.match(/^\/storm\/([A-Za-z0-9_-]{1,32})\/?$/);
+    if (pathMatch) {
+        const stormId = pathMatch[1];
+        if (stormId !== document.getElementById('stormId').value) {
+            document.getElementById('stormId').value = stormId;
+            fetchHistory();
+        }
+        return;
+    }
+    // Legacy hash still supported.
     const hash = window.location.hash;
     if (hash && hash.startsWith('#storm=')) {
         const stormId = decodeURIComponent(hash.slice(7));
@@ -3106,8 +3155,14 @@ async function fetchHistory(){
         await new Promise(r => setTimeout(r, 0));
         if(!cacheHit){ setLoadingStep('stepRender'); hideLoadingSkeleton(); }
         renderAll(usedId,window.stormData);
-        // Update URL hash for shareability
-        history.replaceState(null, '', '#storm=' + encodeURIComponent(usedId));
+        // Update URL to path-based form (/storm/{id}) so shared/refreshed links
+        // hit the SSR'd page with the right title/description/JSON-LD.
+        try {
+            const newPath = '/storm/' + encodeURIComponent(usedId);
+            if (window.location.pathname !== newPath) {
+                history.pushState({ stormId: usedId }, '', newPath);
+            }
+        } catch (e) { /* history API restricted (sandboxed iframe); ignore */ }
     }catch(e){errorBox.textContent=e.message;errorBox.classList.add('visible');hideLoadingSkeleton()}
     finally{btn.disabled=false;loading.classList.remove('visible');_fetchInFlight=false}
 }
@@ -3116,7 +3171,12 @@ function hideResults(){
     ['statsRow','vizArea','scrubberBar'].forEach(id=>document.getElementById(id).classList.remove('visible'));
     document.getElementById('stormTitleBar').classList.remove('visible');
     document.getElementById('welcomeState').classList.remove('hidden');
-    if (window.location.hash) history.replaceState(null, '', window.location.pathname);
+    // Reset URL to root so the cleared state matches the visible state.
+    try {
+        if (window.location.pathname !== '/' || window.location.hash) {
+            history.pushState(null, '', '/');
+        }
+    } catch (e) { /* ignore restricted history */ }
     document.getElementById('mapLegend').style.display='none';
     document.getElementById('mapLegendToggle').style.display='none';
     document.getElementById('rainfallBar').style.display='none';

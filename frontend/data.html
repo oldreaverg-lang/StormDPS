@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StormDPS Hurricane Dataset — Open Data, CSV & JSON Download</title>
+    <meta name="description" content="Open hurricane dataset: historical Destructive Power Scores, peak winds, central pressures, wind-field radii, and damage estimates for major tropical cyclones from 1970 to present. Download as CSV or JSON, CC BY 4.0.">
+    <meta name="keywords" content="hurricane dataset, tropical cyclone dataset, IBTrACS, hurricane CSV download, hurricane open data, Destructive Power Score dataset, hurricane damage data, NOAA hurricane archive">
+    <meta name="author" content="StormDPS">
+    <link rel="canonical" href="https://stormdps.com/data">
+
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="StormDPS Hurricane Dataset — Open Data">
+    <meta property="og:description" content="Historical hurricane Destructive Power Scores with full intensity, size, and damage metadata. Free CSV/JSON download.">
+    <meta property="og:url" content="https://stormdps.com/data">
+    <meta property="og:image" content="https://stormdps.com/frontend/logo-512.png">
+    <meta property="og:site_name" content="StormDPS">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="StormDPS Hurricane Dataset — Open Data">
+    <meta name="twitter:description" content="Free historical hurricane dataset: DPS scores, intensity, wind-field radii, damage estimates.">
+    <meta name="twitter:image" content="https://stormdps.com/frontend/logo-512.png">
+
+    <!-- Dataset schema — picked up by Google Dataset Search -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "Dataset",
+        "name": "StormDPS Historical Hurricane Database",
+        "alternateName": "StormDPS Destructive Power Score Dataset",
+        "description": "Historical Destructive Power Scores (DPS) for major tropical cyclones from 1970 to the present, including peak winds (mph and knots), minimum central pressure (mb), radius of maximum winds (nautical miles), tropical-storm-force wind radius R34 (nautical miles), duration in days, basin, landfall locations, damage estimates in billions of USD, and DPS component factors (duration, rapid intensification, geographic reach). Derived from public NOAA NHC HURDAT2, JTWC, and IBTrACS sources plus the StormDPS computational methodology. A modern open-data alternative to the Saffir-Simpson Category scale.",
+        "url": "https://stormdps.com/data",
+        "sameAs": "https://stormdps.com/",
+        "keywords": [
+            "hurricane",
+            "tropical cyclone",
+            "Destructive Power Score",
+            "Saffir-Simpson alternative",
+            "IBTrACS",
+            "HURDAT2",
+            "storm surge",
+            "Integrated Kinetic Energy",
+            "open weather data"
+        ],
+        "license": "https://creativecommons.org/licenses/by/4.0/",
+        "isAccessibleForFree": true,
+        "creator": {
+            "@type": "Organization",
+            "name": "StormDPS",
+            "url": "https://stormdps.com"
+        },
+        "publisher": {
+            "@type": "Organization",
+            "name": "StormDPS",
+            "url": "https://stormdps.com",
+            "logo": {
+                "@type": "ImageObject",
+                "url": "https://stormdps.com/frontend/logo-512.png"
+            }
+        },
+        "temporalCoverage": "1970-01-01/..",
+        "spatialCoverage": {
+            "@type": "Place",
+            "name": "All ocean basins with tropical cyclone activity",
+            "geo": {
+                "@type": "GeoShape",
+                "box": "-60 -180 60 180"
+            }
+        },
+        "variableMeasured": [
+            { "@type": "PropertyValue", "name": "Destructive Power Score (DPS)", "description": "0–100 composite hurricane rating combining intensity, IKE, surge potential, duration, and geographic reach." },
+            { "@type": "PropertyValue", "name": "Peak wind speed", "unitText": "mph" },
+            { "@type": "PropertyValue", "name": "Minimum central pressure", "unitText": "mb (hPa)" },
+            { "@type": "PropertyValue", "name": "Radius of maximum winds (RMW)", "unitText": "nautical miles" },
+            { "@type": "PropertyValue", "name": "Tropical-storm-force wind radius (R34)", "unitText": "nautical miles" },
+            { "@type": "PropertyValue", "name": "Storm duration", "unitText": "days" },
+            { "@type": "PropertyValue", "name": "Damage estimate", "unitText": "billions USD, inflation-adjusted" },
+            { "@type": "PropertyValue", "name": "Basin", "description": "Originating ocean basin (Atlantic, East Pacific, West Pacific, North Indian, South Indian, South Pacific)." }
+        ],
+        "distribution": [
+            {
+                "@type": "DataDownload",
+                "encodingFormat": "text/csv",
+                "contentUrl": "https://stormdps.com/historical_storms_db.csv",
+                "name": "Historical hurricane database (CSV)"
+            },
+            {
+                "@type": "DataDownload",
+                "encodingFormat": "application/json",
+                "contentUrl": "https://stormdps.com/historical_storms_db.json",
+                "name": "Historical hurricane database (JSON)"
+            }
+        ],
+        "citation": "StormDPS Historical Hurricane Database. StormDPS. https://stormdps.com/data"
+    }
+    </script>
+
+    <link rel="icon" type="image/x-icon" href="/frontend/favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="/frontend/logo-32.png">
+    <meta name="theme-color" content="#0a0e1a">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary:#6366f1; --bg-dark:#0a0e1a; --bg-card:#111827; --bg-input:#0d1221;
+            --text-main:#f1f5f9; --text-muted:#94a3b8; --text-dim:#64748b; --border:#1e293b;
+            --radius:10px;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-dark); color: var(--text-main);
+            line-height: 1.7; font-size: 16px;
+        }
+        header {
+            background: linear-gradient(180deg, rgba(17,24,39,.97), rgba(10,14,26,.97));
+            backdrop-filter: blur(12px);
+            padding: 1rem 1.5rem; border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; justify-content: space-between;
+            position: sticky; top: 0; z-index: 100;
+        }
+        .logo { display: flex; align-items: center; gap: .6rem; color: var(--text-main); text-decoration: none; }
+        .logo-icon { width: 32px; height: 32px; border-radius: 8px; overflow: hidden; }
+        .logo-icon img { width: 100%; height: 100%; object-fit: cover; }
+        .logo h1 { font-size: 1.1rem; font-weight: 700; letter-spacing: -.03em; }
+        nav { display: flex; gap: 1.25rem; align-items: center; }
+        nav a {
+            color: var(--text-muted); text-decoration: none; font-weight: 600; font-size: .95rem;
+            transition: color .15s;
+        }
+        nav a:hover { color: var(--text-main); }
+        nav a.cta { color: var(--primary); }
+        main { max-width: 880px; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+        h1.page-title {
+            font-size: clamp(1.8rem, 4vw, 2.6rem); font-weight: 800; letter-spacing: -.03em;
+            line-height: 1.2; margin-bottom: .75rem;
+        }
+        .lede { font-size: 1.15rem; color: var(--text-muted); margin-bottom: 2.5rem; }
+        h2 {
+            font-size: 1.4rem; font-weight: 700; letter-spacing: -.02em;
+            margin-top: 2.5rem; margin-bottom: 1rem;
+        }
+        p { margin-bottom: 1rem; }
+        ul { margin: 0 0 1rem 1.5rem; }
+        li { margin-bottom: .4rem; }
+        a.inline { color: var(--primary); text-decoration: underline; text-decoration-color: rgba(99,102,241,.4); }
+        a.inline:hover { text-decoration-color: var(--primary); }
+        .download-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1rem; margin: 2rem 0;
+        }
+        .dl-card {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 1.4rem;
+            display: flex; flex-direction: column; gap: .6rem;
+            transition: border-color .15s;
+        }
+        .dl-card:hover { border-color: var(--primary); }
+        .dl-format {
+            font-family: 'JetBrains Mono', monospace; font-weight: 700;
+            color: var(--primary); font-size: .85rem; letter-spacing: .04em;
+        }
+        .dl-title { font-size: 1.05rem; font-weight: 700; }
+        .dl-meta { color: var(--text-muted); font-size: .88rem; }
+        .dl-btn {
+            display: inline-flex; align-items: center; gap: .4rem;
+            padding: .55rem 1rem; border-radius: var(--radius);
+            background: var(--primary); color: #fff; text-decoration: none;
+            font-weight: 600; font-size: .92rem; align-self: flex-start;
+            transition: background .15s; margin-top: .35rem;
+        }
+        .dl-btn:hover { background: #4f46e5; }
+        table {
+            width: 100%; border-collapse: collapse; margin: 1.5rem 0;
+            background: var(--bg-card); border-radius: var(--radius); overflow: hidden;
+            font-size: .9rem;
+        }
+        th, td { padding: .65rem .85rem; text-align: left; border-bottom: 1px solid var(--border); }
+        th { background: var(--bg-input); font-weight: 600; color: var(--text-muted); text-transform: uppercase; font-size: .72rem; letter-spacing: .05em; }
+        td code, .field-name {
+            font-family: 'JetBrains Mono', monospace; font-size: .85em;
+            background: var(--bg-input); padding: 1px 5px; border-radius: 4px;
+            color: var(--primary);
+        }
+        .license-box {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-left: 3px solid var(--primary);
+            padding: 1.1rem 1.3rem; border-radius: var(--radius);
+            margin: 1.5rem 0;
+        }
+        .license-box strong { display: block; margin-bottom: .35rem; }
+        pre {
+            background: var(--bg-input); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 1rem 1.2rem; overflow-x: auto;
+            font-family: 'JetBrains Mono', monospace; font-size: .85rem; line-height: 1.5;
+            color: var(--text-main); margin: 1rem 0;
+        }
+        footer { padding: 2rem 1.5rem; text-align: center; color: var(--text-dim); font-size: .85rem; border-top: 1px solid var(--border); }
+        footer a { color: var(--text-muted); text-decoration: none; margin: 0 .6rem; }
+        footer a:hover { color: var(--text-main); }
+    </style>
+</head>
+<body>
+    <header>
+        <a href="/" class="logo">
+            <span class="logo-icon"><img src="/frontend/logo-128.png" alt="StormDPS logo"></span>
+            <h1>StormDPS</h1>
+        </a>
+        <nav>
+            <a href="/">Tracker</a>
+            <a href="/methodology">Methodology</a>
+            <a href="/data">Data</a>
+            <a href="/surgedps" class="cta">SurgeDPS</a>
+        </nav>
+    </header>
+
+    <main>
+        <h1 class="page-title">Hurricane Open Dataset</h1>
+        <p class="lede">Historical Destructive Power Scores and full intensity, size, and damage metadata for major tropical cyclones — from Bhola (1970) through the current Atlantic season. Free to download, free to redistribute, CC BY 4.0.</p>
+
+        <h2>Downloads</h2>
+        <div class="download-grid">
+            <div class="dl-card">
+                <span class="dl-format">CSV</span>
+                <span class="dl-title">Historical Hurricane Database</span>
+                <span class="dl-meta">~200 storms · 14 columns · &lt; 5 KB</span>
+                <a href="/historical_storms_db.csv" class="dl-btn" download>Download CSV</a>
+            </div>
+            <div class="dl-card">
+                <span class="dl-format">JSON</span>
+                <span class="dl-title">Historical Hurricane Database</span>
+                <span class="dl-meta">~200 storms · structured array · &lt; 10 KB</span>
+                <a href="/historical_storms_db.json" class="dl-btn" download>Download JSON</a>
+            </div>
+        </div>
+
+        <h2>What's in the file</h2>
+        <p>Each row is one named tropical cyclone. The columns are intentionally compact and human-readable; this is a curated reference dataset, not a full track archive (use <a href="https://www.ncei.noaa.gov/products/international-best-track-archive" class="inline" rel="noopener">IBTrACS</a> for full 6-hourly tracks).</p>
+
+        <table>
+            <thead><tr><th>Column</th><th>Description</th><th>Example</th></tr></thead>
+            <tbody>
+                <tr><td><code>basin</code></td><td>Originating ocean basin</td><td>Atlantic, West Pacific, North Indian, …</td></tr>
+                <tr><td><code>name</code></td><td>Storm name as assigned by the WMO regional center</td><td>Katrina, Haiyan, Mangkhut</td></tr>
+                <tr><td><code>year</code></td><td>Year of peak intensity</td><td>2005</td></tr>
+                <tr><td><code>damage_billions</code></td><td>Damage in inflation-adjusted USD (B)</td><td>125.0</td></tr>
+                <tr><td><code>peak_wind_mph</code></td><td>Peak 1-min sustained wind</td><td>175</td></tr>
+                <tr><td><code>central_pressure_mb</code></td><td>Minimum central pressure</td><td>902</td></tr>
+                <tr><td><code>rmw_nm</code></td><td>Radius of maximum winds at peak</td><td>14</td></tr>
+                <tr><td><code>r34_nm</code></td><td>Tropical-storm-force wind radius (R34)</td><td>60</td></tr>
+                <tr><td><code>duration_days</code></td><td>Days from genesis to dissipation</td><td>4.5</td></tr>
+                <tr><td><code>duration_factor</code></td><td>DPS duration component (0–1.5)</td><td>1.2</td></tr>
+                <tr><td><code>rapid_intensification_24h_mph</code></td><td>Peak 24-hour intensification</td><td>50</td></tr>
+                <tr><td><code>landfalls</code></td><td>Comma-separated landfall regions</td><td>Louisiana, Mississippi</td></tr>
+                <tr><td><code>notes</code></td><td>Free-text storm description</td><td>"Unprecedented storm surge in New Orleans, …"</td></tr>
+                <tr><td><code>validation_target</code></td><td>Whether this storm is in the DPS calibration set</td><td>True</td></tr>
+            </tbody>
+        </table>
+
+        <h2>How to cite</h2>
+        <p>If you use this dataset in academic, journalistic, or commercial work, please cite it as:</p>
+        <pre>StormDPS Historical Hurricane Database (2026).
+StormDPS. Retrieved from https://stormdps.com/data</pre>
+        <p>A persistent DOI is planned for the next release via Zenodo. The CSV/JSON files served here will remain stable.</p>
+
+        <h2>Quick start (Python)</h2>
+        <pre>import pandas as pd
+
+df = pd.read_csv("https://stormdps.com/historical_storms_db.csv")
+print(df.sort_values("damage_billions", ascending=False).head(10))</pre>
+
+        <h2>Live API access</h2>
+        <p>For real-time DPS values on active and historic storms, the StormDPS REST API exposes:</p>
+        <ul>
+            <li><code>GET /api/v1/storms/active</code> — currently active tropical cyclones</li>
+            <li><code>GET /api/v1/storms/{id}/dps</code> — canonical DPS bundle for one storm</li>
+            <li><code>GET /api/v1/storms/catalog/global</code> — global IBTrACS catalog (filterable by year)</li>
+        </ul>
+        <p>Public, free, no key required. Rate-limited per IP. See the methodology page for component definitions and the live tracker for interactive exploration.</p>
+
+        <div class="license-box">
+            <strong>License: CC BY 4.0</strong>
+            You may share, adapt, and redistribute this dataset — including for commercial purposes — provided you cite StormDPS as the source. The underlying observational records (NHC, JTWC, IBTrACS) are in the public domain.
+        </div>
+    </main>
+
+    <footer>
+        <a href="/">Tracker</a> ·
+        <a href="/methodology">Methodology</a> ·
+        <a href="/data">Data</a> ·
+        <a href="/surgedps">SurgeDPS</a>
+        <p style="margin-top:.6rem;color:var(--text-dim)">StormDPS — open-data hurricane destructive-power scoring</p>
+    </footer>
+</body>
+</html>

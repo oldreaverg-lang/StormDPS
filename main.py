@@ -24,7 +24,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -391,6 +391,87 @@ async def internal_error_handler(request: Request, exc):
 @app.get("/")
 async def serve_frontend():
     return FileResponse(FRONTEND_DIR / "index.html")
+
+
+# ---------------------------------------------------------------------------
+# SEO landing pages — server-rendered so crawlers get real content even
+# before JS runs. Every storm gets its own canonical URL with unique title,
+# description, and Article JSON-LD.
+# ---------------------------------------------------------------------------
+
+import re as _re
+from seo import render_storm_page as _render_storm_page
+
+_STORM_ID_RE = _re.compile(r"^[A-Za-z0-9_-]{1,32}$")
+
+
+@app.get("/storm/{storm_id}", response_class=HTMLResponse)
+async def serve_storm_page(storm_id: str):
+    """SSR a per-storm landing page so Google indexes each storm separately."""
+    if not _STORM_ID_RE.match(storm_id):
+        raise HTTPException(status_code=404, detail="Not found")
+    html_out = _render_storm_page(storm_id)
+    if not html_out:
+        raise HTTPException(status_code=500, detail="render failed")
+    return HTMLResponse(
+        content=html_out,
+        headers={"Cache-Control": "public, max-age=300, s-maxage=900"},
+    )
+
+
+@app.get("/methodology")
+async def serve_methodology():
+    """Long-form explanation of the DPS methodology. Static HTML, SEO-optimized."""
+    fp = FRONTEND_DIR / "methodology.html"
+    if not fp.exists():
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(
+        fp,
+        media_type="text/html",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+@app.get("/data")
+async def serve_data_page():
+    """Dataset landing page — exposes the historical storms database with
+    schema.org/Dataset JSON-LD so Google Dataset Search indexes it."""
+    fp = FRONTEND_DIR / "data.html"
+    if not fp.exists():
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(
+        fp,
+        media_type="text/html",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+@app.get("/historical_storms_db.csv")
+async def serve_historical_csv():
+    """Raw CSV dataset, referenced by the Dataset JSON-LD."""
+    fp = Path(__file__).parent / "historical_storms_db.csv"
+    if not fp.exists():
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(
+        fp,
+        media_type="text/csv",
+        headers={"Cache-Control": "public, max-age=86400"},
+        filename="historical_storms_db.csv",
+    )
+
+
+@app.get("/historical_storms_db.json")
+async def serve_historical_json():
+    """Raw JSON dataset, referenced by the Dataset JSON-LD."""
+    fp = Path(__file__).parent / "historical_storms_db.json"
+    if not fp.exists():
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(
+        fp,
+        media_type="application/json",
+        headers={"Cache-Control": "public, max-age=86400"},
+        filename="historical_storms_db.json",
+    )
 
 
 # ---------------------------------------------------------------------------

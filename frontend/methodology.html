@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How DPS Improves on the Saffir-Simpson Scale | StormDPS Methodology</title>
+    <meta name="description" content="The Destructive Power Score (DPS) rates hurricanes on a 0–100 scale that captures size, surge, duration, and geographic reach — the factors the Saffir-Simpson category scale ignores. Read the full methodology behind StormDPS.">
+    <meta name="keywords" content="Saffir-Simpson alternative, Saffir-Simpson improved, better than Saffir-Simpson, hurricane rating scale, hurricane destructive power, Integrated Kinetic Energy, IKE, hurricane methodology, storm surge index, hurricane size index, DPS scale">
+    <meta name="author" content="StormDPS">
+    <link rel="canonical" href="https://stormdps.com/methodology">
+
+    <meta property="og:type" content="article">
+    <meta property="og:title" content="How DPS Improves on the Saffir-Simpson Scale">
+    <meta property="og:description" content="A 0–100 hurricane rating that captures size, surge, duration, and geographic reach — what the Saffir-Simpson Category scale misses.">
+    <meta property="og:url" content="https://stormdps.com/methodology">
+    <meta property="og:image" content="https://stormdps.com/frontend/logo-512.png">
+    <meta property="og:site_name" content="StormDPS">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="How DPS Improves on the Saffir-Simpson Scale">
+    <meta name="twitter:description" content="A modern alternative to the Saffir-Simpson Category scale.">
+    <meta name="twitter:image" content="https://stormdps.com/frontend/logo-512.png">
+
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "Article",
+        "headline": "How DPS Improves on the Saffir-Simpson Scale",
+        "description": "The Destructive Power Score (DPS) is a 0–100 hurricane rating that incorporates storm size, surge potential, duration of coastal exposure, and geographic reach — the factors the Saffir-Simpson Category scale ignores.",
+        "url": "https://stormdps.com/methodology",
+        "datePublished": "2026-01-01",
+        "dateModified": "2026-05-12",
+        "author": { "@type": "Organization", "name": "StormDPS", "url": "https://stormdps.com" },
+        "publisher": {
+            "@type": "Organization",
+            "name": "StormDPS",
+            "url": "https://stormdps.com",
+            "logo": { "@type": "ImageObject", "url": "https://stormdps.com/frontend/logo-512.png" }
+        },
+        "image": "https://stormdps.com/frontend/logo-512.png",
+        "mainEntityOfPage": "https://stormdps.com/methodology",
+        "keywords": "Saffir-Simpson alternative, Saffir-Simpson improved, hurricane rating, Integrated Kinetic Energy, IKE"
+    }
+    </script>
+
+    <link rel="icon" type="image/x-icon" href="/frontend/favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="/frontend/logo-32.png">
+    <meta name="theme-color" content="#0a0e1a">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary:#6366f1; --bg-dark:#0a0e1a; --bg-card:#111827; --bg-input:#0d1221;
+            --text-main:#f1f5f9; --text-muted:#94a3b8; --text-dim:#64748b; --border:#1e293b;
+            --cat1:#60a5fa; --cat2:#34d399; --cat3:#fbbf24; --cat4:#f97316; --cat5:#ef4444;
+            --radius:10px;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-dark); color: var(--text-main);
+            line-height: 1.7; font-size: 16px;
+        }
+        header {
+            background: linear-gradient(180deg, rgba(17,24,39,.97), rgba(10,14,26,.97));
+            backdrop-filter: blur(12px);
+            padding: 1rem 1.5rem; border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; justify-content: space-between;
+            position: sticky; top: 0; z-index: 100;
+        }
+        .logo { display: flex; align-items: center; gap: .6rem; color: var(--text-main); text-decoration: none; }
+        .logo-icon { width: 32px; height: 32px; border-radius: 8px; overflow: hidden; }
+        .logo-icon img { width: 100%; height: 100%; object-fit: cover; }
+        .logo h1 { font-size: 1.1rem; font-weight: 700; letter-spacing: -.03em; }
+        nav { display: flex; gap: 1.25rem; align-items: center; }
+        nav a {
+            color: var(--text-muted); text-decoration: none; font-weight: 600; font-size: .95rem;
+            transition: color .15s;
+        }
+        nav a:hover { color: var(--text-main); }
+        nav a.cta { color: var(--primary); }
+        main {
+            max-width: 780px; margin: 0 auto; padding: 3rem 1.5rem 6rem;
+        }
+        h1.page-title {
+            font-size: clamp(1.8rem, 4vw, 2.6rem); font-weight: 800; letter-spacing: -.03em;
+            line-height: 1.2; margin-bottom: .75rem;
+        }
+        .lede {
+            font-size: 1.15rem; color: var(--text-muted); margin-bottom: 2.5rem;
+            line-height: 1.6;
+        }
+        h2 {
+            font-size: 1.5rem; font-weight: 700; letter-spacing: -.02em;
+            margin-top: 3rem; margin-bottom: 1rem; color: var(--text-main);
+        }
+        h3 {
+            font-size: 1.15rem; font-weight: 700; margin-top: 2rem; margin-bottom: .6rem;
+            color: var(--text-main);
+        }
+        p { margin-bottom: 1.1rem; color: var(--text-main); }
+        p strong { color: #fff; font-weight: 700; }
+        ul, ol { margin: 0 0 1.1rem 1.5rem; }
+        li { margin-bottom: .5rem; color: var(--text-main); }
+        a.inline { color: var(--primary); text-decoration: underline; text-decoration-color: rgba(99,102,241,.4); }
+        a.inline:hover { text-decoration-color: var(--primary); }
+        .callout {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-left: 3px solid var(--primary);
+            padding: 1.1rem 1.3rem; border-radius: var(--radius);
+            margin: 1.5rem 0;
+        }
+        .callout strong { display: block; margin-bottom: .35rem; }
+        table {
+            width: 100%; border-collapse: collapse; margin: 1.25rem 0;
+            background: var(--bg-card); border-radius: var(--radius); overflow: hidden;
+            font-size: .92rem;
+        }
+        th, td { padding: .7rem .9rem; text-align: left; border-bottom: 1px solid var(--border); }
+        th { background: var(--bg-input); font-weight: 600; color: var(--text-muted); text-transform: uppercase; font-size: .72rem; letter-spacing: .05em; }
+        td.num { font-variant-numeric: tabular-nums; font-weight: 600; }
+        .cat-pill {
+            display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: .72rem;
+            font-weight: 700; color: #0a0e1a;
+        }
+        .cat-1 { background: var(--cat1); } .cat-2 { background: var(--cat2); }
+        .cat-3 { background: var(--cat3); } .cat-4 { background: var(--cat4); }
+        .cat-5 { background: var(--cat5); }
+        .cta-row {
+            display: flex; flex-wrap: wrap; gap: .8rem; margin-top: 2rem;
+        }
+        .btn-link {
+            display: inline-flex; align-items: center; gap: .5rem;
+            padding: .65rem 1.1rem; border-radius: var(--radius);
+            background: var(--primary); color: #fff; text-decoration: none;
+            font-weight: 600; transition: background .15s;
+        }
+        .btn-link:hover { background: #4f46e5; }
+        .btn-link.secondary { background: transparent; border: 1px solid var(--border); color: var(--text-main); }
+        .btn-link.secondary:hover { border-color: var(--primary); color: #fff; }
+        footer { padding: 2rem 1.5rem; text-align: center; color: var(--text-dim); font-size: .85rem; border-top: 1px solid var(--border); }
+        footer a { color: var(--text-muted); text-decoration: none; margin: 0 .6rem; }
+        footer a:hover { color: var(--text-main); }
+    </style>
+</head>
+<body>
+    <header>
+        <a href="/" class="logo">
+            <span class="logo-icon"><img src="/frontend/logo-128.png" alt="StormDPS logo"></span>
+            <h1>StormDPS</h1>
+        </a>
+        <nav>
+            <a href="/">Tracker</a>
+            <a href="/methodology">Methodology</a>
+            <a href="/data">Data</a>
+            <a href="/surgedps" class="cta">SurgeDPS</a>
+        </nav>
+    </header>
+
+    <main>
+        <h1 class="page-title">How DPS Improves on the Saffir-Simpson Scale</h1>
+        <p class="lede">The Saffir-Simpson Hurricane Wind Scale was published in 1971. It rates a storm on a single variable: peak one-minute sustained wind. That made sense in 1971. It does not make sense in 2026, when satellite altimetry, scatterometer winds, ocean heat content, and integrated kinetic energy are all measured in real time. The Destructive Power Score (DPS) is a 0–100 hurricane rating that uses all of them.</p>
+
+        <h2>Why the Category scale falls short</h2>
+        <p>Saffir-Simpson groups every hurricane into five categories based on peak wind alone. Two storms with identical peak winds can have radically different destructive footprints, and the scale cannot tell them apart.</p>
+        <p>Hurricane Ike (2008) made U.S. landfall as a Category 2. It killed 195 people and caused $38 billion in damage — more than several Category 4 and 5 storms in the same era. Ike's destructive footprint was not driven by wind speed; it was driven by an unusually large wind field that produced a Category 4–equivalent storm surge across the entire upper Texas coast. Saffir-Simpson called it a 2 and moved on.</p>
+        <p>The opposite problem also occurs. A small, intense Category 5 over open ocean — say a recurving Western Pacific super-typhoon that never crosses land — rates the same on Saffir-Simpson as a Category 5 that grinds across populated coastline for 36 hours. One is a curiosity; the other is a catastrophe. The wind scale flattens the distinction.</p>
+
+        <div class="callout">
+            <strong>The four blind spots of Saffir-Simpson</strong>
+            <ol style="margin-top:.5rem">
+                <li><strong>Size.</strong> The wind field can be 50 nautical miles or 250. Surge scales with size, not peak wind.</li>
+                <li><strong>Duration.</strong> A slow-moving Cat 2 dumps more rain than a fast-moving Cat 4.</li>
+                <li><strong>Geographic reach.</strong> A storm hitting a densely populated coast is not equivalent to one hitting empty ocean.</li>
+                <li><strong>Surge potential.</strong> A function of bathymetry, fetch, and forward speed — not peak wind.</li>
+            </ol>
+        </div>
+
+        <h2>What DPS measures</h2>
+        <p>DPS is a composite 0–100 score computed from five physically meaningful components, each derived from public NOAA, NHC, JTWC, and IBTrACS data. None of the components are subjective.</p>
+
+        <table>
+            <thead>
+                <tr><th>Component</th><th>What it captures</th><th>Source</th></tr>
+            </thead>
+            <tbody>
+                <tr><td><strong>Intensity</strong></td><td>Peak sustained wind and minimum central pressure — the Saffir-Simpson variable, retained as a baseline.</td><td>NHC advisories, ATCF, HURDAT2, IBTrACS</td></tr>
+                <tr><td><strong>IKE (Integrated Kinetic Energy)</strong></td><td>Total kinetic energy in the wind field above tropical-storm-force. Captures storm size directly. The metric Hurricane Ike's destructive footprint was retroactively explained by.</td><td>Computed from quadrant wind radii (R34/R50/R64) using Holland's vortex profile.</td></tr>
+                <tr><td><strong>Surge potential</strong></td><td>Storm-surge index derived from peak wind, RMW, forward speed, and basin-specific bathymetry coefficients.</td><td>SLOSH-calibrated surrogate model.</td></tr>
+                <tr><td><strong>Duration of coastal exposure</strong></td><td>Hours the storm circulation overlaps a populated coastline — captures the slow-grind catastrophe profile (Harvey, Florence, Dorian).</td><td>Track interpolation against a coastal-zone polygon set.</td></tr>
+                <tr><td><strong>Geographic reach</strong></td><td>Number of distinct coastal zones the wind field affects. Distinguishes regional from continental events.</td><td>Wind-field intersection with ZONE_WEIGHTS polygon table.</td></tr>
+            </tbody>
+        </table>
+
+        <p>The components are combined into a normalized 0–100 score with basin-specific adjustments — Atlantic, Eastern Pacific, Western Pacific, North Indian, South Indian, and South Pacific storms each have their own calibration so the scale behaves consistently regardless of where the storm formed. A score of 50 means roughly the same thing in the Atlantic as in the Western Pacific. A score of 95 in either basin is among the most destructive storms ever recorded.</p>
+
+        <h2>How DPS maps to outcomes</h2>
+        <p>The 0–100 scale is calibrated against historical outcomes — damage in inflation-adjusted dollars, fatalities, and post-storm survey reports — across roughly 200 storms from 2015 onward. The ranges below are not strict bins; they are typical outcome buckets.</p>
+        <table>
+            <thead><tr><th>DPS</th><th>Label</th><th>Typical outcome profile</th></tr></thead>
+            <tbody>
+                <tr><td class="num">0–24</td><td>Minimal</td><td>Localized wind damage, no widespread surge or flooding.</td></tr>
+                <tr><td class="num">25–49</td><td>Notable</td><td>Regional damage, isolated infrastructure failures.</td></tr>
+                <tr><td class="num">50–74</td><td>Severe</td><td>Multi-billion-dollar event, sustained coastal damage.</td></tr>
+                <tr><td class="num">75–89</td><td>Catastrophic</td><td>Wide-area destruction across multiple zones — Ian (2022), Helene (2024).</td></tr>
+                <tr><td class="num">90–100</td><td>Historic</td><td>Generation-defining storms — Katrina, Maria, Haiyan, Mangkhut.</td></tr>
+            </tbody>
+        </table>
+
+        <h2>Worked example: Ike vs. Charley</h2>
+        <p>Hurricane Charley (2004) struck southwest Florida as a strong Category 4, peak winds of 130 kt. Hurricane Ike (2008) struck Galveston as a Category 2, peak winds of 95 kt. Saffir-Simpson rates Charley as the more dangerous storm. The damage record disagrees: Ike caused roughly four times the inflation-adjusted economic loss.</p>
+        <p>The reason Saffir-Simpson misses it is visible in two numbers Saffir-Simpson does not look at:</p>
+        <ul>
+            <li><strong>Wind field radius.</strong> Ike's R34 (tropical-storm-force radius) was ~275 nm. Charley's was ~85 nm. Ike was more than three times wider.</li>
+            <li><strong>Integrated kinetic energy.</strong> Ike's peak IKE was ~150 TJ. Charley's was ~12 TJ. Ike carried more than ten times the total kinetic energy.</li>
+        </ul>
+        <p>DPS scores Charley around 71 and Ike around 84. That ordering matches the damage record. The categorical ordering does not.</p>
+
+        <h2>What DPS does not do</h2>
+        <p>DPS is a destructive-potential score, not a forecast. It is computed from observed or forecast track and intensity data; it does not generate the track itself. NHC, JTWC, and the various ensemble models produce the track; DPS interprets it.</p>
+        <p>DPS is also not a replacement for the official watch/warning system. The National Hurricane Center's products are the operational source of record for evacuation decisions. DPS is meant for situational awareness, historical comparison, and research — telling you that the Category 2 bearing down on your coast is in fact more dangerous than the Category 4 that grazed the same coast a decade ago.</p>
+
+        <h2>Open data, reproducible methodology</h2>
+        <p>StormDPS is intended as a transparent alternative to closed proprietary scales. The underlying historical scores for ~200 storms are published on the <a href="/data" class="inline">Data page</a> as CSV and JSON. The full computational methodology — including the basin-specific coefficients, IKE integration, and SLOSH-surrogate surge model — is open and citable.</p>
+
+        <div class="cta-row">
+            <a href="/" class="btn-link">Try the live tracker</a>
+            <a href="/data" class="btn-link secondary">Download the dataset</a>
+        </div>
+    </main>
+
+    <footer>
+        <a href="/">Tracker</a> ·
+        <a href="/methodology">Methodology</a> ·
+        <a href="/data">Data</a> ·
+        <a href="/surgedps">SurgeDPS</a>
+        <p style="margin-top:.6rem;color:var(--text-dim)">StormDPS — open-data hurricane destructive-power scoring</p>
+    </footer>
+</body>
+</html>
