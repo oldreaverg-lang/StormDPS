@@ -85,6 +85,7 @@
     <link rel="manifest" href="/frontend/manifest.json">
     <meta name="theme-color" content="#0a0e1a">
     <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="apple-touch-icon" href="/frontend/logo-180.png">
     <!-- Performance: preconnect to third-party origins so DNS+TLS happen
@@ -1484,7 +1485,9 @@ const zoneBandsPlugin={
         ctx.restore();
     }
 };
-Chart.register(zoneBandsPlugin);
+// Chart.js is deferred, so it isn't defined yet during initial parse.
+// _onDomReady waits for defer scripts to finish before registering.
+_onDomReady(() => Chart.register(zoneBandsPlugin));
 
 // ============================================================
 // SCRUB LINE — vertical crosshair showing current timeline position
@@ -1516,7 +1519,7 @@ const scrubLinePlugin={
         ctx.restore();
     }
 };
-Chart.register(scrubLinePlugin);
+_onDomReady(() => Chart.register(scrubLinePlugin));
 
 // ============================================================
 // WIND FIELD COLOR — pink -> red -> orange -> yellow
