@@ -573,6 +573,15 @@ async def serve_sitemap():
     return FileResponse(FRONTEND_DIR / "sitemap.xml", media_type="application/xml")
 
 
+@app.get("/BingSiteAuth.xml")
+async def serve_bing_site_auth():
+    """Site-ownership verification for Bing Webmaster Tools."""
+    return FileResponse(
+        FRONTEND_DIR / "BingSiteAuth.xml",
+        media_type="application/xml",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Compiled bundle — served from the persistent volume with fallback.
 #
