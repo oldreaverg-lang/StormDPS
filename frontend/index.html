@@ -178,8 +178,18 @@
             .mobile-menu-btn{display:flex}
             .app-layout{grid-template-columns:1fr;height:auto;overflow:visible}
             body{overflow:auto;height:auto}
-            .sidebar{display:none;position:fixed;top:49px;left:0;right:0;bottom:0;z-index:90;max-height:none;border-right:none;border-bottom:none;background:var(--bg-dark);overflow-y:auto;padding:1rem}
-            .sidebar.mobile-open{display:flex}
+            /* Mobile sidebar — slide-in drawer at z-index 1000 (beats Leaflet's 200–800).
+               Width clamps at 85vw so the map remains visible behind it. */
+            .sidebar{position:fixed;top:49px;left:0;bottom:0;width:min(85vw,320px);max-height:none;height:auto;z-index:1000;border-right:1px solid var(--border);border-bottom:none;background:var(--bg-dark);overflow-y:auto;padding:2.4rem 1rem 1rem;box-shadow:4px 0 24px rgba(0,0,0,.5);transform:translateX(-100%);visibility:hidden;transition:transform .25s ease,visibility 0s linear .25s;display:flex}
+            .sidebar.mobile-open{transform:translateX(0);visibility:visible;transition:transform .25s ease,visibility 0s linear 0s}
+            /* Backdrop scrim — covers map but not the header (top:49px). Tap to close. */
+            .sidebar-backdrop{display:block;position:fixed;top:49px;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);z-index:999;opacity:0;visibility:hidden;transition:opacity .25s ease,visibility 0s linear .25s;cursor:pointer}
+            .sidebar-backdrop.visible{opacity:1;visibility:visible;transition:opacity .25s ease,visibility 0s linear 0s}
+            /* Close button — top-right of the drawer */
+            .sidebar-close-btn{display:flex;position:absolute;top:.6rem;right:.6rem;width:32px;height:32px;background:transparent;border:1px solid var(--border);border-radius:var(--radius);color:var(--text-muted);font-size:1.3rem;font-weight:300;line-height:1;align-items:center;justify-content:center;cursor:pointer;z-index:2;-webkit-tap-highlight-color:transparent;padding:0}
+            .sidebar-close-btn:hover{color:var(--text-main);border-color:var(--border-hover);background:var(--bg-card-hover)}
+            /* Lock body scroll when menu is open so the page behind doesn't scroll under the drawer */
+            body.menu-open{overflow:hidden}
             .main-content{height:auto;min-height:calc(100vh - 49px);overflow-y:auto;padding:.4rem}
             /* Stat cards: compact 3-across row, equal height */
             .stats-row.visible{grid-template-columns:repeat(3,1fr);gap:.3rem;align-items:stretch}
@@ -304,8 +314,9 @@
         /* Speed label */
         .speed-label{font-size:.78rem;color:var(--text-dim);white-space:nowrap}
 
-        /* Better mobile */
-        @media(max-width:900px){.app-layout{grid-template-columns:1fr}.sidebar{border-right:none;border-bottom:1px solid var(--border);max-height:50vh;overflow-y:auto}}
+        /* Mobile sidebar drawer + backdrop (see .sidebar inside @media below for the full rules) */
+        .sidebar-backdrop{display:none}
+        .sidebar-close-btn{display:none}
         /* Active Storms panel */
         .active-storms-section{display:flex;flex-direction:column;gap:.5rem}
         .active-header{display:flex;align-items:center;gap:.4rem;font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-dim);padding-bottom:.2rem;border-bottom:1px solid var(--border)}
@@ -428,8 +439,10 @@
         <button class="mobile-menu-btn" id="mobileMenuBtn" onclick="toggleMobileMenu()" title="Menu">&#9776;</button>
     </div>
 </header>
+<div class="sidebar-backdrop" id="sidebarBackdrop" onclick="closeMobileMenu()" aria-hidden="true"></div>
 <div class="app-layout">
     <aside class="sidebar">
+        <button class="sidebar-close-btn" onclick="closeMobileMenu()" aria-label="Close menu" type="button">&times;</button>
         <div class="active-storms-section" id="activeStormsSection">
             <div class="active-header">
                 <span>Active Storms</span>
@@ -2954,20 +2967,35 @@ function isAtcfId(s){return /^(AL|EP|CP)\d{6}$/.test(s)}
 function isIbtracsSid(s){return /^\d{7}[NS]\d{5}$/.test(s)}
 
 // ---- Mobile Menu ----
+// Drawer + backdrop + body scroll lock are kept in sync via these helpers.
+function _setMobileMenuState(isOpen) {
+    const sidebar = document.querySelector('.sidebar');
+    const backdrop = document.getElementById('sidebarBackdrop');
+    const btn = document.getElementById('mobileMenuBtn');
+    if (sidebar) sidebar.classList.toggle('mobile-open', isOpen);
+    if (backdrop) backdrop.classList.toggle('visible', isOpen);
+    document.body.classList.toggle('menu-open', isOpen);
+    if (btn) {
+        btn.classList.toggle('active', isOpen);
+        btn.innerHTML = isOpen ? '&#10005;' : '&#9776;';
+    }
+}
 function toggleMobileMenu() {
     const sidebar = document.querySelector('.sidebar');
-    const btn = document.getElementById('mobileMenuBtn');
-    const isOpen = sidebar.classList.toggle('mobile-open');
-    btn.classList.toggle('active', isOpen);
-    btn.innerHTML = isOpen ? '&#10005;' : '&#9776;';
+    const isOpen = sidebar && !sidebar.classList.contains('mobile-open');
+    _setMobileMenuState(isOpen);
 }
-// Close mobile menu when a storm is loaded
+// Close on storm load, backdrop tap, close-button tap.
 function closeMobileMenu() {
-    const sidebar = document.querySelector('.sidebar');
-    const btn = document.getElementById('mobileMenuBtn');
-    if (sidebar) sidebar.classList.remove('mobile-open');
-    if (btn) { btn.classList.remove('active'); btn.innerHTML = '&#9776;'; }
+    _setMobileMenuState(false);
 }
+// Esc key closes the drawer too (keyboard accessibility).
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        const sidebar = document.querySelector('.sidebar');
+        if (sidebar && sidebar.classList.contains('mobile-open')) closeMobileMenu();
+    }
+});
 
 // ---- Sidebar Collapsible Sections with localStorage memory ----
 function toggleSidebarSection(sectionId) {
