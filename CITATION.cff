@@ -1,0 +1,52 @@
+cff-version: 1.2.0
+title: "StormDPS — Hurricane Destructive Power Score"
+message: "If you use this software or the accompanying dataset, please cite both as below."
+type: software
+authors:
+  - family-names: Reaves
+    given-names: Ryan
+    # affiliation: "Your organization here"
+    # orcid: "https://orcid.org/0000-0000-0000-0000"
+repository-code: "https://github.com/oldreaverg-lang/StormDPS"
+url: "https://stormdps.com"
+abstract: >-
+  StormDPS computes the Destructive Power Score (DPS), a 0-100 composite
+  hurricane rating that captures storm size, surge potential, duration,
+  and geographic reach in addition to peak wind speed - the variable
+  used by the traditional Saffir-Simpson Hurricane Wind Scale. The
+  project includes a real-time tropical cyclone analysis service, an
+  open historical dataset, and a basin-specific computational engine
+  built on public NOAA, NHC, JTWC, and IBTrACS data.
+keywords:
+  - hurricane
+  - tropical cyclone
+  - Saffir-Simpson
+  - Destructive Power Score
+  - storm surge
+  - Integrated Kinetic Energy
+  - IBTrACS
+  - HURDAT2
+  - meteorology
+license: CC-BY-4.0
+version: 1.0.0
+date-released: 2026-05-12
+
+# Once the Zenodo deposit is published, fill in the DOI below and
+# uncomment the identifiers block. GitHub will then show a "Cite this
+# repository" button that exports BibTeX/APA pointing at the DOI.
+#
+# identifiers:
+#   - type: doi
+#     value: 10.5281/zenodo.XXXXXXX
+#     description: "Persistent DOI for the StormDPS historical hurricane dataset."
+
+preferred-citation:
+  type: dataset
+  title: "StormDPS Historical Hurricane Database"
+  authors:
+    - family-names: Reaves
+      given-names: Ryan
+  year: 2026
+  version: "1.0.0"
+  url: "https://stormdps.com/data"
+  # doi: 10.5281/zenodo.XXXXXXX   # fill in after publishing
