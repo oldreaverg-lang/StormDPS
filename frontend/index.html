@@ -2665,7 +2665,13 @@ function _onDomReady(cb) {
     if (document.readyState !== 'loading') {
         cb();
     } else {
-        document.addEventListener('DOMContentLoaded', cb, { once: true });
+        // Wrap so the DOMContentLoaded event object isn't passed as cb's
+        // first argument. Without this, `cb(event)` runs on fire, which
+        // breaks anything that takes a meaningful first param —
+        // e.g. startActiveStormPolling(intervalMs=300000) saw the event
+        // as its intervalMs, setInterval(fn, eventObject) coerced to 0ms,
+        // and fetchActiveStorms hammered the API thousands of times/sec.
+        document.addEventListener('DOMContentLoaded', () => cb(), { once: true });
     }
 }
 
