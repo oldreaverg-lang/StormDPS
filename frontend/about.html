@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>About StormDPS — Open Hurricane Destructive Power Scoring</title>
+    <meta name="description" content="StormDPS is an open-data tropical cyclone analysis project that rates hurricane destructive potential on a modern 0–100 scale. Built and maintained by Ryan Reaves. Independent, free, citable.">
+    <meta name="keywords" content="about StormDPS, Ryan Reaves, hurricane research, Destructive Power Score author, open hurricane data, independent meteorology project">
+    <meta name="author" content="Ryan Reaves">
+    <link rel="canonical" href="https://stormdps.com/about">
+
+    <meta property="og:type" content="profile">
+    <meta property="og:title" content="About StormDPS — Open Hurricane Destructive Power Scoring">
+    <meta property="og:description" content="An independent open-data hurricane analysis project. Built and maintained by Ryan Reaves.">
+    <meta property="og:url" content="https://stormdps.com/about">
+    <meta property="og:image" content="https://stormdps.com/frontend/logo-512.png">
+    <meta property="og:site_name" content="StormDPS">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="About StormDPS">
+    <meta name="twitter:description" content="An independent open-data hurricane analysis project.">
+    <meta name="twitter:image" content="https://stormdps.com/frontend/logo-512.png">
+
+    <!-- Person + Organization schema — establishes authorship for E-E-A-T -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "AboutPage",
+        "url": "https://stormdps.com/about",
+        "name": "About StormDPS",
+        "description": "About the StormDPS project and its author.",
+        "mainEntity": {
+            "@type": "Person",
+            "name": "Ryan Reaves",
+            "url": "https://stormdps.com/about",
+            "email": "mailto:reavesrg@gmail.com",
+            "jobTitle": "Founder, StormDPS",
+            "worksFor": {
+                "@type": "Organization",
+                "name": "StormDPS",
+                "url": "https://stormdps.com"
+            },
+            "knowsAbout": [
+                "Tropical cyclones",
+                "Hurricane impact modeling",
+                "Integrated Kinetic Energy",
+                "Storm surge",
+                "Open weather data"
+            ]
+        }
+    }
+    </script>
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+            {"@type": "ListItem", "position": 1, "name": "StormDPS", "item": "https://stormdps.com/"},
+            {"@type": "ListItem", "position": 2, "name": "About", "item": "https://stormdps.com/about"}
+        ]
+    }
+    </script>
+
+    <link rel="icon" type="image/x-icon" href="/frontend/favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="/frontend/logo-32.png">
+    <meta name="theme-color" content="#0a0e1a">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary:#6366f1; --bg-dark:#0a0e1a; --bg-card:#111827; --bg-input:#0d1221;
+            --text-main:#f1f5f9; --text-muted:#94a3b8; --text-dim:#64748b; --border:#1e293b;
+            --radius:10px;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg-dark); color: var(--text-main); line-height: 1.7; font-size: 16px; }
+        header { background: linear-gradient(180deg, rgba(17,24,39,.97), rgba(10,14,26,.97)); backdrop-filter: blur(12px); padding: 1rem 1.5rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
+        .logo { display: flex; align-items: center; gap: .6rem; color: var(--text-main); text-decoration: none; }
+        .logo-icon { width: 32px; height: 32px; border-radius: 8px; overflow: hidden; }
+        .logo-icon img { width: 100%; height: 100%; object-fit: cover; }
+        .logo h1 { font-size: 1.1rem; font-weight: 700; letter-spacing: -.03em; }
+        nav { display: flex; gap: 1.25rem; align-items: center; }
+        nav a { color: var(--text-muted); text-decoration: none; font-weight: 600; font-size: .95rem; transition: color .15s; }
+        nav a:hover { color: var(--text-main); }
+        nav a.cta { color: var(--primary); }
+        main { max-width: 780px; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+        h1.page-title { font-size: clamp(1.8rem, 4vw, 2.6rem); font-weight: 800; letter-spacing: -.03em; line-height: 1.2; margin-bottom: .75rem; }
+        .lede { font-size: 1.15rem; color: var(--text-muted); margin-bottom: 2.5rem; }
+        h2 { font-size: 1.5rem; font-weight: 700; letter-spacing: -.02em; margin-top: 3rem; margin-bottom: 1rem; }
+        h3 { font-size: 1.1rem; font-weight: 700; margin-top: 1.5rem; margin-bottom: .5rem; }
+        p { margin-bottom: 1.1rem; }
+        a.inline { color: var(--primary); text-decoration: underline; text-decoration-color: rgba(99,102,241,.4); }
+        a.inline:hover { text-decoration-color: var(--primary); }
+        .author-card {
+            background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+            padding: 1.4rem 1.6rem; margin: 1.5rem 0;
+            display: grid; grid-template-columns: auto 1fr; gap: 1.2rem; align-items: start;
+        }
+        .author-avatar {
+            width: 72px; height: 72px; border-radius: 50%; background: var(--bg-input);
+            border: 1px solid var(--border); display: flex; align-items: center; justify-content: center;
+            font-size: 1.8rem; font-weight: 800; color: var(--primary); letter-spacing: -.05em;
+        }
+        .author-name { font-size: 1.15rem; font-weight: 700; margin-bottom: .15rem; }
+        .author-role { font-size: .9rem; color: var(--text-muted); margin-bottom: .5rem; }
+        .author-bio { font-size: .95rem; color: var(--text-main); line-height: 1.65; }
+        .contact-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1rem; margin: 1.5rem 0;
+        }
+        .contact-card {
+            background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+            padding: 1.1rem 1.3rem;
+        }
+        .contact-card strong { display: block; margin-bottom: .4rem; color: var(--text-main); }
+        .contact-card a { color: var(--primary); text-decoration: none; word-break: break-all; }
+        .contact-card a:hover { text-decoration: underline; }
+        .contact-card p { font-size: .88rem; color: var(--text-muted); margin: 0; line-height: 1.55; }
+        ul { margin: 0 0 1.1rem 1.5rem; }
+        li { margin-bottom: .45rem; }
+        .callout {
+            background: var(--bg-card); border: 1px solid var(--border); border-left: 3px solid var(--primary);
+            padding: 1.1rem 1.3rem; border-radius: var(--radius); margin: 1.5rem 0;
+        }
+        footer { padding: 2rem 1.5rem; text-align: center; color: var(--text-dim); font-size: .85rem; border-top: 1px solid var(--border); }
+        footer a { color: var(--text-muted); text-decoration: none; margin: 0 .6rem; }
+        footer a:hover { color: var(--text-main); }
+    </style>
+</head>
+<body>
+    <header>
+        <a href="/" class="logo">
+            <span class="logo-icon"><img src="/frontend/logo-128.png" alt="StormDPS logo"></span>
+            <h1>StormDPS</h1>
+        </a>
+        <nav>
+            <a href="/">Tracker</a>
+            <a href="/methodology">Methodology</a>
+            <a href="/historic-storms">Historic</a>
+            <a href="/data">Data</a>
+            <a href="/about">About</a>
+            <a href="/surgedps" class="cta">SurgeDPS</a>
+        </nav>
+    </header>
+
+    <main>
+        <h1 class="page-title">About StormDPS</h1>
+        <p class="lede">StormDPS is an independent open-data project that scores tropical cyclone destructive potential on a modern 0–100 scale — capturing storm size, surge, duration, and geographic reach, not just peak wind. Built and maintained by one person, all source data is public, all methodology is published.</p>
+
+        <h2>Why this exists</h2>
+        <p>The <a href="/methodology" class="inline">Saffir-Simpson Hurricane Wind Scale</a> was developed in 1971. It rates a hurricane on a single variable — peak one-minute sustained wind — and it has not been updated since. In 2026, with satellite altimetry, scatterometer winds, ocean heat content, and Integrated Kinetic Energy all measured continuously in real time, that's a strange place for the public conversation about hurricanes to still be anchored.</p>
+        <p>The cost of that anchor is real. Hurricane Ike (2008) made landfall as a Saffir-Simpson Category 2 and caused more inflation-adjusted damage than several Category 4 and 5 storms in the same era. Hurricane Patricia (2015) reached 185 knots of peak wind — the strongest hurricane ever recorded in the Western Hemisphere — and caused comparatively little damage because it weakened before landfall. The public scale rates Patricia higher. The damage record rates Ike higher. The scale is wrong about which storm to worry about, and it's been wrong since the satellite era began.</p>
+        <p>StormDPS exists because the math to do better has been available in the meteorological literature for decades — Powell &amp; Reinhold introduced <a href="/faq" class="inline">Integrated Kinetic Energy</a> in 2007 specifically to address Saffir-Simpson's blind spots — and the public-facing tools to apply it consistently haven't existed. This is an attempt to build that, openly, with every input and coefficient documented.</p>
+
+        <h2>About the author</h2>
+        <div class="author-card">
+            <div class="author-avatar">RR</div>
+            <div>
+                <div class="author-name">Ryan Reaves</div>
+                <div class="author-role">Founder &amp; lead developer, StormDPS</div>
+                <div class="author-bio">Builds open-data tools for tropical cyclone analysis. StormDPS is an independent project — not affiliated with NOAA, the National Hurricane Center, or any commercial weather service. All methodology, source code, and underlying data are published openly so the work is verifiable and improvable.</div>
+            </div>
+        </div>
+        <p style="font-size: .9rem; color: var(--text-muted);">For interview requests, partnerships, data licensing, academic collaboration, or technical questions, see the contact section below.</p>
+
+        <h2>What StormDPS is</h2>
+        <ul>
+            <li><strong><a href="/" class="inline">Live tracker</a></strong> — interactive analysis of every named tropical cyclone, active or historical, in any basin. Wind field, track, score components, side-by-side comparisons.</li>
+            <li><strong><a href="/methodology" class="inline">Open methodology</a></strong> — the full computational approach is published, including basin-specific calibration coefficients and the IKE integration scheme.</li>
+            <li><strong><a href="/data" class="inline">Open dataset</a></strong> — ~200 storms with peak intensity, wind-field radii, duration, damage estimates, and computed DPS scores. CSV and JSON, CC BY 4.0 license, free to download and redistribute including commercially.</li>
+            <li><strong><a href="/historic-storms" class="inline">Ranked historic storms</a></strong> — a curated list of the most destructive tropical cyclones in modern history, ranked by DPS rather than peak wind. The order differs from Saffir-Simpson's.</li>
+            <li><strong>Public REST API</strong> — every score is fetchable as JSON for researchers, journalists, and downstream applications. No key, no rate-limit gate, fair use.</li>
+        </ul>
+
+        <h2>What StormDPS is not</h2>
+        <div class="callout">
+            <strong>This is not an official forecast service.</strong>
+            <p style="margin-top: .4rem;">The National Hurricane Center, Joint Typhoon Warning Center, and your local meteorological service produce official watches, warnings, and evacuation recommendations. StormDPS does not. DPS is a destructive-potential score computed from observed or forecast track data — it is meant for situational awareness, historical comparison, and research. Evacuation decisions should be made on the basis of official NHC/JTWC products and local emergency management direction.</p>
+        </div>
+
+        <h2>Independence and funding</h2>
+        <p>StormDPS is self-funded and runs on a small Railway-hosted server with Cloudflare in front. There are no advertisers, no sponsored content, no paywalled features, and no commercial relationships that would influence which storms are surfaced or how they're scored. The full source code is on <a href="https://github.com/oldreaverg-lang/StormDPS" class="inline" rel="noopener">GitHub</a> under an open license.</p>
+        <p>If you'd like to support the project, the most useful thing you can do is cite the methodology or dataset in your own work — academic, journalistic, or otherwise — and let me know so I can track impact. The <a href="/data" class="inline">Zenodo dataset deposit</a> includes a DOI for academic citation.</p>
+
+        <h2>Contact</h2>
+        <div class="contact-grid">
+            <div class="contact-card">
+                <strong>Media inquiries</strong>
+                <a href="mailto:reavesrg@gmail.com">reavesrg@gmail.com</a>
+                <p>Interview requests, expert commentary during active storms, fact-checking, op-eds, podcast invitations.</p>
+            </div>
+            <div class="contact-card">
+                <strong>Partnerships &amp; licensing</strong>
+                <a href="mailto:reavesrg@gmail.com">reavesrg@gmail.com</a>
+                <p>Data licensing for commercial use, API integration partnerships, white-label arrangements, research collaboration.</p>
+            </div>
+            <div class="contact-card">
+                <strong>Technical issues</strong>
+                <a href="https://github.com/oldreaverg-lang/StormDPS/issues" rel="noopener">GitHub Issues</a>
+                <p>Bug reports, methodology corrections, feature requests, and dataset errata. Pull requests welcome.</p>
+            </div>
+            <div class="contact-card">
+                <strong>Academic citation</strong>
+                <a href="/data">Citation info on /data</a>
+                <p>BibTeX, APA, and Zenodo DOI for citing the dataset or methodology in academic work.</p>
+            </div>
+        </div>
+
+        <h2>Acknowledgements</h2>
+        <p>StormDPS would not be possible without the work of the meteorologists, researchers, and engineers behind the public data sources it relies on: the U.S. <a href="https://www.nhc.noaa.gov" class="inline" rel="noopener">National Hurricane Center</a>, the <a href="https://www.metoc.navy.mil/jtwc/" class="inline" rel="noopener">Joint Typhoon Warning Center</a>, NOAA's <a href="https://www.ncei.noaa.gov/products/international-best-track-archive" class="inline" rel="noopener">IBTrACS</a> archive, the <a href="https://ftp.nhc.noaa.gov/atcf/" class="inline" rel="noopener">ATCF</a> system at UCAR/RAL, and decades of foundational research from Powell &amp; Reinhold (Integrated Kinetic Energy), the SLOSH surge-modeling team at NOAA, and the broader tropical-meteorology community.</p>
+    </main>
+
+    <footer>
+        <a href="/">Tracker</a> ·
+        <a href="/methodology">Methodology</a> ·
+        <a href="/historic-storms">Historic</a> ·
+        <a href="/data">Data</a> ·
+        <a href="/faq">FAQ</a> ·
+        <a href="/about">About</a> ·
+        <a href="/surgedps">SurgeDPS</a>
+        <p style="margin-top:.6rem;color:var(--text-dim)">StormDPS — open-data hurricane destructive-power scoring</p>
+        <p style="margin-top:.4rem;color:var(--text-dim);font-size:.8rem">Media inquiries, partnerships, or data licensing: <a href="mailto:reavesrg@gmail.com" style="color:var(--text-muted)">reavesrg@gmail.com</a></p>
+    </footer>
+</body>
+</html>

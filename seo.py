@@ -316,6 +316,28 @@ def _category_word(cat: Optional[int]) -> str:
     return f"Category {cat}"
 
 
+def _storm_breadcrumb_jsonld(storm_id: str, storm: dict, canonical: str) -> str:
+    """Breadcrumb trail for the storm page: Home > Historic Storms > {Name}.
+    Google uses this to render breadcrumbs in search results."""
+    name = storm.get("name") or storm_id
+    year = storm.get("year")
+    label = f"{name} ({year})" if year else name
+    payload = {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+            {"@type": "ListItem", "position": 1, "name": "StormDPS", "item": _BASE_URL + "/"},
+            {"@type": "ListItem", "position": 2, "name": "Historic Storms", "item": _BASE_URL + "/historic-storms"},
+            {"@type": "ListItem", "position": 3, "name": label, "item": canonical},
+        ],
+    }
+    return (
+        '<script type="application/ld+json">'
+        + json.dumps(payload, separators=(",", ":"))
+        + "</script>"
+    )
+
+
 def _storm_article_jsonld(storm_id: str, storm: dict, canonical: str) -> str:
     """Build Article schema for one storm — gives Google rich-result context."""
     name = storm.get("name") or storm_id
@@ -407,7 +429,7 @@ def render_storm_page(storm_id: str) -> str:
             "storm size, surge potential, duration, and geographic reach."
         )
         og_title = f"Hurricane {name}{year_str} — DPS {dps_str}/100"
-        article_jsonld = _storm_article_jsonld(safe_id, storm, canonical)
+        article_jsonld = _storm_article_jsonld(safe_id, storm, canonical) + _storm_breadcrumb_jsonld(safe_id, storm, canonical)
     else:
         title = f"Storm {safe_id} — StormDPS Destructive Power Score"
         description = (

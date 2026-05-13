@@ -110,6 +110,16 @@
         ]
     }
     </script>
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+            {"@type": "ListItem", "position": 1, "name": "StormDPS", "item": "https://stormdps.com/"},
+            {"@type": "ListItem", "position": 2, "name": "FAQ", "item": "https://stormdps.com/faq"}
+        ]
+    }
+    </script>
 
     <link rel="icon" type="image/x-icon" href="/frontend/favicon.ico">
     <link rel="icon" type="image/png" sizes="32x32" href="/frontend/logo-32.png">
@@ -222,7 +232,7 @@
         <details class="faq-item">
             <summary>Why was Hurricane Ike so destructive at Category 2?</summary>
             <div class="answer">
-                <p>Ike's wind field was unusually large — its tropical-storm-force radius (R34) was approximately 275 nautical miles, more than three times larger than typical Cat 2 storms.</p>
+                <p><a href="/storm/AL092008" class="inline">Ike's</a> wind field was unusually large — its tropical-storm-force radius (R34) was approximately 275 nautical miles, more than three times larger than typical Cat 2 storms.</p>
                 <p>That meant the surge it pushed onto the upper Texas coast was Category 4–equivalent despite the peak winds being Cat 2 level. Storm surge scales with wind-field size and forward speed, not just peak wind. <a href="/storm/AL092008" class="inline">Ike's DPS score is 84 (Catastrophic)</a>, reflecting the actual destructive footprint.</p>
             </div>
         </details>
@@ -289,8 +299,10 @@
         <a href="/historic-storms">Historic</a> ·
         <a href="/data">Data</a> ·
         <a href="/faq">FAQ</a> ·
+        <a href="/about">About</a> ·
         <a href="/surgedps">SurgeDPS</a>
         <p style="margin-top:.6rem;color:var(--text-dim)">StormDPS — open-data hurricane destructive-power scoring</p>
+        <p style="margin-top:.4rem;color:var(--text-dim);font-size:.8rem">Media inquiries, partnerships, or data licensing: <a href="mailto:reavesrg@gmail.com" style="color:var(--text-muted)">reavesrg@gmail.com</a></p>
     </footer>
 </body>
 </html>

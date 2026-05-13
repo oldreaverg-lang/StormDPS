@@ -42,6 +42,16 @@
         "keywords": "Saffir-Simpson alternative, Saffir-Simpson improved, hurricane rating, Integrated Kinetic Energy, IKE"
     }
     </script>
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+            {"@type": "ListItem", "position": 1, "name": "StormDPS", "item": "https://stormdps.com/"},
+            {"@type": "ListItem", "position": 2, "name": "Methodology", "item": "https://stormdps.com/methodology"}
+        ]
+    }
+    </script>
 
     <link rel="icon" type="image/x-icon" href="/frontend/favicon.ico">
     <link rel="icon" type="image/png" sizes="32x32" href="/frontend/logo-32.png">
@@ -164,7 +174,7 @@
 
         <h2>Why the Category scale falls short</h2>
         <p>Saffir-Simpson groups every hurricane into five categories based on peak wind alone. Two storms with identical peak winds can have radically different destructive footprints, and the scale cannot tell them apart.</p>
-        <p>Hurricane Ike (2008) made U.S. landfall as a Category 2. It killed 195 people and caused $38 billion in damage — more than several Category 4 and 5 storms in the same era. Ike's destructive footprint was not driven by wind speed; it was driven by an unusually large wind field that produced a Category 4–equivalent storm surge across the entire upper Texas coast. Saffir-Simpson called it a 2 and moved on.</p>
+        <p><a href="/storm/AL092008" class="inline">Hurricane Ike</a> (2008) made U.S. landfall as a Category 2. It killed 195 people and caused $38 billion in damage — more than several Category 4 and 5 storms in the same era. Ike's destructive footprint was not driven by wind speed; it was driven by an unusually large wind field that produced a Category 4–equivalent storm surge across the entire upper Texas coast. Saffir-Simpson called it a 2 and moved on.</p>
         <p>The opposite problem also occurs. A small, intense Category 5 over open ocean — say a recurving Western Pacific super-typhoon that never crosses land — rates the same on Saffir-Simpson as a Category 5 that grinds across populated coastline for 36 hours. One is a curiosity; the other is a catastrophe. The wind scale flattens the distinction.</p>
 
         <div class="callout">
@@ -203,13 +213,13 @@
                 <tr><td class="num">0–24</td><td>Minimal</td><td>Localized wind damage, no widespread surge or flooding.</td></tr>
                 <tr><td class="num">25–49</td><td>Notable</td><td>Regional damage, isolated infrastructure failures.</td></tr>
                 <tr><td class="num">50–74</td><td>Severe</td><td>Multi-billion-dollar event, sustained coastal damage.</td></tr>
-                <tr><td class="num">75–89</td><td>Catastrophic</td><td>Wide-area destruction across multiple zones — Ian (2022), Helene (2024).</td></tr>
-                <tr><td class="num">90–100</td><td>Historic</td><td>Generation-defining storms — Katrina, Maria, Haiyan, Mangkhut.</td></tr>
+                <tr><td class="num">75–89</td><td>Catastrophic</td><td>Wide-area destruction across multiple zones — <a href="/storm/AL092022" class="inline">Ian (2022)</a>, <a href="/storm/AL092024" class="inline">Helene (2024)</a>.</td></tr>
+                <tr><td class="num">90–100</td><td>Historic</td><td>Generation-defining storms — <a href="/storm/AL122005" class="inline">Katrina</a>, <a href="/storm/AL152017" class="inline">Maria</a>, Haiyan, Mangkhut.</td></tr>
             </tbody>
         </table>
 
         <h2>Worked example: Ike vs. Charley</h2>
-        <p>Hurricane Charley (2004) struck southwest Florida as a strong Category 4, peak winds of 130 kt. Hurricane Ike (2008) struck Galveston as a Category 2, peak winds of 95 kt. Saffir-Simpson rates Charley as the more dangerous storm. The damage record disagrees: Ike caused roughly four times the inflation-adjusted economic loss.</p>
+        <p>Hurricane Charley (2004) struck southwest Florida as a strong Category 4, peak winds of 130 kt. <a href="/storm/AL092008" class="inline">Hurricane Ike</a> (2008) struck Galveston as a Category 2, peak winds of 95 kt. Saffir-Simpson rates Charley as the more dangerous storm. The damage record disagrees: Ike caused roughly four times the inflation-adjusted economic loss.</p>
         <p>The reason Saffir-Simpson misses it is visible in two numbers Saffir-Simpson does not look at:</p>
         <ul>
             <li><strong>Wind field radius.</strong> Ike's R34 (tropical-storm-force radius) was ~275 nm. Charley's was ~85 nm. Ike was more than three times wider.</li>
@@ -236,8 +246,10 @@
         <a href="/historic-storms">Historic</a> ·
         <a href="/data">Data</a> ·
         <a href="/faq">FAQ</a> ·
+        <a href="/about">About</a> ·
         <a href="/surgedps">SurgeDPS</a>
         <p style="margin-top:.6rem;color:var(--text-dim)">StormDPS — open-data hurricane destructive-power scoring</p>
+        <p style="margin-top:.4rem;color:var(--text-dim);font-size:.8rem">Media inquiries, partnerships, or data licensing: <a href="mailto:reavesrg@gmail.com" style="color:var(--text-muted)">reavesrg@gmail.com</a></p>
     </footer>
 </body>
 </html>
