@@ -22,14 +22,25 @@ from typing import Optional
 
 FRONTEND_DIR = Path(__file__).parent / "frontend"
 _INDEX_PATH = FRONTEND_DIR / "index.html"
-_COMPILED_BUNDLE_PATH = FRONTEND_DIR / "compiled_bundle.json"
+_BAKED_BUNDLE_PATH = FRONTEND_DIR / "compiled_bundle.json"
+
+# Volume copy is preferred when present — matches the API's serving order
+# at main.py's /frontend/compiled_bundle.json route. Otherwise SSR would
+# show stale scores after compile_cache.py writes a fresh bundle to the
+# persistent volume between deploys, while the SPA shows the new ones.
+try:
+    from storage import COMPILED_BUNDLE_FILE as _VOLUME_BUNDLE_PATH  # type: ignore
+except Exception:
+    _VOLUME_BUNDLE_PATH = None  # storage import failure shouldn't break SSR
 
 # Module-scoped caches. The index.html template + bundle rarely change at
-# runtime (only on redeploy), so we read them once and patch per request.
+# runtime (only on redeploy or compile_cache.py run), so we read them once
+# and patch per request. _BUNDLE_KEY tracks (path, mtime) so a volume↔baked
+# swap also triggers reload, not just an mtime bump.
 _INDEX_CACHE: Optional[str] = None
 _INDEX_MTIME: float = 0.0
 _BUNDLE_CACHE: Optional[dict] = None
-_BUNDLE_MTIME: float = 0.0
+_BUNDLE_KEY: tuple = ("", 0.0)
 
 _BASE_URL = "https://stormdps.com"
 
@@ -47,17 +58,34 @@ def _read_index_template() -> str:
     return _INDEX_CACHE
 
 
-def _read_compiled_bundle() -> dict:
-    """Return the compiled bundle dict; hot-reloads on disk change."""
-    global _BUNDLE_CACHE, _BUNDLE_MTIME
-    try:
-        mtime = _COMPILED_BUNDLE_PATH.stat().st_mtime
-    except OSError:
-        return {}
-    if _BUNDLE_CACHE is None or mtime > _BUNDLE_MTIME:
+def _pick_bundle_path() -> Optional[Path]:
+    """Volume copy wins when it exists (matches /frontend/compiled_bundle.json
+    route in main.py), otherwise fall back to the baked-in copy."""
+    if _VOLUME_BUNDLE_PATH is not None:
         try:
-            _BUNDLE_CACHE = json.loads(_COMPILED_BUNDLE_PATH.read_text(encoding="utf-8"))
-            _BUNDLE_MTIME = mtime
+            if _VOLUME_BUNDLE_PATH.exists():
+                return _VOLUME_BUNDLE_PATH
+        except OSError:
+            pass
+    if _BAKED_BUNDLE_PATH.exists():
+        return _BAKED_BUNDLE_PATH
+    return None
+
+
+def _read_compiled_bundle() -> dict:
+    """Return the compiled bundle dict; hot-reloads on path or mtime change."""
+    global _BUNDLE_CACHE, _BUNDLE_KEY
+    path = _pick_bundle_path()
+    if path is None:
+        return {}
+    try:
+        key = (str(path), path.stat().st_mtime)
+    except OSError:
+        return _BUNDLE_CACHE or {}
+    if _BUNDLE_CACHE is None or key != _BUNDLE_KEY:
+        try:
+            _BUNDLE_CACHE = json.loads(path.read_text(encoding="utf-8"))
+            _BUNDLE_KEY = key
         except (OSError, json.JSONDecodeError):
             _BUNDLE_CACHE = {}
     return _BUNDLE_CACHE
@@ -80,38 +108,38 @@ def lookup_storm(storm_id: str) -> Optional[dict]:
 # Per-storm SSR
 # ---------------------------------------------------------------------------
 
-# Pre-compiled regexes for the patches we apply.
+# Pre-compiled regexes for the patches we apply. Each meta-tag regex uses
+# a lookahead to require the identifying attribute (name=, property=,
+# rel=) but doesn't care about attribute order, so future tweaks to the
+# template (e.g. reordering attributes) don't silently break SSR.
 _RE_TITLE = re.compile(r"<title>[^<]*</title>", re.IGNORECASE)
-_RE_DESCRIPTION = re.compile(
-    r'<meta\s+name="description"\s+content="[^"]*"\s*/?>',
-    re.IGNORECASE,
-)
+
+
+def _meta_re(attr: str, value: str) -> "re.Pattern[str]":
+    return re.compile(
+        rf'<meta\b(?=[^>]*\b{attr}=["\']{re.escape(value)}["\'])[^>]*>',
+        re.IGNORECASE,
+    )
+
+
+_RE_DESCRIPTION = _meta_re("name", "description")
+_RE_OG_TITLE = _meta_re("property", "og:title")
+_RE_OG_DESCRIPTION = _meta_re("property", "og:description")
+_RE_OG_URL = _meta_re("property", "og:url")
+_RE_TWITTER_TITLE = _meta_re("name", "twitter:title")
+_RE_TWITTER_DESCRIPTION = _meta_re("name", "twitter:description")
 _RE_CANONICAL = re.compile(
-    r'<link\s+rel="canonical"\s+href="[^"]*"\s*/?>',
-    re.IGNORECASE,
-)
-_RE_OG_TITLE = re.compile(
-    r'<meta\s+property="og:title"\s+content="[^"]*"\s*/?>',
-    re.IGNORECASE,
-)
-_RE_OG_DESCRIPTION = re.compile(
-    r'<meta\s+property="og:description"\s+content="[^"]*"\s*/?>',
-    re.IGNORECASE,
-)
-_RE_OG_URL = re.compile(
-    r'<meta\s+property="og:url"\s+content="[^"]*"\s*/?>',
-    re.IGNORECASE,
-)
-_RE_TWITTER_TITLE = re.compile(
-    r'<meta\s+name="twitter:title"\s+content="[^"]*"\s*/?>',
-    re.IGNORECASE,
-)
-_RE_TWITTER_DESCRIPTION = re.compile(
-    r'<meta\s+name="twitter:description"\s+content="[^"]*"\s*/?>',
+    r'<link\b(?=[^>]*\brel=["\']canonical["\'])[^>]*>',
     re.IGNORECASE,
 )
 _RE_HEAD_END = re.compile(r"</head>", re.IGNORECASE)
 _RE_SSR_CONTENT_MARKER = re.compile(r"<!--SSR_STORM_CONTENT-->")
+
+# IBTrACS SIDs (e.g. 2005236N23285) and ATCF IDs (e.g. AL122005) sometimes
+# refer to the same storm. To avoid duplicate-content penalties, ATCF
+# URLs are the canonical indexable ones; IBTrACS-pattern URLs get a
+# noindex,follow so Google won't index them but still crawls outbound links.
+_RE_IBTRACS_SID = re.compile(r"^\d{7}[NS]\d{5}$")
 
 
 # Inline styles for the SSR'd storm summary card. Self-contained so the card
@@ -469,10 +497,18 @@ def render_storm_page(storm_id: str) -> str:
         f'<meta name="twitter:description" content="{description_e}">', out, count=1
     )
 
+    # If this URL uses an IBTrACS SID rather than an ATCF ID, tell crawlers
+    # not to index it. Both URLs serve the same content; the ATCF version
+    # should be the indexed canonical one (it's what the sitemap lists).
+    robots_tag = ""
+    if _RE_IBTRACS_SID.match(safe_id):
+        robots_tag = '<meta name="robots" content="noindex,follow">'
+
     # Inject the per-storm Article JSON-LD and the initial-storm hint
     # immediately before </head> so the SPA picks it up on startup.
     inject = (
-        article_jsonld
+        robots_tag
+        + article_jsonld
         + f'<script>window.__INITIAL_STORM_ID={json.dumps(safe_id)};</script>'
     )
     out = _RE_HEAD_END.sub(inject + "</head>", out, count=1)
