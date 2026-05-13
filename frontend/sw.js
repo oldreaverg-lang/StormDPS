@@ -7,11 +7,20 @@
 // code deploys from being masked by a stale cached index.html. Older SWs on
 // users' devices will reactivate and pick up this file because the byte
 // content changed — they don't have to hard-refresh.
-const CACHE_NAME = 'stormdps-v3';
+// v4: pre-cache the long-form SEO pages (/methodology, /historic-storms,
+// /data, /faq, /about) so they're available offline; bump evicts v3 caches
+// that still held the pre-SSR index.html + pre-drawer mobile assets.
+const CACHE_NAME = 'stormdps-v4';
 const STATIC_ASSETS = [
   '/',
   '/frontend/index.html',
+  '/methodology',
+  '/historic-storms',
+  '/data',
+  '/faq',
+  '/about',
   '/frontend/logo-32.png',
+  '/frontend/logo-128.png',
   '/frontend/logo-180.png',
   '/frontend/favicon.ico',
   'https://cdn.jsdelivr.net/npm/chart.js',

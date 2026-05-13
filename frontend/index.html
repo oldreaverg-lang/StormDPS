@@ -182,13 +182,15 @@
             body{overflow:auto;height:auto}
             /* Mobile sidebar — slide-in drawer at z-index 1000 (beats Leaflet's 200–800).
                Width clamps at 85vw so the map remains visible behind it. */
-            .sidebar{position:fixed;top:49px;left:0;bottom:0;width:min(85vw,320px);max-height:none;height:auto;z-index:1000;border-right:1px solid var(--border);border-bottom:none;background:var(--bg-dark);overflow-y:auto;padding:2.4rem 1rem 1rem;box-shadow:4px 0 24px rgba(0,0,0,.5);transform:translateX(-100%);visibility:hidden;transition:transform .25s ease,visibility 0s linear .25s;display:flex}
+            .sidebar{position:fixed;top:49px;left:0;bottom:0;width:min(85vw,320px);max-height:none;height:auto;z-index:1000;border-right:1px solid var(--border);border-bottom:none;background:var(--bg-dark);overflow-y:auto;padding:3rem 1rem 1rem;box-shadow:4px 0 24px rgba(0,0,0,.5);transform:translateX(-100%);visibility:hidden;transition:transform .25s ease,visibility 0s linear .25s;display:flex}
             .sidebar.mobile-open{transform:translateX(0);visibility:visible;transition:transform .25s ease,visibility 0s linear 0s}
             /* Backdrop scrim — covers map but not the header (top:49px). Tap to close. */
             .sidebar-backdrop{display:block;position:fixed;top:49px;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);z-index:999;opacity:0;visibility:hidden;transition:opacity .25s ease,visibility 0s linear .25s;cursor:pointer}
             .sidebar-backdrop.visible{opacity:1;visibility:visible;transition:opacity .25s ease,visibility 0s linear 0s}
-            /* Close button — top-right of the drawer */
-            .sidebar-close-btn{display:flex;position:absolute;top:.6rem;right:.6rem;width:32px;height:32px;background:transparent;border:1px solid var(--border);border-radius:var(--radius);color:var(--text-muted);font-size:1.3rem;font-weight:300;line-height:1;align-items:center;justify-content:center;cursor:pointer;z-index:2;-webkit-tap-highlight-color:transparent;padding:0}
+            /* Close button — top-right of the drawer.
+               40x40 meets the WCAG/Apple/Material recommended minimum tap
+               target so users on small phones aren't fishing for the X. */
+            .sidebar-close-btn{display:flex;position:absolute;top:.5rem;right:.5rem;width:40px;height:40px;background:transparent;border:1px solid var(--border);border-radius:var(--radius);color:var(--text-muted);font-size:1.5rem;font-weight:300;line-height:1;align-items:center;justify-content:center;cursor:pointer;z-index:2;-webkit-tap-highlight-color:transparent;padding:0}
             .sidebar-close-btn:hover{color:var(--text-main);border-color:var(--border-hover);background:var(--bg-card-hover)}
             /* Lock body scroll when menu is open. iOS Safari needs position:fixed
                (not just overflow:hidden) to actually freeze the page; the JS

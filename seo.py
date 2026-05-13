@@ -167,6 +167,11 @@ _SSR_STYLES = """
 .ssr-cta a { color: #6366f1; text-decoration: underline; text-decoration-color: rgba(99,102,241,.4); }
 .ssr-cta a:hover { text-decoration-color: #6366f1; }
 .ssr-storm-summary.ssr-hidden { display: none; }
+/* On /storm/{id} pages the SSR card is the page hero — the SPA's default
+   "One number. Total threat." welcome panel below it would otherwise show
+   alongside, giving two visible H1s during hydration. The .ssr-storm-page
+   class is added to <html> by an inline script in <head> when SSR fires. */
+.ssr-storm-page #welcomeState { display: none !important; }
 </style>
 """
 
@@ -471,7 +476,6 @@ def render_storm_page(storm_id: str) -> str:
     description_e = html.escape(description, quote=True)
     og_title_e = html.escape(og_title, quote=True)
     canonical_e = html.escape(canonical, quote=True)
-    initial_storm_e = html.escape(safe_id, quote=True)
 
     out = template
     out = _RE_TITLE.sub(f"<title>{title_e}</title>", out, count=1)
@@ -504,12 +508,24 @@ def render_storm_page(storm_id: str) -> str:
     if _RE_IBTRACS_SID.match(safe_id):
         robots_tag = '<meta name="robots" content="noindex,follow">'
 
+    # When the storm is in the bundle we also have a visible SSR card to
+    # show, so mark <html> with .ssr-storm-page. The CSS in _SSR_STYLES
+    # hides #welcomeState under that class — otherwise the welcome panel's
+    # H1 ("One number. Total threat.") shows alongside the SSR card's
+    # storm-specific H1 until the SPA hydrates.
+    ssr_page_marker = ""
+    if storm:
+        ssr_page_marker = (
+            '<script>document.documentElement.classList.add("ssr-storm-page");</script>'
+        )
+
     # Inject the per-storm Article JSON-LD and the initial-storm hint
     # immediately before </head> so the SPA picks it up on startup.
     inject = (
         robots_tag
         + article_jsonld
         + f'<script>window.__INITIAL_STORM_ID={json.dumps(safe_id)};</script>'
+        + ssr_page_marker
     )
     out = _RE_HEAD_END.sub(inject + "</head>", out, count=1)
 
