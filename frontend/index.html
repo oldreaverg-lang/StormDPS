@@ -92,32 +92,36 @@
          in parallel with the HTML parse rather than blocking on first use. -->
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
     <link rel="preconnect" href="https://unpkg.com" crossorigin>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <!-- Preload the hero logo so it's in cache when the SPA paints (LCP win). -->
-    <link rel="preload" as="image" href="/frontend/logo-180.png">
-    <!-- defer: download in parallel, execute after HTML parse. Removes
-         these from the critical render path so FCP/LCP don't wait. None
-         of these libraries are needed until the user picks a storm. -->
-    <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- Leaflet CSS is only needed once the map renders (after the user
-         picks a storm), so load it async by using media="print" during
-         download then swapping to media="all" via the onload handler.
-         The <noscript> fallback keeps no-JS clients styling-correct. -->
+    <!-- Self-hosted Inter (variable woff2). Same-origin removes the
+         fonts.googleapis.com CSS round-trip that PageSpeed flagged as a
+         ~750 ms render-blocker. Preload the latin subset so it's in cache
+         before the first paint that needs it. -->
+    <link rel="preload" as="font" type="font/woff2" href="/frontend/fonts/inter-latin.woff2" crossorigin>
+    <!-- Preload the hero logo so it's in cache when the SPA paints (LCP win).
+         fetchpriority=high tells the browser to decode this ahead of other
+         images — it's the most likely LCP candidate on the welcome state.
+         WebP is 88% smaller than the PNG (29 KB → 3.6 KB) so the preload
+         is essentially free. The PNG stays as the <picture> fallback for
+         browsers older than ~2020. -->
+    <link rel="preload" as="image" href="/frontend/logo-180.webp" type="image/webp" fetchpriority="high">
+    <!-- Chart.js, Leaflet, leaflet-velocity, and d3-contour are lazy-loaded
+         on demand from the inline JS below (loadChart / loadLeaflet /
+         loadLeafletVelocity / loadD3Contour). The landing render doesn't
+         touch any of them, so we keep ~110 KiB of JS off the critical path.
+         Leaflet CSS still loads async with media="print" so the map styles
+         are ready by the time the user opens a storm. -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" media="print" onload="this.media='all'; this.onload=null;"/>
     <noscript><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/></noscript>
-    <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet-velocity@2.1.4/dist/leaflet-velocity.css" media="print" onload="this.media='all'; this.onload=null;"/>
     <noscript><link rel="stylesheet" href="https://unpkg.com/leaflet-velocity@2.1.4/dist/leaflet-velocity.css"/></noscript>
-    <script defer src="https://unpkg.com/leaflet-velocity@2.1.4/dist/leaflet-velocity.js"></script>
-    <!-- d3-contour: client-side isobar generation for the Pressure overlay -->
-    <script defer src="https://cdn.jsdelivr.net/npm/d3-contour@4/dist/d3-contour.min.js"></script>
-    <!-- font-display=optional: if Inter isn't already cached, use the system
-         font fallback for this page load instead of swapping mid-render.
-         Eliminates the font-swap CLS that was driving CLS=0.28. Returning
-         visitors with Inter cached still see Inter immediately. -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=optional" rel="stylesheet">
     <style>
+        /* Self-hosted Inter v20 (variable woff2). The single file covers
+           weights 100–900; two subsets (latin + latin-ext) keep the
+           binary small while supporting accented storm names (Idaí).
+           font-display:optional keeps the no-swap CLS protection that
+           previously brought CLS from 0.28 down to 0. */
+        @font-face{font-family:'Inter';font-style:normal;font-weight:100 900;font-display:optional;src:url('/frontend/fonts/inter-latin.woff2') format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+        @font-face{font-family:'Inter';font-style:normal;font-weight:100 900;font-display:optional;src:url('/frontend/fonts/inter-latin-ext.woff2') format('woff2');unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
         :root{--primary:#6366f1;--primary-hover:#4f46e5;--bg-dark:#0a0e1a;--bg-card:#111827;--bg-card-hover:#1a2234;--bg-input:#0d1221;--text-main:#f1f5f9;--text-muted:#64748b;--text-dim:#475569;--border:#1e293b;--border-hover:#334155;--success:#10b981;--danger:#ef4444;--cat1:#60a5fa;--cat2:#34d399;--cat3:#fbbf24;--cat4:#f97316;--cat5:#ef4444;--ts:#818cf8;--td:#94a3b8;--radius:10px;--radius-lg:14px}
         *{box-sizing:border-box;margin:0;padding:0}body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg-dark);color:var(--text-main);height:100vh;overflow:hidden}
         header{background:linear-gradient(180deg,rgba(17,24,39,.97),rgba(10,14,26,.97));backdrop-filter:blur(12px);padding:.5rem 1.2rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
@@ -158,6 +162,13 @@
         .map-legend{position:absolute;bottom:8px;left:8px;z-index:500;background:rgba(10,14,26,.88);backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:var(--radius);padding:.35rem .5rem;display:flex;flex-direction:column;gap:.15rem;font-size:.65rem;color:var(--text-muted);max-height:50%;overflow-y:auto}.legend-item{display:flex;align-items:center;gap:.25rem}.legend-swatch{width:14px;height:6px;border-radius:2px;flex-shrink:0}
         .leaflet-popup-content-wrapper{background:rgba(17,24,39,.95);color:var(--text-main);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.4)}.leaflet-popup-tip{background:rgba(17,24,39,.95);border:1px solid var(--border)}.leaflet-popup-content{margin:8px 12px;line-height:1.5}
         .welcome-state{flex:1;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--text-dim)}.welcome-state.hidden{display:none}.welcome-icon{font-size:2.5rem;margin-bottom:.75rem;opacity:.5}.welcome-text{font-size:.9rem;font-weight:500;max-width:300px;line-height:1.6}
+        /* Larger H1 in the welcome state so it (not the footer) wins LCP.
+           PageSpeed previously flagged the small-print site-footer as LCP
+           because its multi-line paragraph spanned a bigger pixel area
+           than the 1.6rem H1. A bigger heading + decoded hero image are
+           the natural primary candidates above the fold. */
+        .welcome-title{font-size:2.1rem;line-height:1.1}
+        .site-footer{font-size:.62rem;line-height:1.45;color:var(--text-dim);padding:.6rem .8rem;margin-top:.5rem}
         .quick-start{display:flex;flex-direction:column;gap:.5rem;margin-top:1.2rem;align-items:center}
         .quick-start-label{font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--text-dim);margin-bottom:.2rem}
         .quick-start-row{display:flex;gap:.5rem;flex-wrap:wrap;justify-content:center}
@@ -240,9 +251,13 @@
             .loading-steps.visible{display:flex;flex-direction:column;justify-content:center;min-height:50vh}
             .loading-logo{margin-bottom:1.2rem}
             .loading-step{font-size:.85rem}
-            /* Welcome splash: tighter on mobile */
+            /* Welcome splash: tighter on mobile. Logo stays at 160 px so it
+               clears the footer's bounding box on the LCP race; H1 scales
+               down a touch from desktop but still beats the .6rem footer
+               paragraph for pixel area. */
             .welcome-state{padding:1rem .5rem}
-            .welcome-state img{width:120px!important;height:120px!important;border-radius:22px!important}
+            .welcome-state img{width:160px!important;height:160px!important;border-radius:26px!important}
+            .welcome-title{font-size:1.8rem!important}
             .welcome-text{font-size:.8rem!important}
             .quick-start-row{gap:.35rem}
             .quick-start-btn{font-size:.72rem;padding:.35rem .55rem}
@@ -692,7 +707,7 @@
                 <!-- expand button removed: both chart panels now show naturally -->
             </div>
         </div>
-        <div class="welcome-state" id="welcomeState"><div><div class="welcome-icon" style="margin-bottom:1rem"><img src="/frontend/logo-180.png" alt="StormDPS" style="width:180px;height:180px;border-radius:30px;box-shadow:0 8px 40px rgba(99,102,241,.35)"></div><h1 class="welcome-title" style="font-size:1.6rem;font-weight:800;letter-spacing:-.04em;color:var(--text-main);margin-bottom:.4rem">One number. Total threat.</h1><div class="welcome-text" style="font-size:.85rem;color:var(--text-muted);max-width:400px;line-height:1.7">See any hurricane's <b style="color:var(--primary)">Destructive Power Score</b> — a 0-100 number that captures what the Category scale misses: size, surge, duration, and geographic reach.</div><div class="quick-start"><div class="quick-start-label">Try a famous storm</div><div class="quick-start-row"><button class="quick-start-btn" onclick="loadPreset('AL122005')"><span class="qs-dot" style="background:var(--cat5)"></span>Katrina <span class="qs-meta">2005</span></button><button class="quick-start-btn" onclick="loadPreset('AL092008')"><span class="qs-dot" style="background:var(--cat2)"></span>Ike <span class="qs-meta">2008</span></button><button class="quick-start-btn" onclick="loadPreset('AL182012')"><span class="qs-dot" style="background:var(--cat1)"></span>Sandy <span class="qs-meta">2012</span></button><button class="quick-start-btn" onclick="loadPreset('AL142018')"><span class="qs-dot" style="background:var(--cat5)"></span>Michael <span class="qs-meta">2018</span></button></div><div class="quick-start-row"><button class="quick-start-btn" onclick="loadPreset('AL092017')"><span class="qs-dot" style="background:var(--cat4)"></span>Harvey <span class="qs-meta">2017</span></button><button class="quick-start-btn" onclick="loadPreset('AL052019')"><span class="qs-dot" style="background:var(--cat5)"></span>Dorian <span class="qs-meta">2019</span></button></div><div style="font-size:.72rem;color:var(--text-dim);margin-top:.5rem;line-height:1.5;max-width:340px">Or type any storm name in the search bar. During hurricane season, active storms appear automatically in the sidebar.</div></div></div></div>
+        <div class="welcome-state" id="welcomeState"><div><div class="welcome-icon" style="margin-bottom:1rem"><picture><source srcset="/frontend/logo-180.webp" type="image/webp"><img src="/frontend/logo-180.png" alt="StormDPS" width="180" height="180" fetchpriority="high" decoding="async" style="width:180px;height:180px;border-radius:30px;box-shadow:0 8px 40px rgba(99,102,241,.35)"></picture></div><h1 class="welcome-title" style="font-weight:800;letter-spacing:-.04em;color:var(--text-main);margin-bottom:.4rem">One number. Total threat.</h1><div class="welcome-text" style="font-size:.85rem;color:var(--text-muted);max-width:400px;line-height:1.7">See any hurricane's <b style="color:var(--primary)">Destructive Power Score</b> — a 0-100 number that captures what the Category scale misses: size, surge, duration, and geographic reach.</div><div class="quick-start"><div class="quick-start-label">Try a famous storm</div><div class="quick-start-row"><button class="quick-start-btn" onclick="loadPreset('AL122005')"><span class="qs-dot" style="background:var(--cat5)"></span>Katrina <span class="qs-meta">2005</span></button><button class="quick-start-btn" onclick="loadPreset('AL092008')"><span class="qs-dot" style="background:var(--cat2)"></span>Ike <span class="qs-meta">2008</span></button><button class="quick-start-btn" onclick="loadPreset('AL182012')"><span class="qs-dot" style="background:var(--cat1)"></span>Sandy <span class="qs-meta">2012</span></button><button class="quick-start-btn" onclick="loadPreset('AL142018')"><span class="qs-dot" style="background:var(--cat5)"></span>Michael <span class="qs-meta">2018</span></button></div><div class="quick-start-row"><button class="quick-start-btn" onclick="loadPreset('AL092017')"><span class="qs-dot" style="background:var(--cat4)"></span>Harvey <span class="qs-meta">2017</span></button><button class="quick-start-btn" onclick="loadPreset('AL052019')"><span class="qs-dot" style="background:var(--cat5)"></span>Dorian <span class="qs-meta">2019</span></button></div><div style="font-size:.72rem;color:var(--text-dim);margin-top:.5rem;line-height:1.5;max-width:340px">Or type any storm name in the search bar. During hurricane season, active storms appear automatically in the sidebar.</div></div></div></div>
         <div class="site-footer" id="siteFooter">&copy; 2025&ndash;2026 StormDPS. Data is aggregated from public sources (NOAA, NHC). <b>Experimental &amp; Educational Only:</b> This platform provides AI-enhanced visualizations for informational purposes; it does not produce official forecasts. StormDPS is not liable for any actions taken based on this data. <b>Life-Safety Decisions:</b> Always defer to the <a href="https://www.hurricanes.gov" target="_blank" rel="noopener">National Hurricane Center</a> and local emergency management for official warnings and evacuation orders. All content is provided &ldquo;as-is&rdquo; and &ldquo;where-is&rdquo; without warranty.<br><br><b>Media inquiries, partnerships, or data licensing:</b> contact <a href="mailto:reavesrg@gmail.com">reavesrg@gmail.com</a>. <a href="/about">About the project</a> &middot; <a href="/methodology">Methodology</a> &middot; <a href="/historic-storms">Historic storms</a> &middot; <a href="/data">Open dataset</a> &middot; <a href="/faq">FAQ</a> &middot; <a href="/privacy">Privacy</a>.</div>
     </div>
 </div>
@@ -775,6 +790,82 @@ const COMPILED_SCORES = {};  // Pre-computed DPS/rainfall from compile_cache.py
 const COMPILED_BY_NAME_YEAR = {};  // Reverse lookup: "NAME_YEAR" → compiled score (for IBTrACS SID mismatches)
 let preloadReady = false;
 let preloadPromise = null;
+
+// ============================================================
+// LIBRARY LOADERS — chart.js, leaflet, leaflet-velocity, d3-contour
+// ============================================================
+// These libs are heavy (~120 KiB transfer combined) and unused on first
+// paint — PageSpeed flagged 62 KiB of chart.js and 34 KiB of leaflet as
+// "unused JavaScript" on the landing render. They're only needed when the
+// user opens a storm (Chart, L), enables wind overlay (leaflet-velocity),
+// or enables pressure isobars (d3-contour). Loading them on demand keeps
+// the critical path slim.
+//
+// Each loader returns a memoized Promise. Chart's loader also drains a
+// plugin queue so registrations declared later in the file ("register
+// scrubLinePlugin" etc.) survive the script-injection round trip.
+const _scriptLoadPromises = {};
+function _loadScript(url, attrs) {
+    if (_scriptLoadPromises[url]) return _scriptLoadPromises[url];
+    return _scriptLoadPromises[url] = new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = url;
+        s.async = true;
+        if (attrs) {
+            if (attrs.integrity) s.integrity = attrs.integrity;
+            if (attrs.crossorigin !== undefined) s.crossOrigin = attrs.crossorigin;
+        }
+        s.onload = () => resolve();
+        s.onerror = () => { delete _scriptLoadPromises[url]; reject(new Error('Failed to load ' + url)); };
+        document.head.appendChild(s);
+    });
+}
+
+const _pendingChartPlugins = [];
+let _chartLoadPromise = null;
+function loadChart() {
+    if (_chartLoadPromise) return _chartLoadPromise;
+    return _chartLoadPromise = _loadScript('https://cdn.jsdelivr.net/npm/chart.js').then(() => {
+        // Defaults + plugins land after Chart is defined and before the
+        // first new Chart(...) call (callers await loadChart() first).
+        try {
+            Chart.defaults.color = '#64748b';
+            Chart.defaults.font.family = 'Inter';
+        } catch (e) { /* Chart may be a noop build in tests */ }
+        while (_pendingChartPlugins.length) {
+            try { Chart.register(_pendingChartPlugins.shift()); } catch (e) { console.warn('[CHART] plugin register failed:', e); }
+        }
+    });
+}
+function _registerChartPlugin(plugin) {
+    // Chart already loaded → register immediately; otherwise queue for
+    // loadChart() to drain when the script lands.
+    if (typeof Chart !== 'undefined' && Chart.register) Chart.register(plugin);
+    else _pendingChartPlugins.push(plugin);
+}
+
+let _leafletLoadPromise = null;
+function loadLeaflet() {
+    if (_leafletLoadPromise) return _leafletLoadPromise;
+    return _leafletLoadPromise = _loadScript('https://unpkg.com/leaflet@1.9.4/dist/leaflet.js', {
+        integrity: 'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=',
+        crossorigin: '',
+    });
+}
+
+let _leafletVelocityLoadPromise = null;
+function loadLeafletVelocity() {
+    if (_leafletVelocityLoadPromise) return _leafletVelocityLoadPromise;
+    return _leafletVelocityLoadPromise = loadLeaflet().then(
+        () => _loadScript('https://unpkg.com/leaflet-velocity@2.1.4/dist/leaflet-velocity.js')
+    );
+}
+
+let _d3ContourLoadPromise = null;
+function loadD3Contour() {
+    if (_d3ContourLoadPromise) return _d3ContourLoadPromise;
+    return _d3ContourLoadPromise = _loadScript('https://cdn.jsdelivr.net/npm/d3-contour@4/dist/d3-contour.min.js');
+}
 
 // Look up compiled DPS by storm ID first, then fallback to name+year
 function getCompiledScore(stormId, stormName, stormYear) {
@@ -1264,8 +1355,19 @@ function updateBreakdownBars(heroDPS, peakDpsObj, _unused, peakIasObj, peakErsOb
     }
 }
 
-// Start preload fetch immediately (non-blocking)
-preloadPromise = loadPreloadBundle();
+// Defer the 1.5 MB compiled_bundle.json fetch until the browser is idle.
+// It only feeds the preset/accordion chip DPS scores and per-storm
+// visualization — none of which block FCP/LCP. PageSpeed flagged this
+// as the longest critical-path resource (~15 s mobile latency budget),
+// so getting it off the critical path is the second-biggest win after
+// self-hosting fonts. fetchStorm() force-starts the preload inline if
+// the user picks a storm before requestIdleCallback fires.
+function _startPreload(){ if(!preloadPromise) preloadPromise = loadPreloadBundle(); }
+if ('requestIdleCallback' in window) {
+    requestIdleCallback(_startPreload, { timeout: 2500 });
+} else {
+    setTimeout(_startPreload, 200);
+}
 
 // ============================================================
 // ANIMATED COUNT-UP for hero DPS number
@@ -1491,9 +1593,10 @@ const zoneBandsPlugin={
         ctx.restore();
     }
 };
-// Chart.js is deferred, so it isn't defined yet during initial parse.
-// _onDomReady waits for defer scripts to finish before registering.
-_onDomReady(() => Chart.register(zoneBandsPlugin));
+// Chart.js is lazy-loaded on first storm render. _registerChartPlugin
+// queues plugins until loadChart() lands the script, then drains the
+// queue in one pass — survives whichever order parse/network finishes.
+_registerChartPlugin(zoneBandsPlugin);
 
 // ============================================================
 // SCRUB LINE — vertical crosshair showing current timeline position
@@ -1525,7 +1628,7 @@ const scrubLinePlugin={
         ctx.restore();
     }
 };
-_onDomReady(() => Chart.register(scrubLinePlugin));
+_registerChartPlugin(scrubLinePlugin);
 
 // ============================================================
 // WIND FIELD COLOR — pink -> red -> orange -> yellow
@@ -2661,12 +2764,12 @@ function startActiveStormPolling(intervalMs=300000){ // 5 minutes
     activeStormsPollTimer=setInterval(fetchActiveStorms,intervalMs);
 }
 
-// Wait for deferred external libraries (Chart.js, Leaflet, leaflet-velocity,
-// d3-contour) to finish executing before kicking off any path that might
-// touch L.map() or new Chart(). Defer scripts run after HTML parsing but
-// just before DOMContentLoaded. A fast cached /api/v1/storms/{id}/dps
-// response can otherwise beat the defer'd scripts and call renderAll()
-// while L is still undefined.
+// DOM-ready helper. The previous version waited for defer'd external
+// libraries (Chart.js, Leaflet, leaflet-velocity, d3-contour) to finish
+// executing — those are now lazy-loaded via loadChart()/loadLeaflet()
+// inside fetchHistory() and overlay activators, so this is just a thin
+// DOMContentLoaded wrapper. Consumers that need Chart/L must await the
+// corresponding loader themselves.
 function _onDomReady(cb) {
     if (document.readyState !== 'loading') {
         cb();
@@ -3167,11 +3270,23 @@ async function fetchHistory(){
         const t0=performance.now();
         let cacheHit=false;
 
+        // ---- KICK OFF LIB DOWNLOADS IN PARALLEL ----
+        // Chart.js + Leaflet are now lazy-loaded (removed from <head>) so the
+        // landing render no longer carries ~110 KiB of unused JS. Start the
+        // downloads alongside the data fetches; we only await them right
+        // before renderAll(). On a warm cache this resolves instantly.
+        const _libsReady = Promise.all([loadChart(), loadLeaflet()]);
+
         // ---- CHECK PRELOAD CACHE FIRST ----
-        // Wait for preload to finish if it's still loading (max 8s on mobile)
-        if (!preloadReady && preloadPromise) {
-            const waitMs = window.innerWidth<=900 ? 8000 : 5000;
-            await Promise.race([preloadPromise, new Promise(r => setTimeout(r, waitMs))]);
+        // Wait for preload to finish if it's still loading (max 8s on mobile).
+        // The preload is now deferred to requestIdleCallback, so if the user
+        // clicks a storm before idle fires, force-start it inline first.
+        if (!preloadReady) {
+            _startPreload();
+            if (preloadPromise) {
+                const waitMs = window.innerWidth<=900 ? 8000 : 5000;
+                await Promise.race([preloadPromise, new Promise(r => setTimeout(r, waitMs))]);
+            }
         }
 
         if (PRELOAD_CACHE[rawId] && PRELOAD_CACHE[rawId].length > 0) {
@@ -3280,6 +3395,9 @@ async function fetchHistory(){
         }
         // Allow UI to repaint before heavy render
         await new Promise(r => setTimeout(r, 0));
+        // Ensure Chart + Leaflet are loaded before renderAll touches them.
+        // Usually a no-op (loads completed during the data fetch above).
+        await _libsReady;
         if(!cacheHit){ setLoadingStep('stepRender'); hideLoadingSkeleton(); }
         renderAll(usedId,window.stormData);
         // Update URL to path-based form (/storm/{id}) so shared/refreshed links
@@ -3693,7 +3811,6 @@ function renderDPSChart(data){
 
 function renderChart(data){
     const ctx=document.getElementById('ikeChart').getContext('2d');if(currentChart)currentChart.destroy();
-    Chart.defaults.color='#64748b';Chart.defaults.font.family='Inter';
     const labels=data.map(d=>{const t=new Date(d.timestamp);return`${t.getMonth()+1}/${t.getDate()} ${String(t.getHours()).padStart(2,'0')}Z`});
     currentChart=new Chart(ctx,{type:'line',data:{labels,datasets:[
         {label:'Total IKE',data:data.map(d=>d.ike_total_tj),borderColor:'#8b5cf6',backgroundColor:'rgba(139,92,246,.08)',borderWidth:2.5,fill:true,tension:.35,pointRadius:0,pointHitRadius:10},
@@ -4683,6 +4800,11 @@ async function _setWindFrameNow(satelliteTs) {
     if (st.layer) {
         try { st.layer.setData(payload); } catch (e) { console.warn('[WIND] setData failed:', e); }
     } else {
+        // leaflet-velocity is lazy-loaded — it's only needed for the wind
+        // overlay, which most landing-page visitors never touch. Awaiting
+        // here is usually a no-op since the user clicked the toggle a
+        // moment ago and the script has had time to land.
+        try { await loadLeafletVelocity(); } catch (e) { console.warn('[WIND] leaflet-velocity load failed:', e); return; }
         st.layer = L.velocityLayer({
             displayValues: false,
             data: payload,
@@ -5199,6 +5321,11 @@ function togglePressureLayer() {
             btn.textContent = 'Pressure: Loading…';
             btn.disabled = true;
         }
+        // d3-contour is lazy-loaded — only the isobar overlay needs it.
+        // _buildIsobarPolylines() returns [] gracefully if d3 isn't ready,
+        // so we fire-and-forget; the next pressure-frame tick picks up
+        // contours once the script lands.
+        loadD3Contour().catch(e => console.warn('[PRESSURE] d3-contour load failed:', e));
         const satTs = window._satelliteState.frames[window._satelliteState.currentIdx];
         setPressureFrame(satTs);
     }
