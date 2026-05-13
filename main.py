@@ -101,10 +101,33 @@ async def lifespan(app: FastAPI):
         logger.error(f"[STARTUP] Failed to initialize WeatherDataService: {e}")
         app.state.weather_service = None
 
-    # --- STARTUP: warm the preload cache in the background ---
-    # IKE cache files are shipped with the Docker image, so this should
-    # find everything "already cached" and skip heavy NOAA recomputation.
+    # --- STARTUP: warm tasks (staggered) ---
+    # All four warm tasks (preload IKE, DPS, IBTrACS catalog, tracks) hit
+    # the persistent volume and, on cache miss, do CPU-heavy compute or
+    # NOAA fetches. Firing them all simultaneously at boot starves the
+    # event loop and the first user's API requests stall behind the warm
+    # work — PageSpeed measured 5-13 s response times on cold-start before
+    # this staggering was added. The cheap, disk-only IBTrACS warm runs
+    # first (so /storms/catalog endpoints can serve from in-memory cache
+    # asap); the heavier tasks fan out over the first ~30 s. Pre-baked
+    # response files (catalog_default_view.json) cover the gap before
+    # IBTrACS warm completes — endpoints stream from disk regardless.
+
+    async def warm_ibtracs():
+        # Cheap path: just hydrates _GLOBAL_IBTRACS_CATALOG_CACHE from
+        # disk. Goes first because everything else benefits from having
+        # the catalog in memory, and the disk read is light.
+        try:
+            result = await warm_ibtracs_catalog()
+            logger.info(f"[IBTRACS WARM] complete: {result}")
+        except Exception as e:
+            logger.warning(f"[IBTRACS WARM] startup warm failed (non-fatal): {e}")
+
     async def warm_preload():
+        # IKE cache files are shipped with the Docker image, so this
+        # should find everything "already cached". Delay so initial
+        # /api/v1/storms/catalog requests get a clear lane.
+        await asyncio.sleep(10)
         try:
             result = await generate_preload_bundle(grid_resolution_km=15.0, skip_points=0)
             logger.info(
@@ -116,47 +139,30 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"[PRELOAD] Warm-up failed (non-fatal): {e}")
 
-    # Run in background so the server starts accepting requests immediately
-    asyncio.create_task(warm_preload())
-
-    # --- STARTUP: warm the DPS cache (persistent volume) ---
-    # Pre-computes DPS bundles for preset + active storms and writes them to
-    # $PERSISTENT_DATA_DIR/cache/dps/. Lets first visitors hit the catalog
-    # and hero card without waiting for on-demand engine runs.
     async def warm_dps():
+        # Compute-heavy on cache miss; the DPS engine itself was moved to
+        # asyncio.to_thread inside _warm_one_dps so it no longer blocks
+        # the loop, but still stagger so disk reads don't pile up.
+        await asyncio.sleep(20)
         try:
             await warm_dps_cache(app.state, include_active=True)
         except Exception as e:
             logger.warning(f"[DPS WARM] startup warm failed (non-fatal): {e}")
 
-    asyncio.create_task(warm_dps())
-
-    # --- STARTUP: warm the IBTrACS global catalog (persistent volume) ---
-    # Fetches the ~200 MB IBTrACS CSV from NOAA and parses it into an in-memory
-    # catalog keyed by sid. Writes a metadata-only index to disk for fast
-    # restart. Fail-open: if NOAA is unreachable, the previously persisted
-    # index is used. Non-fatal — historical-storm endpoints fall back to
-    # on-demand parsing if this never completes.
-    async def warm_ibtracs():
-        try:
-            result = await warm_ibtracs_catalog()
-            logger.info(f"[IBTRACS WARM] complete: {result}")
-        except Exception as e:
-            logger.warning(f"[IBTRACS WARM] startup warm failed (non-fatal): {e}")
-
-    asyncio.create_task(warm_ibtracs())
-
-    # --- STARTUP: warm per-storm track snapshot cache ---
-    # Pre-fetches track snapshots for preset + active storms and persists them
-    # to $PERSISTENT_DATA_DIR/cache/tracks/. Eliminates the cold-start NOAA
-    # round-trip on the first /ibtracs/track/{sid} request.
     async def warm_tracks():
+        # Network-bound; pushes back furthest so live API traffic in the
+        # first half-minute of cold-start isn't competing for the httpx
+        # connection pool.
+        await asyncio.sleep(30)
         try:
             result = await warm_track_cache()
             logger.info(f"[TRACK WARM] complete: {result}")
         except Exception as e:
             logger.warning(f"[TRACK WARM] startup warm failed (non-fatal): {e}")
 
+    asyncio.create_task(warm_ibtracs())
+    asyncio.create_task(warm_preload())
+    asyncio.create_task(warm_dps())
     asyncio.create_task(warm_tracks())
 
     # --- STARTUP: hourly refresh for live tropics ---

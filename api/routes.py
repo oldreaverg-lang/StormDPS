@@ -46,7 +46,7 @@ from typing import Optional
 import hmac
 import httpx
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from api.schemas import (
     StormSummary,
@@ -1184,32 +1184,30 @@ async def get_storm_catalog(
     """
     Get a lightweight catalog of all named storms.
 
-    Primary source: IBTrACS (global, quality-controlled, updated frequently).
-    Fallback: HURDAT2 (Atlantic/East Pacific only, annual reanalysis).
+    Backed by the same disk-cached IBTrACS catalog as /storms/catalog/global.
+    The original implementation created a fresh NOAAClient with no cache_dir
+    on every call, re-downloading IBTrACS from NCEI per request (~13 s
+    response time per PageSpeed on cold-start). Reusing _build_global_catalog
+    gives the response straight from the persistent volume.
 
-    Returns storm ID, name, year, peak wind (kt), and Saffir-Simpson category
-    without computing IKE. Fast enough for populating UI storm pickers.
+    Returns storm ID (IBTrACS SID), name, year, basin, peak wind (kt),
+    and Saffir-Simpson category. Includes custom storms for future years.
     """
-    catalog = []
-    async with NOAAClient() as client:
-        # Primary: IBTrACS (more reliable servers, global coverage)
-        try:
-            catalog = await client.get_ibtracs_catalog(min_year, max_year)
-            logger.info(f"[CATALOG] IBTrACS loaded: {len(catalog)} storms ({min_year}-{max_year})")
-        except Exception as e:
-            logger.error(f"[CATALOG] IBTrACS failed: {type(e).__name__}: {str(e)}")
+    if (
+        min_year == _CATALOG_DEFAULT_MIN_YEAR
+        and max_year == _CATALOG_DEFAULT_MAX_YEAR
+        and _CATALOG_DEFAULT_VIEW_FILE.exists()
+    ):
+        return FileResponse(
+            _CATALOG_DEFAULT_VIEW_FILE,
+            media_type="application/json",
+            headers={"Cache-Control": "public, max-age=300, s-maxage=900"},
+        )
 
-        # Fallback: HURDAT2 (if IBTrACS returned nothing)
-        if not catalog:
-            try:
-                catalog = await client.get_storm_catalog(min_year, max_year)
-                logger.info(f"[CATALOG] HURDAT2 fallback: {len(catalog)} storms ({min_year}-{max_year})")
-            except Exception as e:
-                logger.error(f"[CATALOG] HURDAT2 also failed: {type(e).__name__}: {str(e)}")
-                logger.warning("Both IBTrACS and HURDAT2 failed — returning empty catalog")
-                catalog = []
-
-    return catalog
+    catalog = await _build_global_catalog()
+    if not catalog:
+        return []
+    return [s for s in catalog if min_year <= s.get("year", 0) <= max_year]
 
 
 def _lookup_storm_name_from_catalog(storm_id: str) -> Optional[str]:
@@ -1756,7 +1754,11 @@ async def _warm_one_dps(storm_id: str, *, force: bool = False) -> str:
 
     try:
         from core.dps_engine import compute_storm_dps
-        bundle = compute_storm_dps(
+        # compute_storm_dps is pure CPU (math-only, no I/O). Running it
+        # on the event-loop thread during startup warm can block /api
+        # responses for several seconds per storm — push it to a worker.
+        bundle = await asyncio.to_thread(
+            compute_storm_dps,
             storm_id=storm_id,
             snapshots=engine_snaps,
             storm_name=storm_id,
@@ -2270,6 +2272,39 @@ def _load_ibtracs_index_if_present() -> list[dict] | None:
     return None
 
 
+# Pre-baked default-view response file. The frontend's three catalog fetches
+# all use min_year=2015 (with max_year defaulted to 2099). Writing the
+# filtered response to disk once per refresh lets the endpoint stream the
+# bytes via FileResponse instead of filtering + JSON-serializing on every
+# call. FileResponse delegates I/O to a thread, so the hot path is immune
+# to event-loop contention from concurrent warm tasks during cold-start.
+_CATALOG_DEFAULT_VIEW_FILE = _GLOBAL_IBTRACS_CACHE_FILE.parent / "catalog_default_view.json"
+_CATALOG_DEFAULT_MIN_YEAR = 2015
+_CATALOG_DEFAULT_MAX_YEAR = 2099
+
+
+def _write_catalog_default_view(catalog: list[dict]) -> None:
+    """Persist the default-filter (min_year=2015) response to disk.
+
+    Called after every full-catalog refresh; the file is what /storms/catalog
+    and /storms/catalog/global serve when the caller asks for the default
+    year range. Falls back gracefully if the write fails (the endpoints
+    still have an in-memory path).
+    """
+    try:
+        filtered = [
+            s for s in (catalog or [])
+            if _CATALOG_DEFAULT_MIN_YEAR <= s.get("year", 0) <= _CATALOG_DEFAULT_MAX_YEAR
+        ]
+        _atomic_write_json(_CATALOG_DEFAULT_VIEW_FILE, filtered)
+        logger.info(
+            f"[IBTRACS] Wrote default-view response cache "
+            f"({len(filtered)} storms, {_CATALOG_DEFAULT_MIN_YEAR}+)"
+        )
+    except Exception:
+        logger.exception("[IBTRACS] Could not write default-view cache")
+
+
 async def _build_global_catalog() -> list[dict]:
     """Build or load a cached global storm catalog (IBTrACS + custom storms).
 
@@ -2418,6 +2453,7 @@ async def _refresh_global_catalog_async() -> list[dict]:
                 cache_dir.mkdir(parents=True, exist_ok=True)
                 _atomic_write_json(_GLOBAL_IBTRACS_CACHE_FILE, catalog)
                 _write_ibtracs_index(catalog)
+                _write_catalog_default_view(catalog)
                 logger.info(
                     f"[IBTRACS] Persisted {len(catalog)}-storm catalog to "
                     f"{_GLOBAL_IBTRACS_CACHE_FILE}"
@@ -2442,6 +2478,12 @@ async def warm_ibtracs_catalog() -> dict:
         # that only need metadata (search autocomplete, list views).
         if catalog and not _IBTRACS_INDEX_FILE.exists():
             _write_ibtracs_index(catalog)
+        # Make sure the pre-baked default-view response exists. A volume
+        # populated by an older build won't have this file even though the
+        # full catalog is fresh; regenerate from in-memory data so the
+        # fast-path FileResponse is available before the first user request.
+        if catalog and not _CATALOG_DEFAULT_VIEW_FILE.exists():
+            _write_catalog_default_view(catalog)
         return {"storms": len(catalog or [])}
     except Exception as e:
         logger.warning(f"[IBTRACS WARM] failed: {e}")
@@ -2516,6 +2558,22 @@ async def get_global_storm_catalog(
     Returns storm ID (IBTrACS SID), name, year, basin, peak wind (kt),
     and Saffir-Simpson category. Includes custom storms for future years (2025+).
     """
+    # Fast path: the SPA's default page-load fetch hits this with
+    # min_year=2015 (max_year unset → 2099). Serve the pre-baked filtered
+    # response straight off disk so the request never touches the in-memory
+    # catalog filter or JSON serialization — both block the event loop
+    # under cold-start contention. FileResponse delegates I/O to a thread.
+    if (
+        min_year == _CATALOG_DEFAULT_MIN_YEAR
+        and max_year == _CATALOG_DEFAULT_MAX_YEAR
+        and _CATALOG_DEFAULT_VIEW_FILE.exists()
+    ):
+        return FileResponse(
+            _CATALOG_DEFAULT_VIEW_FILE,
+            media_type="application/json",
+            headers={"Cache-Control": "public, max-age=300, s-maxage=900"},
+        )
+
     catalog = await _build_global_catalog()
     if not catalog:
         return []
