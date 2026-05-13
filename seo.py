@@ -366,7 +366,7 @@ def _storm_breadcrumb_jsonld(storm_id: str, storm: dict, canonical: str) -> str:
     }
     return (
         '<script type="application/ld+json">'
-        + json.dumps(payload, separators=(",", ":"))
+        + json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
         + "</script>"
     )
 
@@ -424,7 +424,7 @@ def _storm_article_jsonld(storm_id: str, storm: dict, canonical: str) -> str:
     }
     return (
         '<script type="application/ld+json">'
-        + json.dumps(payload, separators=(",", ":"))
+        + json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
         + "</script>"
     )
 
@@ -477,28 +477,34 @@ def render_storm_page(storm_id: str) -> str:
     og_title_e = html.escape(og_title, quote=True)
     canonical_e = html.escape(canonical, quote=True)
 
+    # All substitutions use lambdas so the replacement is treated as a literal
+    # string, not a regex template. Otherwise any backslash sequence in user-
+    # derived content (e.g. — from json.dumps escaping an em-dash before
+    # we switched to ensure_ascii=False, or any future \-prefixed input) gets
+    # interpreted as a regex backreference and re.sub raises PatternError —
+    # which used to surface as a blanket 500 from /storm/{id}.
     out = template
-    out = _RE_TITLE.sub(f"<title>{title_e}</title>", out, count=1)
+    out = _RE_TITLE.sub(lambda _m: f"<title>{title_e}</title>", out, count=1)
     out = _RE_DESCRIPTION.sub(
-        f'<meta name="description" content="{description_e}">', out, count=1
+        lambda _m: f'<meta name="description" content="{description_e}">', out, count=1
     )
     out = _RE_CANONICAL.sub(
-        f'<link rel="canonical" href="{canonical_e}">', out, count=1
+        lambda _m: f'<link rel="canonical" href="{canonical_e}">', out, count=1
     )
     out = _RE_OG_TITLE.sub(
-        f'<meta property="og:title" content="{og_title_e}">', out, count=1
+        lambda _m: f'<meta property="og:title" content="{og_title_e}">', out, count=1
     )
     out = _RE_OG_DESCRIPTION.sub(
-        f'<meta property="og:description" content="{description_e}">', out, count=1
+        lambda _m: f'<meta property="og:description" content="{description_e}">', out, count=1
     )
     out = _RE_OG_URL.sub(
-        f'<meta property="og:url" content="{canonical_e}">', out, count=1
+        lambda _m: f'<meta property="og:url" content="{canonical_e}">', out, count=1
     )
     out = _RE_TWITTER_TITLE.sub(
-        f'<meta name="twitter:title" content="{og_title_e}">', out, count=1
+        lambda _m: f'<meta name="twitter:title" content="{og_title_e}">', out, count=1
     )
     out = _RE_TWITTER_DESCRIPTION.sub(
-        f'<meta name="twitter:description" content="{description_e}">', out, count=1
+        lambda _m: f'<meta name="twitter:description" content="{description_e}">', out, count=1
     )
 
     # If this URL uses an IBTrACS SID rather than an ATCF ID, tell crawlers
@@ -527,13 +533,13 @@ def render_storm_page(storm_id: str) -> str:
         + f'<script>window.__INITIAL_STORM_ID={json.dumps(safe_id)};</script>'
         + ssr_page_marker
     )
-    out = _RE_HEAD_END.sub(inject + "</head>", out, count=1)
+    out = _RE_HEAD_END.sub(lambda _m: inject + "</head>", out, count=1)
 
     # Inject the visible storm-summary card at the SSR marker. Real H1 +
     # prose + stats that the crawler reads before any JS runs. The SPA
     # hides this once the interactive stats row hydrates (see below).
     if storm:
         summary_html = _build_storm_summary_html(safe_id, storm, canonical)
-        out = _RE_SSR_CONTENT_MARKER.sub(summary_html, out, count=1)
+        out = _RE_SSR_CONTENT_MARKER.sub(lambda _m: summary_html, out, count=1)
 
     return out
