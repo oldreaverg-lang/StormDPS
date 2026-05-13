@@ -1,9 +1,9 @@
 {
   "expo": {
-    "name": "Hurricane DPI",
-    "slug": "hurricane-dpi",
+    "name": "StormDPS",
+    "slug": "stormdps",
     "version": "1.0.0",
-    "scheme": "hurricane-dpi",
+    "scheme": "stormdps",
     "orientation": "portrait",
     "icon": "./src/assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -15,10 +15,8 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.hurricanedpi.app",
+      "bundleIdentifier": "com.stormdps.app",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "Hurricane DPI uses your location to show nearby storm threats and compute local risk scores.",
-        "UIBackgroundModes": ["location", "fetch", "remote-notification"],
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
         }
@@ -32,18 +30,8 @@
         "foregroundImage": "./src/assets/adaptive-icon.png",
         "backgroundColor": "#0a0e1a"
       },
-      "package": "com.hurricanedpi.app",
-      "permissions": [
-        "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION",
-        "RECEIVE_BOOT_COMPLETED",
-        "VIBRATE"
-      ],
-      "config": {
-        "googleMaps": {
-          "apiKey": ""
-        }
-      }
+      "package": "com.stormdps.app",
+      "permissions": []
     },
     "web": {
       "bundler": "metro",
@@ -52,8 +40,6 @@
     },
     "plugins": [
       "expo-router",
-      "expo-location",
-      "expo-notifications",
       "expo-secure-store",
       [
         "expo-splash-screen",

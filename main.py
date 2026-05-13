@@ -487,6 +487,21 @@ async def serve_about():
     )
 
 
+@app.get("/privacy")
+async def serve_privacy():
+    """Privacy policy — required for Apple App Store submission and a
+    baseline trust signal. We don't collect personal data; this page
+    explains exactly that to humans and to compliance reviewers."""
+    fp = FRONTEND_DIR / "privacy.html"
+    if not fp.exists():
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(
+        fp,
+        media_type="text/html",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
 @app.get("/historical_storms_db.csv")
 async def serve_historical_csv():
     """Raw CSV dataset, referenced by the Dataset JSON-LD."""
