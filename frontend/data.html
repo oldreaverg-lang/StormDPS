@@ -30,7 +30,17 @@
         "alternateName": "StormDPS Destructive Power Score Dataset",
         "description": "Historical Destructive Power Scores (DPS) for major tropical cyclones from 1970 to the present, including peak winds (mph and knots), minimum central pressure (mb), radius of maximum winds (nautical miles), tropical-storm-force wind radius R34 (nautical miles), duration in days, basin, landfall locations, damage estimates in billions of USD, and DPS component factors (duration, rapid intensification, geographic reach). Derived from public NOAA NHC HURDAT2, JTWC, and IBTrACS sources plus the StormDPS computational methodology. A modern open-data alternative to the Saffir-Simpson Category scale.",
         "url": "https://stormdps.com/data",
-        "sameAs": "https://stormdps.com/",
+        "sameAs": "https://doi.org/10.5281/zenodo.20149123",
+        "identifier": [
+            {
+                "@type": "PropertyValue",
+                "propertyID": "doi",
+                "value": "10.5281/zenodo.20149123",
+                "url": "https://doi.org/10.5281/zenodo.20149123"
+            }
+        ],
+        "version": "1.0.0",
+        "datePublished": "2026-05-13",
         "keywords": [
             "hurricane",
             "tropical cyclone",
@@ -269,10 +279,28 @@
         </table>
 
         <h2>How to cite</h2>
-        <p>If you use this dataset in academic, journalistic, or commercial work, please cite it as:</p>
-        <pre>StormDPS Historical Hurricane Database (2026).
-StormDPS. Retrieved from https://stormdps.com/data</pre>
-        <p>A persistent DOI is planned for the next release via Zenodo. The CSV/JSON files served here will remain stable.</p>
+        <p>If you use this dataset in academic, journalistic, or commercial work, please cite it using the permanent <strong>Zenodo DOI</strong>:</p>
+        <p style="margin: .5rem 0 1rem;">
+            <a href="https://doi.org/10.5281/zenodo.20149123" rel="noopener" style="display:inline-block;background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--primary);padding:.5rem .85rem;border-radius:8px;font-family:'JetBrains Mono',monospace;font-size:.9rem;color:var(--primary);text-decoration:none;">
+                doi.org/10.5281/zenodo.20149123
+            </a>
+        </p>
+
+        <h3>APA</h3>
+        <pre>Reaves, R. (2026). StormDPS Historical Hurricane Database (Version 1.0.0) [Data set].
+Zenodo. https://doi.org/10.5281/zenodo.20149123</pre>
+
+        <h3>BibTeX</h3>
+        <pre>@dataset{reaves_2026_stormdps,
+  author    = {Reaves, Ryan},
+  title     = {StormDPS Historical Hurricane Database},
+  year      = 2026,
+  month     = may,
+  publisher = {Zenodo},
+  version   = {1.0.0},
+  doi       = {10.5281/zenodo.20149123},
+  url       = {https://doi.org/10.5281/zenodo.20149123}
+}</pre>
 
         <h2>Quick start (Python)</h2>
         <pre>import pandas as pd

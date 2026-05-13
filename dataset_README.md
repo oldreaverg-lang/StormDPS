@@ -74,10 +74,23 @@ No proprietary or paywalled data is used.
 
 ```
 Reaves, R. (2026). StormDPS Historical Hurricane Database (Version 1.0.0)
-[Data set]. Zenodo. https://doi.org/10.5281/zenodo.XXXXXXX
+[Data set]. Zenodo. https://doi.org/10.5281/zenodo.20149123
 ```
 
-Once you publish the Zenodo deposit, the DOI above replaces the placeholder.
+BibTeX:
+
+```bibtex
+@dataset{reaves_2026_stormdps,
+  author       = {Reaves, Ryan},
+  title        = {StormDPS Historical Hurricane Database},
+  month        = may,
+  year         = 2026,
+  publisher    = {Zenodo},
+  version      = {1.0.0},
+  doi          = {10.5281/zenodo.20149123},
+  url          = {https://doi.org/10.5281/zenodo.20149123}
+}
+```
 
 ## License
 

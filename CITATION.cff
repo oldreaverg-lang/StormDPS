@@ -31,14 +31,10 @@ license: CC-BY-4.0
 version: 1.0.0
 date-released: 2026-05-12
 
-# Once the Zenodo deposit is published, fill in the DOI below and
-# uncomment the identifiers block. GitHub will then show a "Cite this
-# repository" button that exports BibTeX/APA pointing at the DOI.
-#
-# identifiers:
-#   - type: doi
-#     value: 10.5281/zenodo.XXXXXXX
-#     description: "Persistent DOI for the StormDPS historical hurricane dataset."
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.20149123
+    description: "Persistent DOI for the StormDPS historical hurricane dataset."
 
 preferred-citation:
   type: dataset
@@ -49,4 +45,4 @@ preferred-citation:
   year: 2026
   version: "1.0.0"
   url: "https://stormdps.com/data"
-  # doi: 10.5281/zenodo.XXXXXXX   # fill in after publishing
+  doi: 10.5281/zenodo.20149123
