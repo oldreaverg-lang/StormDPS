@@ -628,5 +628,44 @@ async def serve_compiled_bundle():
     raise HTTPException(status_code=404, detail="compiled_bundle.json not found")
 
 
-# Serve any other static assets from the frontend folder
-app.mount("/frontend", StaticFiles(directory=FRONTEND_DIR), name="frontend")
+# Static-asset cache headers. Without these the /frontend mount sends no
+# Cache-Control, so logos/scripts get re-downloaded on every visit and
+# Cloudflare won't cache them at the edge. PageSpeed flagged this as
+# "Use efficient cache lifetimes". Image extensions get a long immutable
+# cache (the URLs include the asset name which only changes on real edits);
+# JS/CSS get shorter so script tweaks ship within a day.
+_STATIC_CACHE_BY_EXT = {
+    ".png": "public, max-age=2592000, immutable",   # 30 days
+    ".jpg": "public, max-age=2592000, immutable",
+    ".jpeg": "public, max-age=2592000, immutable",
+    ".webp": "public, max-age=2592000, immutable",
+    ".gif": "public, max-age=2592000, immutable",
+    ".svg": "public, max-age=2592000, immutable",
+    ".ico": "public, max-age=2592000, immutable",
+    ".woff": "public, max-age=2592000, immutable",
+    ".woff2": "public, max-age=2592000, immutable",
+    ".ttf": "public, max-age=2592000, immutable",
+    ".js": "public, max-age=86400",                  # 1 day
+    ".css": "public, max-age=86400",
+    ".json": "public, max-age=300",                  # 5 min (data, may update)
+    ".xml": "public, max-age=3600",
+    ".webmanifest": "public, max-age=86400",
+}
+
+
+class CachedStaticFiles(StaticFiles):
+    """StaticFiles subclass that tags each response with a Cache-Control
+    header based on file extension. Keeps the mount one line at the call
+    site while letting Cloudflare and browsers cache aggressively."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        if response.status_code == 200:
+            ext = Path(path).suffix.lower()
+            cache = _STATIC_CACHE_BY_EXT.get(ext)
+            if cache:
+                response.headers["Cache-Control"] = cache
+        return response
+
+
+app.mount("/frontend", CachedStaticFiles(directory=FRONTEND_DIR), name="frontend")

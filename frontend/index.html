@@ -87,15 +87,29 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="apple-touch-icon" href="/frontend/logo-180.png">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet-velocity@2.1.4/dist/leaflet-velocity.css"/>
-    <script src="https://unpkg.com/leaflet-velocity@2.1.4/dist/leaflet-velocity.js"></script>
-    <!-- d3-contour: client-side isobar generation for the Pressure overlay -->
-    <script src="https://cdn.jsdelivr.net/npm/d3-contour@4/dist/d3-contour.min.js"></script>
+    <!-- Performance: preconnect to third-party origins so DNS+TLS happen
+         in parallel with the HTML parse rather than blocking on first use. -->
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+    <link rel="preconnect" href="https://unpkg.com" crossorigin>
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <!-- Preload the hero logo so it's in cache when the SPA paints (LCP win). -->
+    <link rel="preload" as="image" href="/frontend/logo-180.png">
+    <!-- defer: download in parallel, execute after HTML parse. Removes
+         these from the critical render path so FCP/LCP don't wait. None
+         of these libraries are needed until the user picks a storm. -->
+    <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-velocity@2.1.4/dist/leaflet-velocity.css"/>
+    <script defer src="https://unpkg.com/leaflet-velocity@2.1.4/dist/leaflet-velocity.js"></script>
+    <!-- d3-contour: client-side isobar generation for the Pressure overlay -->
+    <script defer src="https://cdn.jsdelivr.net/npm/d3-contour@4/dist/d3-contour.min.js"></script>
+    <!-- font-display=optional: if Inter isn't already cached, use the system
+         font fallback for this page load instead of swapping mid-render.
+         Eliminates the font-swap CLS that was driving CLS=0.28. Returning
+         visitors with Inter cached still see Inter immediately. -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=optional" rel="stylesheet">
     <style>
         :root{--primary:#6366f1;--primary-hover:#4f46e5;--bg-dark:#0a0e1a;--bg-card:#111827;--bg-card-hover:#1a2234;--bg-input:#0d1221;--text-main:#f1f5f9;--text-muted:#64748b;--text-dim:#475569;--border:#1e293b;--border-hover:#334155;--success:#10b981;--danger:#ef4444;--cat1:#60a5fa;--cat2:#34d399;--cat3:#fbbf24;--cat4:#f97316;--cat5:#ef4444;--ts:#818cf8;--td:#94a3b8;--radius:10px;--radius-lg:14px}
         *{box-sizing:border-box;margin:0;padding:0}body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg-dark);color:var(--text-main);height:100vh;overflow:hidden}
