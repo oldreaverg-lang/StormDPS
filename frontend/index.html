@@ -2633,9 +2633,50 @@ function highlightSelectedChip(stormId){
     });
 }
 
+// Populate a lazy year-accordion body with storm chips on first open.
+// Reads window.stormsByYear (set by loadCatalog) and re-applies the
+// current basin filter so the chips already reflect what the user sees.
+function _populateYearAccordionBody(body){
+    const yr = body && body.dataset ? body.dataset.lazyYear : null;
+    if (!yr) return;
+    const storms = (window.stormsByYear && window.stormsByYear[yr]) || [];
+    if (!storms.length) { body.dataset.populated = '1'; return; }
+    // Re-group by basin so multi-basin years still get subheadings
+    const byBasin={};
+    storms.forEach(s=>{
+        const b=s.basin||'NA';
+        if(!byBasin[b])byBasin[b]=[];
+        byBasin[b].push(s);
+    });
+    const basins=Object.keys(byBasin);
+    let bodyHtml='';
+    if(basins.length===1){
+        bodyHtml=`<div class="preset-grid">`+storms.map(s=>stormChipHtml(s)).join('')+`</div>`;
+    } else {
+        basins.forEach(b=>{
+            const bStorms=byBasin[b];
+            bodyHtml+=`<div data-basin-label="${b}" style="font-size:.6rem;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;margin:${bodyHtml?'.5rem':'.1rem'} 0 .2rem;padding-left:.1rem;">${basinName(b)} (${bStorms.length})</div>`;
+            bodyHtml+=`<div class="preset-grid">`+bStorms.map(s=>stormChipHtml(s)).join('')+`</div>`;
+        });
+    }
+    body.innerHTML = bodyHtml;
+    body.dataset.populated = '1';
+    // Apply the current basin filter to the freshly-built chips so they
+    // match what the rest of the accordion already shows.
+    if (window.selectedBasin) {
+        _applyBasinFilterToSection(body.closest('.accordion-section'), window.selectedBasin);
+    }
+}
+
 function toggleAccordion(sectionId){
     const el=document.getElementById(sectionId);
     if(!el)return;
+    // Lazy-populate year sections on first open — chips for closed
+    // sections were skipped at initial render to keep DOM size down.
+    const body = el.querySelector('.accordion-body');
+    if (body && body.dataset && body.dataset.lazyYear && !body.dataset.populated) {
+        _populateYearAccordionBody(body);
+    }
     el.classList.toggle('open');
 }
 
@@ -2961,13 +3002,16 @@ function basinName(b){return BASIN_NAMES[b]||b}
             return;
         }
 
-        // Group by year descending
+        // Group by year descending and stash for lazy-render
         const byYear={};
         allStorms.forEach(s=>{
             if(!byYear[s.year])byYear[s.year]=[];
             byYear[s.year].push(s);
         });
         const years=Object.keys(byYear).sort((a,b)=>b-a);
+        // window.stormsByYear feeds both lazy chip rendering and the basin
+        // filter — see _populateYearAccordionBody and filterAccordionByBasin.
+        window.stormsByYear = byYear;
 
         console.log('Storm distribution by year:', years);
 
@@ -2982,14 +3026,6 @@ function basinName(b){return BASIN_NAMES[b]||b}
                 return bDps-aDps;
             });
 
-            // Group within year by basin
-            const byBasin={};
-            storms.forEach(s=>{
-                const b=s.basin||'NA';
-                if(!byBasin[b])byBasin[b]=[];
-                byBasin[b].push(s);
-            });
-            const basins=Object.keys(byBasin);
             const totalCount=storms.length;
 
             const secId='accYear'+yr;
@@ -2997,26 +3033,19 @@ function basinName(b){return BASIN_NAMES[b]||b}
             section.className='accordion-section';
             section.id=secId;
 
-            let bodyHtml='';
-            if(basins.length===1){
-                // Single basin — just list storms
-                bodyHtml=`<div class="preset-grid">`+storms.map(s=>stormChipHtml(s)).join('')+`</div>`;
-            } else {
-                // Multiple basins — sub-group with basin labels
-                basins.forEach(b=>{
-                    const bStorms=byBasin[b];
-                    bodyHtml+=`<div data-basin-label="${b}" style="font-size:.6rem;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;margin:${bodyHtml?'.5rem':'.1rem'} 0 .2rem;padding-left:.1rem;">${basinName(b)} (${bStorms.length})</div>`;
-                    bodyHtml+=`<div class="preset-grid">`+bStorms.map(s=>stormChipHtml(s)).join('')+`</div>`;
-                });
-            }
-
+            // Body starts empty — chips are built on first toggleAccordion()
+            // call so the closed sections don't contribute ~1500 elements to
+            // the initial DOM (PageSpeed flagged DOM size 5,470 / synchronous
+            // build was a 144 ms long task on stormdps.com). The lazy-year
+            // attribute is the cue _populateYearAccordionBody reads from.
             section.innerHTML=`<div class="accordion-header" onclick="toggleAccordion('${secId}')"><span>${yr} Season</span><span class="acc-count">${totalCount}</span><span class="accordion-arrow">&#9654;</span></div>`
-                +`<div class="accordion-body">${bodyHtml}</div>`;
+                +`<div class="accordion-body" data-lazy-year="${yr}"></div>`;
             container.appendChild(section);
         });
-        
+
         console.log(`Created year accordion sections for ${years.length} years (${years.join(', ')})`);
-        // If compiled bundle already loaded, update chips that used catalog peak_dps
+        // Famous-storms section is eager-rendered (15 chips, always-popular),
+        // so refresh it now. Year sections refresh themselves on first open.
         refreshAccordionChipsDPS();
 
         // Apply default basin filter (Atlantic) after catalog loads
@@ -3085,61 +3114,73 @@ document.getElementById('stormId').addEventListener('input', function(){
     document.getElementById('nameSearchGroup').style.display = (hasText && !looksLikeAtcfId) ? 'flex' : 'none';
 });
 
+// Apply a basin filter to a single (populated) year section: toggle
+// chip / basin-label visibility and roll up a visible count. Extracted
+// so the lazy-populate path can reuse the same logic the bulk filter
+// runs after rendering chips for the first time.
+function _applyBasinFilterToSection(section, selectedBasin) {
+    if (!section) return 0;
+    const stormChips = section.querySelectorAll('.preset-chip');
+    const basinLabels = section.querySelectorAll('[data-basin-label]');
+    let visibleCount = 0;
+    stormChips.forEach(chip => {
+        const stormId = chip.getAttribute('data-storm-id');
+        const storm = window.stormCatalog && window.stormCatalog.find(s => s.id === stormId);
+        const stormBasin = storm ? (storm.basin || 'NA') : '';
+        if (!selectedBasin || stormBasin === selectedBasin) {
+            chip.style.display = 'flex';
+            visibleCount++;
+        } else {
+            chip.style.display = 'none';
+        }
+    });
+    basinLabels.forEach(label => {
+        const basinCode = label.getAttribute('data-basin-label');
+        label.style.display = (!selectedBasin || basinCode === selectedBasin) ? 'block' : 'none';
+    });
+    return visibleCount;
+}
+
 function filterAccordionByBasin(selectedBasin) {
     const accordion = document.getElementById('stormAccordion');
     if (!accordion) return;
-    
-    // Get all accordion sections (year sections)
+
     const yearSections = accordion.querySelectorAll('.accordion-section');
-    
+
     yearSections.forEach(section => {
         // Always show the Historic Storms section regardless of basin filter
         if (section.id === 'accFamous') {
             section.style.display = 'block';
             return;
         }
-        // Get all storm chips in this year section
-        const stormChips = section.querySelectorAll('.preset-chip');
-        const basinLabels = section.querySelectorAll('[data-basin-label]');
-        
-        let visibleCount = 0;
-        
-        stormChips.forEach(chip => {
-            const stormId = chip.getAttribute('onclick').match(/'([^']+)'/)[1];
-            const storm = window.stormCatalog && window.stormCatalog.find(s => s.id === stormId);
-            const stormBasin = storm ? (storm.basin || 'NA') : '';
-            
-            if (!selectedBasin || stormBasin === selectedBasin) {
-                chip.style.display = 'flex';
-                visibleCount++;
-            } else {
-                chip.style.display = 'none';
-            }
-        });
-        
-        // Show/hide basin labels based on visible storms
-        basinLabels.forEach(label => {
-            const basinCode = label.getAttribute('data-basin-label');
-            if (!selectedBasin || basinCode === selectedBasin) {
-                label.style.display = 'block';
-            } else {
-                label.style.display = 'none';
-            }
-        });
-        
-        // Hide year section if no storms are visible in this basin
+
+        const body = section.querySelector('.accordion-body');
+        const isLazy = body && body.dataset && body.dataset.lazyYear;
+        const isPopulated = body && body.dataset && body.dataset.populated;
+        const yr = isLazy ? body.dataset.lazyYear : null;
+
+        let visibleCount;
+        if (isLazy && !isPopulated) {
+            // Closed / never-opened section: count from data so we can
+            // hide whole sections that have no storms in the selected
+            // basin without paying for chip rendering.
+            const storms = (window.stormsByYear && window.stormsByYear[yr]) || [];
+            visibleCount = selectedBasin
+                ? storms.reduce((n, s) => n + ((s.basin || 'NA') === selectedBasin ? 1 : 0), 0)
+                : storms.length;
+        } else {
+            // Populated section (eager Historic Storms or a year the
+            // user already opened): filter DOM chips in place.
+            visibleCount = _applyBasinFilterToSection(section, selectedBasin);
+        }
+
         if (visibleCount === 0) {
             section.style.display = 'none';
         } else {
             section.style.display = 'block';
-            // Update count in header
             const header = section.querySelector('.accordion-header');
-            if (header) {
-                const countSpan = header.querySelector('.acc-count');
-                if (countSpan) {
-                    countSpan.textContent = visibleCount;
-                }
-            }
+            const countSpan = header && header.querySelector('.acc-count');
+            if (countSpan) countSpan.textContent = visibleCount;
         }
     });
 }
