@@ -2652,8 +2652,23 @@ function startActiveStormPolling(intervalMs=300000){ // 5 minutes
     activeStormsPollTimer=setInterval(fetchActiveStorms,intervalMs);
 }
 
-// Start polling on page load
-startActiveStormPolling();
+// Wait for deferred external libraries (Chart.js, Leaflet, leaflet-velocity,
+// d3-contour) to finish executing before kicking off any path that might
+// touch L.map() or new Chart(). Defer scripts run after HTML parsing but
+// just before DOMContentLoaded. A fast cached /api/v1/storms/{id}/dps
+// response can otherwise beat the defer'd scripts and call renderAll()
+// while L is still undefined.
+function _onDomReady(cb) {
+    if (document.readyState !== 'loading') {
+        cb();
+    } else {
+        document.addEventListener('DOMContentLoaded', cb, { once: true });
+    }
+}
+
+// Start polling on page load (waits for defer'd libs in case the first
+// active storm auto-loads and triggers a map/chart render).
+_onDomReady(startActiveStormPolling);
 
 // Initial-storm dispatch on page load.
 //
@@ -2664,7 +2679,7 @@ startActiveStormPolling();
 //      (e.g. a back-button restore where __INITIAL_STORM_ID didn't render).
 //   3. #storm=ID legacy hash — pre-fills the search box only (existing
 //      behavior, preserved so old shared links still work).
-(function dispatchInitialStorm() {
+_onDomReady(function dispatchInitialStorm() {
     // Server-rendered hint takes precedence.
     let stormId = (typeof window.__INITIAL_STORM_ID === 'string' && window.__INITIAL_STORM_ID) || '';
 
@@ -2689,7 +2704,7 @@ startActiveStormPolling();
             history.replaceState(null, '', window.location.pathname);
         }
     }
-})();
+});
 
 // Browser back/forward navigation between storm pages.
 window.addEventListener('popstate', function() {
