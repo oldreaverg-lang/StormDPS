@@ -446,6 +446,33 @@ async def serve_data_page():
     )
 
 
+@app.get("/historic-storms")
+async def serve_historic_storms():
+    """Hub page ranking the most destructive tropical cyclones with internal
+    links to each /storm/{id} page — concentrates SEO link equity."""
+    fp = FRONTEND_DIR / "historic-storms.html"
+    if not fp.exists():
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(
+        fp,
+        media_type="text/html",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+@app.get("/faq")
+async def serve_faq():
+    """FAQ page with schema.org/FAQPage JSON-LD for Google question-style results."""
+    fp = FRONTEND_DIR / "faq.html"
+    if not fp.exists():
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(
+        fp,
+        media_type="text/html",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
 @app.get("/historical_storms_db.csv")
 async def serve_historical_csv():
     """Raw CSV dataset, referenced by the Dataset JSON-LD."""

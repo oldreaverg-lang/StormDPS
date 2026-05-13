@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Most Destructive Hurricanes in History — Ranked by DPS | StormDPS</title>
+    <meta name="description" content="The most destructive tropical cyclones in modern history, ranked by Destructive Power Score. Katrina, Haiyan, Maria, Harvey, Ian, Ike, Sandy — see why each storm scores what it does, with side-by-side comparisons.">
+    <meta name="keywords" content="most destructive hurricanes, worst hurricanes ranked, deadliest tropical cyclones, historic hurricanes, Katrina Haiyan comparison, hurricane impact ranking, worst Atlantic hurricanes, worst Pacific typhoons">
+    <meta name="author" content="StormDPS">
+    <link rel="canonical" href="https://stormdps.com/historic-storms">
+
+    <meta property="og:type" content="article">
+    <meta property="og:title" content="Most Destructive Hurricanes in History — Ranked by DPS">
+    <meta property="og:description" content="A side-by-side comparison of history's most destructive tropical cyclones using the Destructive Power Score.">
+    <meta property="og:url" content="https://stormdps.com/historic-storms">
+    <meta property="og:image" content="https://stormdps.com/frontend/logo-512.png">
+    <meta property="og:site_name" content="StormDPS">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Most Destructive Hurricanes in History">
+    <meta name="twitter:description" content="A modern ranking of history's most destructive tropical cyclones.">
+    <meta name="twitter:image" content="https://stormdps.com/frontend/logo-512.png">
+
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "Article",
+        "headline": "Most Destructive Hurricanes in History — Ranked by DPS",
+        "description": "The most destructive tropical cyclones in modern history, ranked by the Destructive Power Score, an open-data alternative to the Saffir-Simpson Category scale.",
+        "url": "https://stormdps.com/historic-storms",
+        "datePublished": "2026-01-01",
+        "dateModified": "2026-05-12",
+        "author": { "@type": "Organization", "name": "StormDPS", "url": "https://stormdps.com" },
+        "publisher": {
+            "@type": "Organization",
+            "name": "StormDPS",
+            "url": "https://stormdps.com",
+            "logo": { "@type": "ImageObject", "url": "https://stormdps.com/frontend/logo-512.png" }
+        },
+        "image": "https://stormdps.com/frontend/logo-512.png",
+        "mainEntityOfPage": "https://stormdps.com/historic-storms"
+    }
+    </script>
+
+    <link rel="icon" type="image/x-icon" href="/frontend/favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="/frontend/logo-32.png">
+    <meta name="theme-color" content="#0a0e1a">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary:#6366f1; --bg-dark:#0a0e1a; --bg-card:#111827; --bg-input:#0d1221;
+            --text-main:#f1f5f9; --text-muted:#94a3b8; --text-dim:#64748b; --border:#1e293b;
+            --cat1:#60a5fa; --cat2:#34d399; --cat3:#fbbf24; --cat4:#f97316; --cat5:#ef4444;
+            --radius:10px;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-dark); color: var(--text-main);
+            line-height: 1.7; font-size: 16px;
+        }
+        header {
+            background: linear-gradient(180deg, rgba(17,24,39,.97), rgba(10,14,26,.97));
+            backdrop-filter: blur(12px);
+            padding: 1rem 1.5rem; border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; justify-content: space-between;
+            position: sticky; top: 0; z-index: 100;
+        }
+        .logo { display: flex; align-items: center; gap: .6rem; color: var(--text-main); text-decoration: none; }
+        .logo-icon { width: 32px; height: 32px; border-radius: 8px; overflow: hidden; }
+        .logo-icon img { width: 100%; height: 100%; object-fit: cover; }
+        .logo h1 { font-size: 1.1rem; font-weight: 700; letter-spacing: -.03em; }
+        nav { display: flex; gap: 1.25rem; align-items: center; }
+        nav a { color: var(--text-muted); text-decoration: none; font-weight: 600; font-size: .95rem; transition: color .15s; }
+        nav a:hover { color: var(--text-main); }
+        nav a.cta { color: var(--primary); }
+        main { max-width: 880px; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+        h1.page-title { font-size: clamp(1.8rem, 4vw, 2.6rem); font-weight: 800; letter-spacing: -.03em; line-height: 1.2; margin-bottom: .75rem; }
+        .lede { font-size: 1.15rem; color: var(--text-muted); margin-bottom: 2.5rem; }
+        h2 { font-size: 1.5rem; font-weight: 700; letter-spacing: -.02em; margin-top: 3rem; margin-bottom: 1rem; }
+        h3 { font-size: 1.1rem; font-weight: 700; margin-top: 1.5rem; margin-bottom: .5rem; }
+        p { margin-bottom: 1rem; }
+        a.inline { color: var(--primary); text-decoration: underline; text-decoration-color: rgba(99,102,241,.4); }
+        a.inline:hover { text-decoration-color: var(--primary); }
+        table {
+            width: 100%; border-collapse: collapse; margin: 1.5rem 0;
+            background: var(--bg-card); border-radius: var(--radius); overflow: hidden;
+            font-size: .92rem;
+        }
+        th, td { padding: .7rem .85rem; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+        th { background: var(--bg-input); font-weight: 600; color: var(--text-muted); text-transform: uppercase; font-size: .72rem; letter-spacing: .05em; }
+        td.num { font-variant-numeric: tabular-nums; font-weight: 700; }
+        .dps-pill {
+            display: inline-flex; align-items: center; gap: .35rem;
+            padding: 3px 9px; border-radius: 999px; font-size: .82rem;
+            font-weight: 700; color: #fff; font-variant-numeric: tabular-nums;
+        }
+        .dps-historic { background: #7c2d12; color: #fecaca; }
+        .dps-catastrophic { background: #b91c1c; color: #fff; }
+        .dps-severe { background: #d97706; color: #fff; }
+        .dps-notable { background: #047857; color: #fff; }
+        a.storm-link { color: var(--primary); text-decoration: none; font-weight: 700; }
+        a.storm-link:hover { text-decoration: underline; }
+        .basin-grid { display: grid; grid-template-columns: 1fr; gap: 2rem; }
+        .basin-section { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 1.4rem 1.6rem; }
+        .basin-title { font-size: 1.25rem; font-weight: 700; margin-bottom: .35rem; }
+        .basin-meta { color: var(--text-muted); font-size: .9rem; margin-bottom: 1rem; }
+        .storm-row { display: flex; align-items: baseline; gap: .8rem; padding: .6rem 0; border-bottom: 1px solid var(--border); }
+        .storm-row:last-child { border-bottom: none; }
+        .storm-row .yr { color: var(--text-dim); font-variant-numeric: tabular-nums; min-width: 3rem; }
+        .storm-row .nm { font-weight: 700; min-width: 7rem; }
+        .storm-row .ctx { color: var(--text-muted); font-size: .92rem; flex: 1; }
+        .storm-row .sc { font-weight: 800; color: var(--primary); font-variant-numeric: tabular-nums; min-width: 2.5rem; text-align: right; }
+        footer { padding: 2rem 1.5rem; text-align: center; color: var(--text-dim); font-size: .85rem; border-top: 1px solid var(--border); }
+        footer a { color: var(--text-muted); text-decoration: none; margin: 0 .6rem; }
+        footer a:hover { color: var(--text-main); }
+    </style>
+</head>
+<body>
+    <header>
+        <a href="/" class="logo">
+            <span class="logo-icon"><img src="/frontend/logo-128.png" alt="StormDPS logo"></span>
+            <h1>StormDPS</h1>
+        </a>
+        <nav>
+            <a href="/">Tracker</a>
+            <a href="/methodology">Methodology</a>
+            <a href="/historic-storms">Historic</a>
+            <a href="/data">Data</a>
+            <a href="/surgedps" class="cta">SurgeDPS</a>
+        </nav>
+    </header>
+
+    <main>
+        <h1 class="page-title">Most Destructive Hurricanes in History</h1>
+        <p class="lede">A modern ranking of history's most destructive tropical cyclones. Every storm below has a full <a href="/" class="inline">interactive analysis</a> — track, wind field, score components, and side-by-side comparisons. Scores are computed by the <a href="/methodology" class="inline">Destructive Power Score methodology</a>: a 0–100 composite that captures size, surge, duration, and geographic reach in addition to peak wind.</p>
+
+        <h2>Top 10 by Destructive Power Score</h2>
+        <p>Hand-curated from ~200 named storms in the database. Ranked strictly by computed DPS; commentary explains the score driver.</p>
+        <table>
+            <thead><tr><th>#</th><th>Storm</th><th>Year</th><th>DPS</th><th>Why it scored high</th></tr></thead>
+            <tbody>
+                <tr><td class="num">1</td><td><a href="/storm/AL122005" class="storm-link">Katrina</a></td><td>2005</td><td><span class="dps-pill dps-historic">97</span></td><td>Maximum surge driver, levee failure, 1,800+ fatalities, $125B inflation-adjusted damage. Long-duration Cat 5 over the Loop Current.</td></tr>
+                <tr><td class="num">2</td><td>Haiyan (Yolanda)</td><td>2013</td><td><span class="dps-pill dps-historic">96</span></td><td>Strongest landfall ever recorded (195 kt). Catastrophic surge across the central Philippines, 6,300+ fatalities.</td></tr>
+                <tr><td class="num">3</td><td><a href="/storm/AL152017" class="storm-link">Maria</a></td><td>2017</td><td><span class="dps-pill dps-historic">94</span></td><td>Direct Cat 5 strike on Puerto Rico. Compact but extreme intensity, complete grid collapse, long humanitarian aftermath.</td></tr>
+                <tr><td class="num">4</td><td><a href="/storm/AL092017" class="storm-link">Harvey</a></td><td>2017</td><td><span class="dps-pill dps-historic">93</span></td><td>Stalled over Houston for 4+ days. 60+ inches of rainfall, $125B damage. Duration drove the score, not peak wind.</td></tr>
+                <tr><td class="num">5</td><td>Mangkhut (Ompong)</td><td>2018</td><td><span class="dps-pill dps-historic">92</span></td><td>Massive West Pacific super-typhoon, wide wind field, devastating impacts across Luzon and South China.</td></tr>
+                <tr><td class="num">6</td><td><a href="/storm/AL092022" class="storm-link">Ian</a></td><td>2022</td><td><span class="dps-pill dps-historic">91</span></td><td>Rapid intensification, Cat 5 just before SW Florida landfall. Catastrophic surge in Fort Myers Beach, $112B damage.</td></tr>
+                <tr><td class="num">7</td><td><a href="/storm/AL092008" class="storm-link">Ike</a></td><td>2008</td><td><span class="dps-pill dps-catastrophic">84</span></td><td>The textbook example of why Saffir-Simpson misses size. "Only" a Cat 2 at Galveston landfall — but enormous wind field drove Cat 4–equivalent surge.</td></tr>
+                <tr><td class="num">8</td><td><a href="/storm/AL092024" class="storm-link">Helene</a></td><td>2024</td><td><span class="dps-pill dps-catastrophic">90</span></td><td>Long inland track, catastrophic flash flooding in western North Carolina, 230+ fatalities.</td></tr>
+                <tr><td class="num">9</td><td><a href="/storm/AL112017" class="storm-link">Irma</a></td><td>2017</td><td><span class="dps-pill dps-catastrophic">88</span></td><td>Sustained Cat 5 for 60+ hours — longest-duration Cat 5 in the satellite era. Devastation across the Leeward Islands and Cuba.</td></tr>
+                <tr><td class="num">10</td><td><a href="/storm/AL182012" class="storm-link">Sandy</a></td><td>2012</td><td><span class="dps-pill dps-catastrophic">82</span></td><td>Hybrid cyclone with a 1,000-mile wind field. Saffir-Simpson rated it a Cat 1; the destructive footprint was anything but.</td></tr>
+            </tbody>
+        </table>
+
+        <h2>Why this list differs from the wind-only ranking</h2>
+        <p>If you rank the same set of storms by peak wind alone — the Saffir-Simpson variable — the order changes substantially. Hurricane Patricia (2015) would top the list with 185 kt peak winds, but it weakened dramatically before landfall and caused comparatively little damage. Hurricane Ike (2008) would drop to the bottom half despite causing more economic damage than several Category 4 and 5 storms in the same era.</p>
+        <p>DPS captures this divergence by combining five physically meaningful components:</p>
+        <ul style="margin: 0 0 1rem 1.5rem;">
+            <li style="margin-bottom: .4rem"><strong>Peak intensity</strong> — the Saffir-Simpson variable, retained as a baseline.</li>
+            <li style="margin-bottom: .4rem"><strong>Integrated Kinetic Energy (IKE)</strong> — total wind energy. Captures storm size directly.</li>
+            <li style="margin-bottom: .4rem"><strong>Surge potential</strong> — derived from wind, RMW, forward speed, and basin bathymetry.</li>
+            <li style="margin-bottom: .4rem"><strong>Duration</strong> — hours of coastal exposure to TS-force winds.</li>
+            <li><strong>Geographic reach</strong> — number of distinct coastal zones affected.</li>
+        </ul>
+        <p>See the <a href="/methodology" class="inline">full methodology</a> for component weights and the basin-specific calibration.</p>
+
+        <h2>Atlantic Basin</h2>
+        <div class="basin-section">
+            <div class="basin-title">Costliest Atlantic Hurricanes (modern era)</div>
+            <div class="basin-meta">Ranked by inflation-adjusted economic damage. DPS captures damage potential; this column captures damage outcomes.</div>
+            <div class="storm-row"><span class="yr">2005</span><span class="nm"><a href="/storm/AL122005" class="storm-link">Katrina</a></span><span class="ctx">Cat 5 → Cat 3 landfall · New Orleans levee failure · $125B</span><span class="sc">97</span></div>
+            <div class="storm-row"><span class="yr">2017</span><span class="nm"><a href="/storm/AL092017" class="storm-link">Harvey</a></span><span class="ctx">Cat 4 landfall, 4-day stall over Houston · $125B</span><span class="sc">93</span></div>
+            <div class="storm-row"><span class="yr">2022</span><span class="nm"><a href="/storm/AL092022" class="storm-link">Ian</a></span><span class="ctx">Cat 5 → Cat 4 SW Florida landfall · $112B</span><span class="sc">91</span></div>
+            <div class="storm-row"><span class="yr">2017</span><span class="nm"><a href="/storm/AL152017" class="storm-link">Maria</a></span><span class="ctx">Cat 5 → Cat 4 Puerto Rico direct hit · $90B</span><span class="sc">94</span></div>
+            <div class="storm-row"><span class="yr">2024</span><span class="nm"><a href="/storm/AL092024" class="storm-link">Helene</a></span><span class="ctx">Cat 4 Big Bend landfall, long inland flood track · $79B</span><span class="sc">90</span></div>
+            <div class="storm-row"><span class="yr">2012</span><span class="nm"><a href="/storm/AL182012" class="storm-link">Sandy</a></span><span class="ctx">Hybrid · 1,000-mi wind field · NY/NJ coastal flooding · $74B</span><span class="sc">82</span></div>
+            <div class="storm-row"><span class="yr">2008</span><span class="nm"><a href="/storm/AL092008" class="storm-link">Ike</a></span><span class="ctx">Cat 2 at Galveston · huge wind field · $38B (size-driven)</span><span class="sc">84</span></div>
+            <div class="storm-row"><span class="yr">2024</span><span class="nm"><a href="/storm/AL142024" class="storm-link">Milton</a></span><span class="ctx">Cat 5 → Cat 3 west Florida landfall, rapid intensification</span><span class="sc">87</span></div>
+            <div class="storm-row"><span class="yr">2018</span><span class="nm"><a href="/storm/AL142018" class="storm-link">Michael</a></span><span class="ctx">Cat 5 Florida Panhandle landfall · Mexico Beach destroyed</span><span class="sc">85</span></div>
+            <div class="storm-row"><span class="yr">2019</span><span class="nm"><a href="/storm/AL052019" class="storm-link">Dorian</a></span><span class="ctx">Cat 5 over Abacos for 24+ hours · stationary catastrophe</span><span class="sc">88</span></div>
+        </div>
+
+        <h2>Pacific Basins</h2>
+        <div class="basin-section">
+            <div class="basin-title">Notable West Pacific Typhoons</div>
+            <div class="basin-meta">The world's most active tropical cyclone basin. Sub-basin coefficients account for higher baseline activity.</div>
+            <div class="storm-row"><span class="yr">2013</span><span class="nm">Haiyan (Yolanda)</span><span class="ctx">Cat 5+ Philippines landfall · 195 kt · 6,300+ fatalities</span><span class="sc">96</span></div>
+            <div class="storm-row"><span class="yr">2018</span><span class="nm">Mangkhut (Ompong)</span><span class="ctx">Cat 5 Luzon strike · massive wind field · Hong Kong impacts</span><span class="sc">92</span></div>
+            <div class="storm-row"><span class="yr">2024</span><span class="nm">Yagi (Enteng)</span><span class="ctx">Major Vietnam/Hainan landfall · second-strongest 2024 globally</span><span class="sc">86</span></div>
+            <div class="storm-row"><span class="yr">2023</span><span class="nm">Doksuri (Egay)</span><span class="ctx">Long-track damaging storm · Luzon, Taiwan, mainland China</span><span class="sc">81</span></div>
+            <div class="storm-row"><span class="yr">2019</span><span class="nm">Hagibis</span><span class="ctx">Cat 5 → Cat 2 Japan landfall · record Tokyo-area rainfall</span><span class="sc">83</span></div>
+        </div>
+
+        <div class="basin-section" style="margin-top: 1.5rem;">
+            <div class="basin-title">Notable East Pacific Hurricanes</div>
+            <div class="basin-meta">Often comparable peak winds to Atlantic storms, but typically much shorter coastal-exposure windows.</div>
+            <div class="storm-row"><span class="yr">2015</span><span class="nm">Patricia</span><span class="ctx">Strongest hurricane ever in the Western Hemisphere (185 kt) · weakened rapidly before landfall</span><span class="sc">71</span></div>
+            <div class="storm-row"><span class="yr">2023</span><span class="nm">Otis</span><span class="ctx">Explosive intensification · Cat 5 direct hit on Acapulco · catastrophic</span><span class="sc">82</span></div>
+            <div class="storm-row"><span class="yr">2018</span><span class="nm">Willa</span><span class="ctx">Cat 5 peak · weakened before Sinaloa landfall</span><span class="sc">62</span></div>
+        </div>
+
+        <h2>Open data</h2>
+        <p>Want to compute your own rankings or compare storms by your preferred metric? The full historical database — including peak winds, central pressure, wind-field radii, duration, basin, and damage estimates — is available as a free <a href="/data" class="inline">CSV and JSON download</a> under CC BY 4.0.</p>
+    </main>
+
+    <footer>
+        <a href="/">Tracker</a> ·
+        <a href="/methodology">Methodology</a> ·
+        <a href="/historic-storms">Historic</a> ·
+        <a href="/data">Data</a> ·
+        <a href="/faq">FAQ</a> ·
+        <a href="/surgedps">SurgeDPS</a>
+        <p style="margin-top:.6rem;color:var(--text-dim)">StormDPS — open-data hurricane destructive-power scoring</p>
+    </footer>
+</body>
+</html>

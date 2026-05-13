@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hurricane DPS FAQ — Frequently Asked Questions | StormDPS</title>
+    <meta name="description" content="Common questions about the Destructive Power Score, the Saffir-Simpson scale, Integrated Kinetic Energy, hurricane size vs. wind speed, and how StormDPS rates tropical cyclones.">
+    <meta name="keywords" content="DPS FAQ, Destructive Power Score questions, Saffir-Simpson alternative, what is IKE hurricane, hurricane size vs wind, how is DPS computed, is Saffir-Simpson outdated">
+    <meta name="author" content="StormDPS">
+    <link rel="canonical" href="https://stormdps.com/faq">
+
+    <meta property="og:type" content="article">
+    <meta property="og:title" content="Hurricane DPS — Frequently Asked Questions">
+    <meta property="og:description" content="Common questions about the Destructive Power Score and how it improves on the Saffir-Simpson scale.">
+    <meta property="og:url" content="https://stormdps.com/faq">
+    <meta property="og:image" content="https://stormdps.com/frontend/logo-512.png">
+    <meta property="og:site_name" content="StormDPS">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Hurricane DPS — Frequently Asked Questions">
+    <meta name="twitter:description" content="What DPS measures, how it's computed, and why it beats Saffir-Simpson.">
+    <meta name="twitter:image" content="https://stormdps.com/frontend/logo-512.png">
+
+    <!-- FAQPage schema — drives Google's question-style rich results -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": [
+            {
+                "@type": "Question",
+                "name": "What is the Destructive Power Score (DPS)?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "The Destructive Power Score is a 0–100 hurricane rating that combines peak intensity, Integrated Kinetic Energy (IKE), surge potential, duration of coastal exposure, and geographic reach into a single composite score. It is a modern alternative to the Saffir-Simpson Category scale, which rates storms on peak wind speed alone."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "Is the Saffir-Simpson scale outdated?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "The Saffir-Simpson scale was developed in 1971 and rates a hurricane on a single variable: one-minute sustained peak wind. It does not account for storm size, surge potential, duration, or geographic reach — all of which are major drivers of actual destruction. Hurricane Ike (2008) made landfall as a Category 2 but caused more damage than several Category 4 and 5 storms because its wind field was three times larger than typical. Saffir-Simpson cannot represent that distinction."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "How is DPS different from Saffir-Simpson?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "Saffir-Simpson rates a hurricane on one variable (peak wind) into one of five bins. DPS rates a hurricane on a continuous 0–100 scale using five components: peak intensity, Integrated Kinetic Energy (storm size), surge potential, duration of coastal exposure, and geographic reach. Two storms with identical Saffir-Simpson categories can have very different DPS scores — and the DPS ranking lines up much more closely with actual damage outcomes."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "What is Integrated Kinetic Energy (IKE)?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "Integrated Kinetic Energy is the total kinetic energy in a hurricane's wind field above tropical-storm force, measured in terajoules. It captures storm size directly: a large hurricane with moderate winds can have many times the IKE of a small intense one. IKE was developed by meteorologists Mark Powell and Tim Reinhold in 2007 specifically because peak wind speed alone proved insufficient to explain destructive footprints — Hurricane Ike's 2008 damage was retroactively explained primarily by its IKE, not its Saffir-Simpson Category 2 rating."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "Why was Hurricane Ike so destructive at Category 2?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "Ike's wind field was unusually large — its tropical-storm-force radius (R34) was approximately 275 nautical miles, more than three times larger than typical Cat 2 storms. That meant the surge it pushed onto the upper Texas coast was Category 4–equivalent despite the peak winds being Cat 2 level. Storm surge scales with wind-field size and forward speed, not just peak wind. Ike's DPS score is 84 (Catastrophic), reflecting the actual destructive footprint."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "What does a DPS score actually mean?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "DPS scores fall into roughly five outcome ranges. 0–24 (Minimal) — localized wind damage, no widespread flooding. 25–49 (Notable) — regional damage. 50–74 (Severe) — multi-billion-dollar event with sustained coastal damage. 75–89 (Catastrophic) — wide-area destruction, multiple coastal zones affected. 90–100 (Historic) — generation-defining storms like Katrina, Maria, Haiyan, Mangkhut. The scale is calibrated against the historical damage record from roughly 200 storms."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "Where does StormDPS get its data?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "StormDPS sources all data from public official channels. Active storms come from the U.S. National Hurricane Center (NHC) and the Joint Typhoon Warning Center (JTWC). Historical storms come from NOAA's HURDAT2 database and the international IBTrACS archive. Wind-field radii come from ATCF best-track files. No proprietary or paywalled data is used. The full historical scores are available as open data under CC BY 4.0."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "Is DPS a forecast?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "No. DPS is a destructive-potential score, not a forecast. It is computed from observed or forecast track and intensity data; it does not generate the track itself. The National Hurricane Center, Joint Typhoon Warning Center, and various ensemble models produce the track and intensity forecasts; DPS scores them. DPS is meant for situational awareness, historical comparison, and research — not a replacement for official watches and warnings."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "Why is the same storm rated differently in different basins?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "DPS uses basin-specific calibration coefficients for the Atlantic, Eastern Pacific, Western Pacific, North Indian, South Indian, and South Pacific basins. This is because each basin has different baseline activity levels, typical storm sizes, and population exposure patterns. The calibration ensures a DPS of 75 means roughly the same level of destructive potential whether the storm formed in the Atlantic or the West Pacific. Without basin adjustment, every major West Pacific storm would saturate the top of the scale."
+                }
+            },
+            {
+                "@type": "Question",
+                "name": "Can I use the StormDPS data in my own research or article?",
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": "Yes. The historical hurricane database is published under CC BY 4.0 — free to use, adapt, and redistribute, including commercially, provided you cite StormDPS as the source. Download the dataset as CSV or JSON from the Data page. A persistent Zenodo DOI is planned for the next release."
+                }
+            }
+        ]
+    }
+    </script>
+
+    <link rel="icon" type="image/x-icon" href="/frontend/favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="/frontend/logo-32.png">
+    <meta name="theme-color" content="#0a0e1a">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary:#6366f1; --bg-dark:#0a0e1a; --bg-card:#111827; --bg-input:#0d1221;
+            --text-main:#f1f5f9; --text-muted:#94a3b8; --text-dim:#64748b; --border:#1e293b;
+            --radius:10px;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg-dark); color: var(--text-main); line-height: 1.7; font-size: 16px; }
+        header { background: linear-gradient(180deg, rgba(17,24,39,.97), rgba(10,14,26,.97)); backdrop-filter: blur(12px); padding: 1rem 1.5rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
+        .logo { display: flex; align-items: center; gap: .6rem; color: var(--text-main); text-decoration: none; }
+        .logo-icon { width: 32px; height: 32px; border-radius: 8px; overflow: hidden; }
+        .logo-icon img { width: 100%; height: 100%; object-fit: cover; }
+        .logo h1 { font-size: 1.1rem; font-weight: 700; letter-spacing: -.03em; }
+        nav { display: flex; gap: 1.25rem; align-items: center; }
+        nav a { color: var(--text-muted); text-decoration: none; font-weight: 600; font-size: .95rem; transition: color .15s; }
+        nav a:hover { color: var(--text-main); }
+        nav a.cta { color: var(--primary); }
+        main { max-width: 780px; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+        h1.page-title { font-size: clamp(1.8rem, 4vw, 2.6rem); font-weight: 800; letter-spacing: -.03em; line-height: 1.2; margin-bottom: .75rem; }
+        .lede { font-size: 1.15rem; color: var(--text-muted); margin-bottom: 2.5rem; }
+        details.faq-item {
+            background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+            padding: 1.1rem 1.4rem; margin-bottom: .8rem; transition: border-color .15s;
+        }
+        details.faq-item[open] { border-color: var(--primary); }
+        details.faq-item summary {
+            cursor: pointer; font-weight: 700; font-size: 1.05rem; color: var(--text-main);
+            list-style: none; display: flex; justify-content: space-between; align-items: center;
+            gap: 1rem;
+        }
+        details.faq-item summary::-webkit-details-marker { display: none; }
+        details.faq-item summary::after {
+            content: '+'; font-size: 1.6rem; font-weight: 300; color: var(--primary); transition: transform .15s;
+            line-height: 1;
+        }
+        details.faq-item[open] summary::after { content: '−'; }
+        details.faq-item .answer { padding-top: 1rem; color: var(--text-main); }
+        details.faq-item .answer p { margin-bottom: .8rem; }
+        details.faq-item .answer p:last-child { margin-bottom: 0; }
+        a.inline { color: var(--primary); text-decoration: underline; text-decoration-color: rgba(99,102,241,.4); }
+        a.inline:hover { text-decoration-color: var(--primary); }
+        h2 { font-size: 1.4rem; font-weight: 700; letter-spacing: -.02em; margin-top: 2.5rem; margin-bottom: 1rem; }
+        .cta-row { display: flex; flex-wrap: wrap; gap: .8rem; margin-top: 2rem; }
+        .btn-link { display: inline-flex; align-items: center; gap: .5rem; padding: .65rem 1.1rem; border-radius: var(--radius); background: var(--primary); color: #fff; text-decoration: none; font-weight: 600; transition: background .15s; }
+        .btn-link:hover { background: #4f46e5; }
+        .btn-link.secondary { background: transparent; border: 1px solid var(--border); color: var(--text-main); }
+        .btn-link.secondary:hover { border-color: var(--primary); color: #fff; }
+        footer { padding: 2rem 1.5rem; text-align: center; color: var(--text-dim); font-size: .85rem; border-top: 1px solid var(--border); }
+        footer a { color: var(--text-muted); text-decoration: none; margin: 0 .6rem; }
+        footer a:hover { color: var(--text-main); }
+    </style>
+</head>
+<body>
+    <header>
+        <a href="/" class="logo">
+            <span class="logo-icon"><img src="/frontend/logo-128.png" alt="StormDPS logo"></span>
+            <h1>StormDPS</h1>
+        </a>
+        <nav>
+            <a href="/">Tracker</a>
+            <a href="/methodology">Methodology</a>
+            <a href="/historic-storms">Historic</a>
+            <a href="/data">Data</a>
+            <a href="/surgedps" class="cta">SurgeDPS</a>
+        </nav>
+    </header>
+
+    <main>
+        <h1 class="page-title">Frequently Asked Questions</h1>
+        <p class="lede">Quick answers about the Destructive Power Score, how it compares to Saffir-Simpson, and how StormDPS sources its data. For the full methodology, see the <a href="/methodology" class="inline">Methodology page</a>.</p>
+
+        <details class="faq-item" open>
+            <summary>What is the Destructive Power Score (DPS)?</summary>
+            <div class="answer">
+                <p>The Destructive Power Score is a 0–100 hurricane rating that combines peak intensity, Integrated Kinetic Energy (IKE), surge potential, duration of coastal exposure, and geographic reach into a single composite score.</p>
+                <p>It is a modern alternative to the <a href="/methodology" class="inline">Saffir-Simpson Category scale</a>, which rates storms on peak wind speed alone.</p>
+            </div>
+        </details>
+
+        <details class="faq-item">
+            <summary>Is the Saffir-Simpson scale outdated?</summary>
+            <div class="answer">
+                <p>The Saffir-Simpson scale was developed in 1971 and rates a hurricane on a single variable: one-minute sustained peak wind. It does not account for storm size, surge potential, duration, or geographic reach — all of which are major drivers of actual destruction.</p>
+                <p><a href="/storm/AL092008" class="inline">Hurricane Ike (2008)</a> made landfall as a Category 2 but caused more damage than several Category 4 and 5 storms because its wind field was three times larger than typical. Saffir-Simpson cannot represent that distinction.</p>
+            </div>
+        </details>
+
+        <details class="faq-item">
+            <summary>How is DPS different from Saffir-Simpson?</summary>
+            <div class="answer">
+                <p>Saffir-Simpson rates a hurricane on one variable (peak wind) into one of five bins. DPS rates a hurricane on a continuous 0–100 scale using five components: peak intensity, Integrated Kinetic Energy (storm size), surge potential, duration of coastal exposure, and geographic reach.</p>
+                <p>Two storms with identical Saffir-Simpson categories can have very different DPS scores — and the DPS ranking lines up much more closely with actual damage outcomes. <a href="/historic-storms" class="inline">See the ranked historic storms list</a> for examples.</p>
+            </div>
+        </details>
+
+        <details class="faq-item">
+            <summary>What is Integrated Kinetic Energy (IKE)?</summary>
+            <div class="answer">
+                <p>Integrated Kinetic Energy is the total kinetic energy in a hurricane's wind field above tropical-storm force, measured in terajoules. It captures storm size directly: a large hurricane with moderate winds can have many times the IKE of a small intense one.</p>
+                <p>IKE was developed by meteorologists Mark Powell and Tim Reinhold in 2007 specifically because peak wind speed alone proved insufficient to explain destructive footprints. Hurricane Ike's 2008 damage was retroactively explained primarily by its IKE, not its Saffir-Simpson Category 2 rating.</p>
+            </div>
+        </details>
+
+        <details class="faq-item">
+            <summary>Why was Hurricane Ike so destructive at Category 2?</summary>
+            <div class="answer">
+                <p>Ike's wind field was unusually large — its tropical-storm-force radius (R34) was approximately 275 nautical miles, more than three times larger than typical Cat 2 storms.</p>
+                <p>That meant the surge it pushed onto the upper Texas coast was Category 4–equivalent despite the peak winds being Cat 2 level. Storm surge scales with wind-field size and forward speed, not just peak wind. <a href="/storm/AL092008" class="inline">Ike's DPS score is 84 (Catastrophic)</a>, reflecting the actual destructive footprint.</p>
+            </div>
+        </details>
+
+        <details class="faq-item">
+            <summary>What does a DPS score actually mean?</summary>
+            <div class="answer">
+                <p>DPS scores fall into roughly five outcome ranges:</p>
+                <ul style="margin: .3rem 0 0 1.4rem;">
+                    <li><strong>0–24 (Minimal)</strong> — localized wind damage, no widespread flooding.</li>
+                    <li><strong>25–49 (Notable)</strong> — regional damage.</li>
+                    <li><strong>50–74 (Severe)</strong> — multi-billion-dollar event with sustained coastal damage.</li>
+                    <li><strong>75–89 (Catastrophic)</strong> — wide-area destruction, multiple coastal zones affected.</li>
+                    <li><strong>90–100 (Historic)</strong> — generation-defining storms like <a href="/storm/AL122005" class="inline">Katrina</a>, <a href="/storm/AL152017" class="inline">Maria</a>, Haiyan, Mangkhut.</li>
+                </ul>
+                <p style="margin-top: .8rem;">The scale is calibrated against the historical damage record from roughly 200 storms.</p>
+            </div>
+        </details>
+
+        <details class="faq-item">
+            <summary>Where does StormDPS get its data?</summary>
+            <div class="answer">
+                <p>StormDPS sources all data from public official channels. Active storms come from the U.S. National Hurricane Center (NHC) and the Joint Typhoon Warning Center (JTWC). Historical storms come from NOAA's HURDAT2 database and the international IBTrACS archive. Wind-field radii come from ATCF best-track files.</p>
+                <p>No proprietary or paywalled data is used. The full historical scores are available as <a href="/data" class="inline">open data under CC BY 4.0</a>.</p>
+            </div>
+        </details>
+
+        <details class="faq-item">
+            <summary>Is DPS a forecast?</summary>
+            <div class="answer">
+                <p>No. DPS is a destructive-potential score, not a forecast. It is computed from observed or forecast track and intensity data; it does not generate the track itself.</p>
+                <p>The National Hurricane Center, Joint Typhoon Warning Center, and various ensemble models produce the track and intensity forecasts; DPS scores them. DPS is meant for situational awareness, historical comparison, and research — not a replacement for official watches and warnings.</p>
+            </div>
+        </details>
+
+        <details class="faq-item">
+            <summary>Why is the same storm rated differently in different basins?</summary>
+            <div class="answer">
+                <p>DPS uses basin-specific calibration coefficients for the Atlantic, Eastern Pacific, Western Pacific, North Indian, South Indian, and South Pacific basins. Each basin has different baseline activity levels, typical storm sizes, and population exposure patterns.</p>
+                <p>The calibration ensures a DPS of 75 means roughly the same level of destructive potential whether the storm formed in the Atlantic or the West Pacific. Without basin adjustment, every major West Pacific storm would saturate the top of the scale.</p>
+            </div>
+        </details>
+
+        <details class="faq-item">
+            <summary>Can I use the StormDPS data in my own research or article?</summary>
+            <div class="answer">
+                <p>Yes. The historical hurricane database is published under <strong>CC BY 4.0</strong> — free to use, adapt, and redistribute, including commercially, provided you cite StormDPS as the source.</p>
+                <p>Download the dataset as CSV or JSON from the <a href="/data" class="inline">Data page</a>. A persistent Zenodo DOI is planned for the next release.</p>
+            </div>
+        </details>
+
+        <h2>Have a question that's not here?</h2>
+        <p>Reach out or open an issue on the <a href="https://github.com/oldreaverg-lang/StormDPS" class="inline" rel="noopener">GitHub repository</a>. The methodology and dataset are intended to be transparent and improvable.</p>
+
+        <div class="cta-row">
+            <a href="/" class="btn-link">Try the live tracker</a>
+            <a href="/methodology" class="btn-link secondary">Read the full methodology</a>
+        </div>
+    </main>
+
+    <footer>
+        <a href="/">Tracker</a> ·
+        <a href="/methodology">Methodology</a> ·
+        <a href="/historic-storms">Historic</a> ·
+        <a href="/data">Data</a> ·
+        <a href="/faq">FAQ</a> ·
+        <a href="/surgedps">SurgeDPS</a>
+        <p style="margin-top:.6rem;color:var(--text-dim)">StormDPS — open-data hurricane destructive-power scoring</p>
+    </footer>
+</body>
+</html>

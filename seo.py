@@ -111,6 +111,203 @@ _RE_TWITTER_DESCRIPTION = re.compile(
     re.IGNORECASE,
 )
 _RE_HEAD_END = re.compile(r"</head>", re.IGNORECASE)
+_RE_SSR_CONTENT_MARKER = re.compile(r"<!--SSR_STORM_CONTENT-->")
+
+
+# Inline styles for the SSR'd storm summary card. Self-contained so the card
+# renders correctly even before the SPA's main stylesheet finishes loading.
+_SSR_STYLES = """
+<style>
+.ssr-storm-summary { padding: 1.5rem 1rem 1.2rem; max-width: 980px; margin: 0 auto; }
+.ssr-storm-summary h1 { font-size: clamp(1.5rem, 3vw, 2.1rem); font-weight: 800; letter-spacing: -.03em; line-height: 1.15; color: #f1f5f9; margin-bottom: .35rem; }
+.ssr-storm-summary .ssr-subhead { color: #94a3b8; font-size: .92rem; margin-bottom: 1rem; }
+.ssr-card { background: #111827; border: 1px solid #1e293b; border-radius: 14px; padding: 1.2rem 1.4rem; display: grid; grid-template-columns: minmax(140px, auto) 1fr; gap: 1.2rem 1.8rem; align-items: start; }
+@media (max-width: 640px) { .ssr-card { grid-template-columns: 1fr; } }
+.ssr-score-block { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: .5rem; background: #0d1221; border: 1px solid #1e293b; border-radius: 12px; min-width: 140px; }
+.ssr-score-value { font-size: 3rem; font-weight: 800; letter-spacing: -.04em; line-height: 1; color: #f1f5f9; font-variant-numeric: tabular-nums; }
+.ssr-score-of { font-size: 1rem; color: #64748b; font-weight: 600; margin-left: 2px; }
+.ssr-score-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; color: #94a3b8; font-weight: 700; margin-top: .35rem; }
+.ssr-score-rating { font-size: .85rem; font-weight: 700; margin-top: .25rem; color: #6366f1; }
+.ssr-body p { color: #cbd5e1; font-size: .98rem; line-height: 1.65; margin-bottom: .7rem; }
+.ssr-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: .5rem .9rem; margin-top: .9rem; }
+.ssr-stat { background: #0d1221; border: 1px solid #1e293b; border-radius: 8px; padding: .5rem .65rem; }
+.ssr-stat-label { font-size: .68rem; text-transform: uppercase; letter-spacing: .05em; color: #64748b; font-weight: 600; }
+.ssr-stat-value { font-size: 1.05rem; font-weight: 700; color: #f1f5f9; font-variant-numeric: tabular-nums; margin-top: 1px; }
+.ssr-landfalls { margin-top: .9rem; font-size: .9rem; color: #94a3b8; }
+.ssr-landfalls strong { color: #cbd5e1; }
+.ssr-cta { margin-top: 1rem; font-size: .85rem; color: #64748b; }
+.ssr-cta a { color: #6366f1; text-decoration: underline; text-decoration-color: rgba(99,102,241,.4); }
+.ssr-cta a:hover { text-decoration-color: #6366f1; }
+.ssr-storm-summary.ssr-hidden { display: none; }
+</style>
+"""
+
+
+_DPS_LABEL_RATING = {
+    "historic": "Historic",
+    "catastrophic": "Catastrophic",
+    "severe": "Severe",
+    "notable": "Notable",
+    "minimal": "Minimal",
+}
+
+
+def _rating_from_dps(dps: Optional[float]) -> str:
+    if not isinstance(dps, (int, float)):
+        return ""
+    if dps >= 90: return "Historic"
+    if dps >= 75: return "Catastrophic"
+    if dps >= 50: return "Severe"
+    if dps >= 25: return "Notable"
+    return "Minimal"
+
+
+def _format_landfalls(landfalls: list) -> str:
+    """Render landfall regions as 'Louisiana, Mississippi (2 landfalls)' etc."""
+    if not isinstance(landfalls, list) or not landfalls:
+        return ""
+    regions: list[str] = []
+    seen = set()
+    for lf in landfalls:
+        if not isinstance(lf, dict):
+            continue
+        r = (lf.get("region") or "").strip()
+        if r and r not in seen:
+            seen.add(r)
+            regions.append(r)
+    if not regions:
+        return ""
+    if len(landfalls) > 1:
+        return f"{', '.join(regions)} ({len(landfalls)} landfalls)"
+    return regions[0]
+
+
+def _build_storm_summary_html(storm_id: str, storm: dict, canonical: str) -> str:
+    """Render the visible SSR card. Real content that Google reads."""
+    name = storm.get("name") or storm_id
+    year = storm.get("year")
+    dps = storm.get("dps")
+    label = storm.get("dps_label") or ""
+    cat = storm.get("category_lifetime") or storm.get("category")
+    basin_name = storm.get("basin_name") or ""
+    peak_wind_kt = storm.get("peak_wind_kt")
+    peak_wind_ms = storm.get("peak_wind_ms")
+    min_pressure = storm.get("min_pressure_hpa")
+    peak_ike = storm.get("peak_ike_tj") or storm.get("peak_ike")
+    landfalls = storm.get("landfalls") or []
+    rating = _rating_from_dps(dps) or _DPS_LABEL_RATING.get((label or "").lower(), "")
+
+    name_e = html.escape(name)
+    year_str = f" ({year})" if year else ""
+    dps_str = f"{dps:.0f}" if isinstance(dps, (int, float)) else "—"
+
+    # Headline: "Hurricane Katrina (2005)"
+    head_word = "Hurricane" if (isinstance(cat, int) and cat >= 1) else "Storm"
+    if basin_name and "Pacific" in basin_name and isinstance(cat, int) and cat >= 1:
+        head_word = "Typhoon" if "West" in basin_name else "Hurricane"
+    headline = f"{head_word} {name_e}{html.escape(year_str)}"
+
+    # Subhead: category + basin
+    sub_pieces = []
+    if isinstance(cat, int) and cat >= 1:
+        sub_pieces.append(f"Peak Category {cat}")
+    elif isinstance(cat, int):
+        sub_pieces.append("Tropical Storm intensity")
+    if basin_name:
+        sub_pieces.append(html.escape(basin_name))
+    subhead = " · ".join(sub_pieces)
+
+    # Prose paragraph — a real explanation, not just stats. This is the SEO meat.
+    prose_parts = []
+    prose_parts.append(
+        f"{headline} scored <strong>{dps_str}/100</strong> on the "
+        f'<a href="/methodology">Destructive Power Score</a> scale'
+        + (f" — a <strong>{rating}</strong> event" if rating else "")
+        + "."
+    )
+    # Saffir-Simpson contrast hook
+    if isinstance(cat, int) and cat >= 1 and isinstance(dps, (int, float)):
+        if dps >= 75 and cat <= 2:
+            prose_parts.append(
+                f"Although the Saffir-Simpson scale rated this storm a "
+                f"Category {cat}, its DPS score of {dps_str} reflects a far "
+                f"more destructive footprint than wind speed alone suggests — "
+                f"driven by storm size, surge potential, duration of coastal "
+                f"exposure, and geographic reach."
+            )
+        elif dps < 40 and cat >= 4:
+            prose_parts.append(
+                f"Although the Saffir-Simpson scale rated this a Category {cat}, "
+                f"its DPS score of {dps_str} reflects limited destructive impact "
+                f"— typical of an intense but compact or open-ocean storm."
+            )
+        else:
+            prose_parts.append(
+                f"Saffir-Simpson rated this a Category {cat} based on peak wind alone. "
+                f"DPS combines intensity with storm size, surge potential, duration "
+                f"of coastal exposure, and geographic reach for a fuller picture of "
+                f"destructive potential."
+            )
+    elif isinstance(dps, (int, float)):
+        prose_parts.append(
+            "DPS combines peak intensity with storm size, surge potential, "
+            "duration of coastal exposure, and geographic reach — capturing "
+            "what the traditional Saffir-Simpson Category scale misses."
+        )
+
+    landfall_text = _format_landfalls(landfalls)
+    if landfall_text:
+        prose_parts.append(f"Landfall: <strong>{html.escape(landfall_text)}</strong>.")
+
+    prose_html = "".join(f"<p>{p}</p>" for p in prose_parts)
+
+    # Stats grid
+    stats: list[tuple[str, str]] = []
+    if peak_wind_kt:
+        mph = round(peak_wind_kt * 1.15078)
+        stats.append(("Peak Winds", f"{mph} mph · {round(peak_wind_kt)} kt"))
+    elif peak_wind_ms:
+        mph = round(peak_wind_ms * 2.23694)
+        stats.append(("Peak Winds", f"{mph} mph"))
+    if min_pressure:
+        stats.append(("Min Pressure", f"{round(min_pressure)} mb"))
+    if peak_ike and isinstance(peak_ike, (int, float)):
+        stats.append(("Peak IKE", f"{peak_ike:.1f} TJ"))
+    if basin_name:
+        stats.append(("Basin", html.escape(basin_name)))
+    if rating:
+        stats.append(("DPS Rating", rating))
+
+    stats_html = ""
+    if stats:
+        stats_html = '<div class="ssr-stats">' + "".join(
+            f'<div class="ssr-stat"><div class="ssr-stat-label">{lbl}</div>'
+            f'<div class="ssr-stat-value">{val}</div></div>'
+            for lbl, val in stats
+        ) + "</div>"
+
+    cta_html = (
+        '<div class="ssr-cta">Explore the full interactive analysis below — '
+        'wind field, track, score components, and side-by-side comparisons. '
+        '<a href="/methodology">How DPS works</a>.</div>'
+    )
+
+    return (
+        _SSR_STYLES
+        + '<section class="ssr-storm-summary" id="ssrStormSummary" aria-label="Storm summary">'
+        + f"<h1>{headline} — DPS {dps_str}/100</h1>"
+        + (f'<div class="ssr-subhead">{subhead}</div>' if subhead else "")
+        + '<div class="ssr-card">'
+        + '<div class="ssr-score-block">'
+        + f'<div><span class="ssr-score-value">{dps_str}</span>'
+        + '<span class="ssr-score-of">/100</span></div>'
+        + '<div class="ssr-score-label">Destructive Power Score</div>'
+        + (f'<div class="ssr-score-rating">{rating}</div>' if rating else "")
+        + "</div>"
+        + f'<div class="ssr-body">{prose_html}{stats_html}{cta_html}</div>'
+        + "</div>"
+        + "</section>"
+    )
 
 
 def _category_word(cat: Optional[int]) -> str:
@@ -257,5 +454,12 @@ def render_storm_page(storm_id: str) -> str:
         + f'<script>window.__INITIAL_STORM_ID={json.dumps(safe_id)};</script>'
     )
     out = _RE_HEAD_END.sub(inject + "</head>", out, count=1)
+
+    # Inject the visible storm-summary card at the SSR marker. Real H1 +
+    # prose + stats that the crawler reads before any JS runs. The SPA
+    # hides this once the interactive stats row hydrates (see below).
+    if storm:
+        summary_html = _build_storm_summary_html(safe_id, storm, canonical)
+        out = _RE_SSR_CONTENT_MARKER.sub(summary_html, out, count=1)
 
     return out

@@ -467,6 +467,7 @@
         </div>
     </aside>
     <div class="main-content">
+        <!--SSR_STORM_CONTENT--><!-- server-injected per-storm summary; empty on / -->
         <div id="errorBox" class="error-bar"></div>
         <div id="loadingBar" class="loading-bar"><div class="spinner"></div><span id="loadingText">Computing Destructive Power Score...</span></div>
         <div id="loadingSteps" class="loading-steps">
@@ -3190,6 +3191,10 @@ function renderAll(stormId,data){
     window._currentStormId = stormId;  // Track for late-arriving compiled bundle re-render
     resetChartTracking(); // Force re-render of all charts for new storm data
     document.getElementById('welcomeState').classList.add('hidden');
+    // Hide the SSR'd storm summary card if present — the interactive UI
+    // now shows the same numbers in a more useful form.
+    const ssrCard = document.getElementById('ssrStormSummary');
+    if (ssrCard) ssrCard.classList.add('ssr-hidden');
     const preset=PRESETS.find(p=>p.id===stormId);
     const catalogEntry=window.stormCatalog&&window.stormCatalog.find(s=>s.id===stormId);
     const name=preset?preset.name:catalogEntry?catalogEntry.name:stormId;

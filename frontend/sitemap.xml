@@ -18,6 +18,16 @@
         <priority>0.9</priority>
     </url>
     <url>
+        <loc>https://stormdps.com/historic-storms</loc>
+        <changefreq>monthly</changefreq>
+        <priority>0.9</priority>
+    </url>
+    <url>
+        <loc>https://stormdps.com/faq</loc>
+        <changefreq>monthly</changefreq>
+        <priority>0.8</priority>
+    </url>
+    <url>
         <loc>https://stormdps.com/surgedps</loc>
         <changefreq>weekly</changefreq>
         <priority>0.8</priority>
