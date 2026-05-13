@@ -390,7 +390,15 @@ async def internal_error_handler(request: Request, exc):
 
 @app.get("/")
 async def serve_frontend():
-    return FileResponse(FRONTEND_DIR / "index.html")
+    # Cache-Control lets Cloudflare cache the SPA shell at the edge so the
+    # majority of users skip the origin entirely. PageSpeed flagged the
+    # document request as 1,259 ms server time — likely Railway cold-start
+    # contention with the lifespan warm tasks. Edge cache hides that from
+    # everyone after the first hit.
+    return FileResponse(
+        FRONTEND_DIR / "index.html",
+        headers={"Cache-Control": "public, max-age=300, s-maxage=900"},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -616,14 +624,14 @@ async def serve_compiled_bundle():
         return FileResponse(
             _VOLUME_COMPILED_BUNDLE,
             media_type="application/json",
-            headers={"Cache-Control": "public, max-age=60"},
+            headers={"Cache-Control": "public, max-age=300, s-maxage=900"},
         )
     baked = FRONTEND_DIR / "compiled_bundle.json"
     if baked.exists():
         return FileResponse(
             baked,
             media_type="application/json",
-            headers={"Cache-Control": "public, max-age=60"},
+            headers={"Cache-Control": "public, max-age=300, s-maxage=900"},
         )
     raise HTTPException(status_code=404, detail="compiled_bundle.json not found")
 
