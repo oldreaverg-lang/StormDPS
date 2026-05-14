@@ -122,6 +122,49 @@
             margin: 1.5rem 0;
         }
         .callout strong { display: block; margin-bottom: .35rem; }
+        /* Collapsible computational-pipeline diagram. Hidden by default
+           so prose readers can skim past — technical readers expand for
+           the full Atlantic flow with all sub-score weights and bonuses. */
+        .formula-pipeline {
+            margin: 2rem 0;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            overflow: hidden;
+        }
+        .formula-pipeline summary {
+            padding: .9rem 1.2rem;
+            cursor: pointer;
+            font-weight: 600;
+            color: var(--text-main);
+            user-select: none;
+            list-style: none;
+            display: flex; align-items: center; justify-content: space-between;
+            gap: .8rem;
+        }
+        .formula-pipeline summary::-webkit-details-marker { display: none; }
+        .formula-pipeline summary::after {
+            content: "\25BE";
+            color: var(--text-dim);
+            font-size: .85rem;
+            transition: transform .2s;
+        }
+        .formula-pipeline[open] summary::after { transform: rotate(180deg); }
+        .formula-pipeline summary:hover { background: var(--bg-input); }
+        .formula-pipeline .pipeline-body {
+            padding: 1rem 1.2rem 1.3rem;
+            border-top: 1px solid var(--border);
+        }
+        .formula-pipeline svg {
+            width: 100%; height: auto; display: block;
+            border-radius: var(--radius);
+        }
+        .formula-pipeline .pipeline-caption {
+            color: var(--text-dim);
+            font-size: .85rem;
+            line-height: 1.55;
+            margin: .9rem 0 0;
+        }
         table {
             width: 100%; border-collapse: collapse; margin: 1.25rem 0;
             background: var(--bg-card); border-radius: var(--radius); overflow: hidden;
@@ -205,6 +248,144 @@
         </table>
 
         <p>The components are combined into a normalized 0–100 score with basin-specific adjustments — Atlantic, Eastern Pacific, Western Pacific, North Indian, South Indian, and South Pacific storms each have their own calibration so the scale behaves consistently regardless of where the storm formed. A score of 50 means roughly the same thing in the Atlantic as in the Western Pacific. A score of 95 in either basin is among the most destructive storms ever recorded.</p>
+
+        <details class="formula-pipeline">
+            <summary>Show the computational pipeline (Atlantic basin)</summary>
+            <div class="pipeline-body">
+                <svg viewBox="0 0 1200 2720" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="pipeline-title pipeline-desc">
+                    <title id="pipeline-title">StormDPS Atlantic-basin computational pipeline</title>
+                    <desc id="pipeline-desc">Five-stage flowchart converting a tropical cyclone's track snapshots into a final Destructive Power Score from 0 to 99. Stage 1 computes per-snapshot DPI from a weighted blend of IKE, surge-rain, and economic sub-scores plus interaction bonuses, dampened by land proximity. Stage 2 derives cumulative DPI from peak DPI, duration factor, and breadth factor. Stage 3 adds US economic boost factors. Stage 4 is the Atlantic baseline (no-op). Stage 5 applies square-root compression to map the score into the 0 to 99 display range.</desc>
+
+                    <defs>
+                        <style>
+                            .bg { fill:#0f172a; }
+                            .stage { fill:#1e293b; stroke:#6366f1; stroke-width:2; rx:18; }
+                            .inner { fill:#111827; stroke:#818cf8; stroke-width:1.5; rx:12; }
+                            .final { fill:#052e16; stroke:#22c55e; stroke-width:3; }
+                            .header { fill:#e2e8f0; font-family:Arial, Helvetica, sans-serif; font-size:22px; font-weight:700; }
+                            .label { fill:#e5e7eb; font-family:Arial, Helvetica, sans-serif; font-size:18px; font-weight:600; }
+                            .mono { fill:#d1d5db; font-family:"Courier New", monospace; font-size:17px; }
+                            .smallmono { fill:#cbd5e1; font-family:"Courier New", monospace; font-size:16px; }
+                            .arrow { stroke:#94a3b8; stroke-width:3; fill:none; marker-end:url(#arrowhead); }
+                        </style>
+                        <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+                            <polygon points="0,0 10,5 0,10" fill="#94a3b8"/>
+                        </marker>
+                    </defs>
+
+                    <rect class="bg" width="1200" height="2720"/>
+
+                    <!-- Top Input -->
+                    <rect x="370" y="30" width="460" height="90" class="inner"/>
+                    <text x="600" y="62" text-anchor="middle" class="label">Track snapshots</text>
+                    <text x="600" y="92" text-anchor="middle" class="mono">(wind, R34, lat/lon,</text>
+                    <text x="600" y="116" text-anchor="middle" class="mono">pressure, fwd speed)</text>
+                    <line x1="600" y1="120" x2="600" y2="160" class="arrow"/>
+
+                    <!-- STAGE 1 -->
+                    <rect x="170" y="160" width="860" height="390" class="stage"/>
+                    <text x="600" y="200" text-anchor="middle" class="header">Stage 1 — Per snapshot DPI</text>
+                    <rect x="430" y="235" width="340" height="105" class="inner"/>
+                    <text x="600" y="272" text-anchor="middle" class="mono">0.30 · IKE_score</text>
+                    <text x="600" y="302" text-anchor="middle" class="mono">+ 0.35 · SurgeRain_score</text>
+                    <text x="600" y="332" text-anchor="middle" class="mono">+ 0.35 · Economic_score</text>
+                    <line x1="600" y1="340" x2="600" y2="380" class="arrow"/>
+                    <rect x="420" y="380" width="360" height="150" class="inner"/>
+                    <text x="600" y="418" text-anchor="middle" class="mono">+ vuln_bonus (≤ 20)</text>
+                    <text x="600" y="448" text-anchor="middle" class="mono">+ compact_bonus (≤ 22)</text>
+                    <text x="600" y="478" text-anchor="middle" class="mono">+ coast_tracking (≤ 10)</text>
+                    <text x="600" y="508" text-anchor="middle" class="mono">+ stall_dpi + RI</text>
+                    <line x1="600" y1="530" x2="600" y2="570" class="arrow"/>
+                    <rect x="430" y="570" width="340" height="110" class="inner"/>
+                    <text x="600" y="614" text-anchor="middle" class="mono">× land_proximity</text>
+                    <text x="600" y="650" text-anchor="middle" class="smallmono">(0.30 open ocean → 1.0 at coast)</text>
+                    <line x1="600" y1="680" x2="600" y2="720" class="arrow"/>
+                    <rect x="490" y="720" width="220" height="80" class="inner"/>
+                    <text x="600" y="762" text-anchor="middle" class="mono">snapshot DPI</text>
+                    <text x="600" y="790" text-anchor="middle" class="mono">0–100</text>
+                    <line x1="600" y1="800" x2="600" y2="850" class="arrow"/>
+
+                    <!-- STAGE 2 -->
+                    <rect x="90" y="850" width="1020" height="470" class="stage"/>
+                    <text x="600" y="890" text-anchor="middle" class="header">Stage 2 — Cumulative DPI</text>
+                    <rect x="150" y="970" width="240" height="95" class="inner"/>
+                    <text x="270" y="1020" text-anchor="middle" class="mono">peak_DPI</text>
+                    <text x="270" y="1052" text-anchor="middle" class="mono">= max(snapshot DPI)</text>
+                    <rect x="430" y="930" width="340" height="190" class="inner"/>
+                    <text x="600" y="970" text-anchor="middle" class="mono">duration_factor (≤ 0.10)</text>
+                    <text x="600" y="1005" text-anchor="middle" class="smallmono">Σ((DPIᵢ / peak) · Δt ·</text>
+                    <text x="600" y="1035" text-anchor="middle" class="smallmono">zone_weight</text>
+                    <text x="600" y="1065" text-anchor="middle" class="smallmono">over snapshots with DPI &gt;</text>
+                    <text x="600" y="1095" text-anchor="middle" class="smallmono">25 near coast</text>
+                    <rect x="760" y="950" width="320" height="125" class="inner"/>
+                    <text x="920" y="990" text-anchor="middle" class="mono">breadth_factor (≤ 0.10)</text>
+                    <text x="920" y="1025" text-anchor="middle" class="mono">IKE_norm ·</text>
+                    <text x="920" y="1060" text-anchor="middle" class="smallmono">coastal_hours / 48h · 0.20</text>
+                    <line x1="270" y1="1065" x2="270" y2="1160" class="arrow"/>
+                    <line x1="600" y1="1120" x2="600" y2="1160" class="arrow"/>
+                    <line x1="920" y1="1075" x2="920" y2="1160" class="arrow"/>
+                    <line x1="270" y1="1160" x2="500" y2="1160" class="arrow"/>
+                    <line x1="920" y1="1160" x2="700" y2="1160" class="arrow"/>
+                    <rect x="430" y="1160" width="340" height="110" class="inner"/>
+                    <text x="600" y="1200" text-anchor="middle" class="mono">cum_DPI = peak_DPI · (1 +</text>
+                    <text x="600" y="1230" text-anchor="middle" class="mono">duration + breadth)</text>
+                    <text x="600" y="1260" text-anchor="middle" class="smallmono">(uncapped — can exceed 100)</text>
+                    <line x1="600" y1="1270" x2="600" y2="1340" class="arrow"/>
+
+                    <!-- STAGE 3 -->
+                    <rect x="220" y="1340" width="760" height="350" class="stage"/>
+                    <text x="600" y="1380" text-anchor="middle" class="header">Stage 3 — US economic boost factors</text>
+                    <rect x="320" y="1420" width="560" height="180" class="inner"/>
+                    <text x="600" y="1460" text-anchor="middle" class="smallmono">combined_boost =</text>
+                    <text x="600" y="1490" text-anchor="middle" class="smallmono">exposure_factor (R3,</text>
+                    <text x="600" y="1520" text-anchor="middle" class="smallmono">landfall population)</text>
+                    <text x="600" y="1550" text-anchor="middle" class="smallmono">+ perp_factor (R4,</text>
+                    <text x="600" y="1580" text-anchor="middle" class="smallmono">perpendicular surge)</text>
+                    <line x1="600" y1="1600" x2="600" y2="1640" class="arrow"/>
+                    <rect x="390" y="1640" width="420" height="120" class="inner"/>
+                    <text x="600" y="1680" text-anchor="middle" class="mono">boosted = peak_DPI ·</text>
+                    <text x="600" y="1710" text-anchor="middle" class="mono">((cum_DPI / peak_DPI) +</text>
+                    <text x="600" y="1740" text-anchor="middle" class="mono">combined_boost)</text>
+                    <line x1="600" y1="1760" x2="600" y2="1810" class="arrow"/>
+
+                    <!-- STAGE 4 -->
+                    <rect x="300" y="1810" width="600" height="220" class="stage"/>
+                    <text x="600" y="1850" text-anchor="middle" class="header">Stage 4 — Atlantic basin (no-op baseline)</text>
+                    <rect x="350" y="1880" width="500" height="120" class="inner"/>
+                    <text x="600" y="1920" text-anchor="middle" class="mono">× 1.00 — Atlantic is the reference</text>
+                    <text x="600" y="1950" text-anchor="middle" class="smallmono">no sub-basin multiplier / RI bonus /</text>
+                    <text x="600" y="1980" text-anchor="middle" class="smallmono">rainfall-footprint bonus / no-landfall dampener</text>
+                    <line x1="600" y1="2000" x2="600" y2="2060" class="arrow"/>
+
+                    <!-- STAGE 5 -->
+                    <rect x="250" y="2060" width="700" height="430" class="stage"/>
+                    <text x="600" y="2100" text-anchor="middle" class="header">Stage 5 — Sqrt compression to 0–99</text>
+                    <polygon points="600,2170 700,2270 600,2370 500,2270" fill="#111827" stroke="#818cf8" stroke-width="2"/>
+                    <text x="600" y="2280" text-anchor="middle" class="mono">adjusted &gt; 70?</text>
+                    <text x="455" y="2305" class="smallmono">yes</text>
+                    <text x="725" y="2305" class="smallmono">no</text>
+                    <line x1="520" y1="2330" x2="410" y2="2390" class="arrow"/>
+                    <rect x="220" y="2390" width="330" height="85" class="inner"/>
+                    <text x="385" y="2440" text-anchor="middle" class="mono">70 + 2.5 · √(x − 70)</text>
+                    <line x1="680" y1="2330" x2="790" y2="2390" class="arrow"/>
+                    <rect x="700" y="2390" width="180" height="85" class="inner"/>
+                    <text x="790" y="2440" text-anchor="middle" class="mono">identity</text>
+                    <line x1="385" y1="2475" x2="385" y2="2530" class="arrow"/>
+                    <line x1="790" y1="2475" x2="790" y2="2530" class="arrow"/>
+                    <line x1="385" y1="2530" x2="600" y2="2530" class="arrow"/>
+                    <line x1="790" y1="2530" x2="600" y2="2530" class="arrow"/>
+                    <rect x="470" y="2530" width="260" height="80" class="inner"/>
+                    <text x="600" y="2578" text-anchor="middle" class="mono">DPS = min(99, x)</text>
+                    <line x1="600" y1="2610" x2="600" y2="2670" class="arrow"/>
+
+                    <!-- FINAL -->
+                    <rect x="500" y="2670" width="200" height="100" rx="50" class="final"/>
+                    <text x="600" y="2710" text-anchor="middle" fill="#dcfce7" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700">Final DPS</text>
+                    <text x="600" y="2750" text-anchor="middle" fill="#bbf7d0" font-family="'Courier New', monospace" font-size="22">0 – 99</text>
+                </svg>
+                <p class="pipeline-caption">The five-stage pipeline that produces the Destructive Power Score for an Atlantic-basin storm. Each basin has its own Stage 4 calibration — the Atlantic version is the no-op baseline against which Eastern Pacific (×1.05 plus a rapid-intensification bonus), Western Pacific (×1.10 plus sub-basin multipliers, multi-landfall, orographic, and rainfall-footprint bonuses), and North Indian (×1.15) are tuned. Stages 1–3 and 5 are identical across basins.</p>
+            </div>
+        </details>
 
         <h2>How DPS maps to outcomes</h2>
         <p>The 0–100 scale is calibrated against historical outcomes — damage in inflation-adjusted dollars, fatalities, and post-storm survey reports — across roughly 200 storms from 2015 onward. The ranges below are not strict bins; they are typical outcome buckets.</p>
