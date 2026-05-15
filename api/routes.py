@@ -161,7 +161,15 @@ from storage import (
 #           US-only). Retroactively re-credits Yagi, Hagibis, Haiyan,
 #           Mangkhut, etc. Also fixes Saipan landfall routing via new
 #           Mariana Islands region.
-_DPS_CACHE_VERSION = "v9-wp-coastal"
+# v10-per-basin-compression (2026-05-14): Stage-5 sqrt compression is now
+#           per-basin (compression_T, compression_S read from
+#           BASIN_COEFFICIENTS) instead of a single global (T=70, S=2.5).
+#           Atlantic reverts to its original (T=60, S=4) curve so the
+#           hand-tuned Atlantic spread (Katrina 93 / Maria 86 / Harvey 83)
+#           is preserved. Other basins retain (T=70, S=2.5) to handle
+#           their bonus-stack saturation. See DURATION_STALL_COASTAL_AUDIT.md
+#           §4 for the analysis that motivated reverting Atlantic.
+_DPS_CACHE_VERSION = "v10-per-basin-compression"
 
 # Cache for global IBTrACS catalog to avoid repeated large downloads/parses.
 # We also persist a json cache file so restarts can reuse the catalog quickly.

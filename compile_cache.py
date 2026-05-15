@@ -42,12 +42,25 @@ BASIN_COEFFICIENTS = {
         "ri_bonus": 0,
         "duration_factor": 1.0,
         "name": "Atlantic",
+        # Compression curve. Atlantic was calibrated under (T=60, S=4) and
+        # the score distribution across major storms (Katrina ~93, Maria
+        # ~86, Harvey ~83) was deliberately tuned to that spread. WP's
+        # bonus stack saturates that curve at 99 for every major typhoon
+        # (see WP_DPS_AUDIT.md §3), which is what motivated the v7-audit
+        # retune to (T=70, S=2.5). Keeping Atlantic on the original curve
+        # preserves the basin's hand-tuned ranking; the retuned curve
+        # below applies only to basins whose bonus stacks can reach
+        # pre-comp 180+.
+        "compression_T": 60.0,
+        "compression_S": 4.0,
     },
     "EASTERN_PACIFIC": {
         "dps_multiplier": 1.05,  # 5% boost for RI emphasis
         "ri_bonus": 15,  # Bonus if rapid intensification detected
         "duration_factor": 1.0,
         "name": "Eastern Pacific",
+        "compression_T": 70.0,
+        "compression_S": 2.5,
     },
     "WESTERN_PACIFIC": {
         "dps_multiplier": 1.10,  # 10% boost for large wind fields
@@ -88,24 +101,37 @@ BASIN_COEFFICIENTS = {
             "WP_MARIANA":      1.05,  # US territory — Guam Navy / Saipan tourism; dense small-island exposure + military infrastructure
             "WP_GENERAL":      1.00,  # Default: no extra boost beyond base multiplier
         },
+        # WP storms with the full bonus stack (sub-basin × 1.10–1.20, RI +5–20,
+        # multi-LF, orographic, rainfall-footprint) routinely land at pre-comp
+        # 180–220. The v7-audit retune to T=70, S=2.5 was specifically motivated
+        # by this — under the Atlantic curve (T=60, S=4) every major typhoon
+        # saturates at 99. See WP_DPS_AUDIT.md §3.
+        "compression_T": 70.0,
+        "compression_S": 2.5,
     },
     "NORTH_INDIAN": {
         "dps_multiplier": 1.15,  # 15% boost for surge dominance
         "ri_bonus": 0,
         "duration_factor": 1.0,
         "name": "North Indian",
+        "compression_T": 70.0,
+        "compression_S": 2.5,
     },
     "SOUTH_INDIAN": {
         "dps_multiplier": 1.03,  # 3% slight boost
         "ri_bonus": 0,
         "duration_factor": 1.0,
         "name": "South Indian",
+        "compression_T": 70.0,
+        "compression_S": 2.5,
     },
     "SOUTH_PACIFIC": {
         "dps_multiplier": 1.0,  # Baseline
         "ri_bonus": 0,
         "duration_factor": 1.0,
         "name": "South Pacific",
+        "compression_T": 70.0,
+        "compression_S": 2.5,
     },
 }
 
@@ -510,17 +536,24 @@ def compute_perpendicular_factor(landfall_events, coastal_hours):
     Gives 3% bonus per US mainland landfall, capped at PERPENDICULAR_CAP.
 
     Returns: (perp_factor, us_landfall_count)
-    """
-    if coastal_hours >= 24:
-        return 0.0, 0  # Not a perpendicular pattern
 
+    [BUGFIX 2026-05-14] us_landfall_count is now always derived from
+    landfall_events regardless of whether perp_factor fires. The previous
+    version returned (0.0, 0) whenever coastal_hours >= 24, which made
+    Katrina/Harvey/Ian/Sandy etc. all report us_landfall_count=0 in the
+    bundle despite obviously landing on US soil — perp_factor's gating
+    on coastal_hours was bleeding into the unrelated landfall count.
+    """
+    # Always count US landfalls from the event list — this is a property
+    # of the storm, not of whether the perp-bonus gate is met.
     us_landfalls = sum(
         1 for e in landfall_events
         if e.get("region", "") in US_MAINLAND_REGIONS
     )
 
-    if us_landfalls < 1:
-        return 0.0, us_landfalls  # Need at least 1 US landfall
+    # Perp-factor is the part that requires the "fast perpendicular" pattern
+    if coastal_hours >= 24 or us_landfalls < 1:
+        return 0.0, us_landfalls
 
     perp_factor = min(PERPENDICULAR_CAP, us_landfalls * 0.03)
     return round(perp_factor, 4), us_landfalls
@@ -682,24 +715,22 @@ def apply_basin_dps_adjustment(cum_dpi, basin, snapshots,
             adjusted_dps *= 0.60
             adjustment_notes.append("×0.60(no-landfall)")
 
-    # [v7 AUDIT] Sqrt compression retuned from (T=60, S=4) to (T=70, S=2.5).
+    # Compression curve — now per-basin (v10).
     #
-    # Rationale: the previous curve was calibrated so "raw 140 → 95", but
-    # in practice a Cat 4+ WP typhoon with RI + LF + ORO + sub-basin
-    # multiplier lands at pre-compression 180–220, which the old curve
-    # clamped to the 99 ceiling for effectively every major storm. The
-    # retuned curve moves the elbow up and slows the rise so that:
+    # Atlantic was calibrated under (T=60, S=4) and the score distribution
+    # across major Atlantic storms (Katrina ~93, Maria ~86, Harvey ~83) was
+    # deliberately tuned to that spread. WP's bonus stack (sub-basin × 1.10-
+    # 1.20 + RI + multi-LF + orographic + rainfall-footprint) saturates the
+    # Atlantic curve at 99 for every major typhoon (WP_DPS_AUDIT.md §3),
+    # which motivated the v7-audit retune to (T=70, S=2.5). Pulling T and S
+    # from coeffs lets each basin keep its own hand-tuned compression
+    # without spilling cross-basin side-effects.
     #
-    #     raw  80 → 78     raw 150 → 84     raw 220 →  99 (capped)
-    #     raw 100 → 83     raw 180 → 96
-    #     raw 140 → 92     raw 200 → 99 (capped)
-    #
-    # This preserves the design intent (99 is unreachable except by
-    # truly extreme storms) while restoring discrimination in the 90–98
-    # band, where every major WP typhoon used to pile up at 99.
+    # Atlantic (T=60, S=4):    raw  80 → 78     raw 120 → 91     raw 155 → 99 (capped)
+    # Other basins (T=70, 2.5): raw  80 → 78     raw 150 → 84     raw 205 → 99 (capped)
     import math as _m
-    _T = 70.0   # Compression threshold
-    _S = 2.5    # Spread factor (gentler than v6 so top-tier storms spread out)
+    _T = float(coeffs.get("compression_T", 70.0))
+    _S = float(coeffs.get("compression_S", 2.5))
     if adjusted_dps > _T:
         adjusted_dps = _T + _S * _m.sqrt(adjusted_dps - _T)
     adjusted_dps = min(adjusted_dps, 99.0)  # Hard ceiling (no storm is "perfect 100")
