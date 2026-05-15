@@ -297,10 +297,18 @@ def _evict_ike_cache():
 
 
 def _ike_cache_key(storm_id: str, grid_res_km: float, skip: int) -> str:
-    """Generate cache filename for a storm+params combo."""
-    raw = f"{storm_id}_{grid_res_km}_{skip}_{_IKE_CACHE_VERSION}"
+    """Generate cache filename for a storm+params combo.
+
+    storm_id is sanitized to [A-Za-z0-9_-] before being used in the
+    filename so probe traffic / malformed IDs don't accumulate as oddly-
+    named files in the IKE cache directory. Mirrors the sanitization
+    already done in the DPS cache path."""
+    safe_sid = "".join(c for c in (storm_id or "") if c in _SAFE_STORM_ID_CHARS)
+    if not safe_sid:
+        safe_sid = "UNKNOWN"
+    raw = f"{safe_sid}_{grid_res_km}_{skip}_{_IKE_CACHE_VERSION}"
     h = hashlib.md5(raw.encode()).hexdigest()[:8]
-    return f"{storm_id}_{h}.json"
+    return f"{safe_sid}_{h}.json"
 
 
 def _load_ike_cache(storm_id: str, grid_res_km: float, skip: int) -> list[dict] | None:
@@ -967,6 +975,19 @@ async def get_sst_along_track(points: list[dict] = Body(...)):
     Expects a JSON array of {lat, lon, timestamp} objects.
     Returns SST (°C) at each point from the NOAA Geo-polar Blended SST dataset.
     """
+    # Input cap. Each point spawns an upstream ERDDAP request inside
+    # services/noaa_client.get_sst_along_track, so an unbounded array
+    # turns one HTTP request to us into thousands of egress requests.
+    # 500 covers the longest IBTrACS track at 6-hourly resolution
+    # (~125 days) with headroom.
+    if not isinstance(points, list):
+        raise HTTPException(status_code=400, detail="points must be an array")
+    if len(points) > 500:
+        raise HTTPException(
+            status_code=413,
+            detail=f"too many points ({len(points)}); max 500",
+        )
+
     from services.source_health import SourceHealthMonitor
     monitor = SourceHealthMonitor.instance()
 
