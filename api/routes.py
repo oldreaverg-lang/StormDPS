@@ -219,7 +219,19 @@ from storage import (
 #           is preserved. Other basins retain (T=70, S=2.5) to handle
 #           their bonus-stack saturation. See DURATION_STALL_COASTAL_AUDIT.md
 #           §4 for the analysis that motivated reverting Atlantic.
-_DPS_CACHE_VERSION = "v10-per-basin-compression"
+# v11-ep-basin (2026-05-15): Eastern Pacific basin extended to match the
+#           sophistication of WP ahead of El Niño 2026 season. EP now has
+#           sub-basin multipliers (Mexico Pacific 1.10 / Baja 0.95 /
+#           Central America 1.05 / Hawaii 0.85 / General 1.00), multi-
+#           landfall bonus, orographic bonus (Sierra Madre del Sur,
+#           Hawaiian volcanic peaks, Guatemala highlands), rainfall-
+#           footprint proxy gated on Mexico/Central America sub-basins,
+#           and a no-landfall dampener (×0.60 for open-ocean recurvers).
+#           COASTAL_BOXES + ZONE_WEIGHTS extended to cover EP coast so
+#           duration_factor and breadth_factor actually fire. See
+#           EP_DPS_AUDIT.md for the full analysis + storm-by-storm
+#           before/after.
+_DPS_CACHE_VERSION = "v11-ep-basin"
 
 # Cache for global IBTrACS catalog to avoid repeated large downloads/parses.
 # We also persist a json cache file so restarts can reuse the catalog quickly.

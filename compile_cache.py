@@ -59,6 +59,21 @@ BASIN_COEFFICIENTS = {
         "ri_bonus": 15,  # Bonus if rapid intensification detected
         "duration_factor": 1.0,
         "name": "Eastern Pacific",
+        # Sub-region vulnerability-adjusted multipliers (EP_DPS_AUDIT.md).
+        # Added 2026-05-15 ahead of the El Niño-driven 2026 EP season.
+        # Compose with COASTAL_EXPOSURE_WEIGHTS the same way WP's
+        # sub_basin_multipliers do. Mexico Pacific Coast (Acapulco-
+        # Manzanillo-Mazatlán corridor) gets the largest boost — Otis 2023
+        # showed catastrophe potential there. Baja is downweighted —
+        # Hilary 2023 demonstrated low realized damage even for Cat 4
+        # peaks because of sparse coast.
+        "sub_basin_multipliers": {
+            "EP_MEXICO_PACIFIC":   1.10,  # Acapulco / Manzanillo / Mazatlán / PV
+            "EP_BAJA":             0.95,  # Cabo / La Paz / Loreto
+            "EP_CENTRAL_AMERICA":  1.05,  # El Salvador / Guatemala / Nicaragua
+            "EP_HAWAII":           0.85,  # Hawaiian Islands — dense small, high-value
+            "EP_GENERAL":          1.00,  # Open ocean / no clean region match
+        },
         "compression_T": 70.0,
         "compression_S": 2.5,
     },
@@ -227,8 +242,18 @@ COASTAL_REGIONS = [
     (14.0, 18.5, -62.0, -59.0, "Leeward Islands"),
     (12.0, 14.0, -62.0, -59.0, "Windward Islands"),
     (17.5, 22.5, -85.0, -74.0, "Cuba / Jamaica"),
-    # Central America / Mexico
+    # Central America / Mexico (Atlantic / Caribbean side)
     (14.0, 23.0, -98.0, -85.0, "Mexico / Central America"),
+    # --- Eastern Pacific ---
+    # Added 2026-05-15 (EP_DPS_AUDIT.md). Mirrors the boxes in
+    # core/cumulative_dpi.COASTAL_BOXES. Ordered specific → general so
+    # Acapulco lands in "Mexico Pacific" not the broader Central America
+    # box. Note these are Pacific-side coast (negative longitude) and
+    # don't overlap with the Atlantic Mexico/Central America box above.
+    (22.0, 27.0, -111.0, -105.0, "Baja California"),    # Cabo / La Paz / Loreto
+    (16.0, 22.0, -106.0,  -97.0, "Mexico Pacific"),     # Acapulco / Manzanillo / PV / Mazatlán
+    (10.0, 16.0,  -94.0,  -83.0, "Central America Pacific"),
+    (18.5, 22.5, -160.5, -154.5, "Hawaii"),
     # Western Pacific
     # Mariana Islands (Guam, Saipan, Tinian, Rota) — US territory.
     # Placed before Japan so Saipan (~15.2°N, 145.7°E) matches here, not Japan.
@@ -298,19 +323,43 @@ def has_orographic_rainfall_potential(snapshots, basin):
     cyclones requires the low-level circulation to actually interact
     with terrain, which is a near-landfall / inland process.
     """
-    if basin != "WESTERN_PACIFIC":
+    # WP and EP both qualify for orographic credit (Sierra Madre del Sur
+    # and Hawaiian volcanoes are real rainfall amplifiers for EP storms —
+    # Otis 2023 and John 2024 both dumped catastrophic rain over the
+    # Sierra). Atlantic doesn't because Appalachians are too far from the
+    # storm's wind field at landfall to count as a TC orographic
+    # interaction in the WP-formula sense.
+    if basin not in ("WESTERN_PACIFIC", "EASTERN_PACIFIC"):
         return False, 0
 
-    # Mountain regions in Western Pacific (lat, lon, elevation_m)
-    mountain_zones = [
-        (11.5, 124.0, 2500),   # Philippines Cordilleras
-        (14.5, 121.0, 2500),   # Philippines highlands (Sierra Madre)
-        (24.0, 121.0, 3952),   # Taiwan Central Mountains
-        (35.0, 139.0, 3776),   # Japan Alps
-        (20.5, 103.0, 2819),   # Laos mountains
-        (17.0, 105.0, 2982),   # Vietnam highlands (Annamite Range)
-        (37.5, 128.0, 1638),   # Korea Taebaek Range
-    ]
+    # Mountain regions by basin (lat, lon, elevation_m)
+    if basin == "WESTERN_PACIFIC":
+        mountain_zones = [
+            (11.5, 124.0, 2500),   # Philippines Cordilleras
+            (14.5, 121.0, 2500),   # Philippines highlands (Sierra Madre)
+            (24.0, 121.0, 3952),   # Taiwan Central Mountains
+            (35.0, 139.0, 3776),   # Japan Alps
+            (20.5, 103.0, 2819),   # Laos mountains
+            (17.0, 105.0, 2982),   # Vietnam highlands (Annamite Range)
+            (37.5, 128.0, 1638),   # Korea Taebaek Range
+        ]
+    else:  # EASTERN_PACIFIC
+        mountain_zones = [
+            # Sierra Madre del Sur (Acapulco / Guerrero / Oaxaca) — Otis,
+            # John both dumped catastrophic rain here
+            (17.0,  -99.5, 3700),
+            # Sierra Madre Occidental (Sinaloa / Nayarit / Jalisco) — PV,
+            # Mazatlán corridor; Patricia and Willa interacted with this
+            (22.5, -104.5, 3340),
+            # Sierra de la Laguna (Baja Sur) — modest, but Hilary 2023
+            # crossed this on Baja landfall before re-emerging
+            (23.5, -110.0, 2200),
+            # Hawaiian volcanic peaks — Mauna Kea / Mauna Loa / Haleakala
+            (19.8, -155.5, 4205),   # Mauna Kea / Mauna Loa (Big Island)
+            (20.7, -156.2, 3055),   # Haleakala (Maui)
+            # Central American highlands — TGR / Volcán Tajumulco corridor
+            (14.5,  -91.0, 4220),   # Guatemala highlands (Tajumulco)
+        ]
 
     has_mountains = False
     max_intensity = 0
@@ -382,6 +431,40 @@ def determine_wp_sub_basin(snapshots):
     return max_region if counts[max_region] > 0 else "WP_GENERAL"
 
 
+def determine_ep_sub_basin(snapshots):
+    """
+    Determine which Eastern Pacific sub-region the storm primarily
+    affected. Tally-by-snapshot like determine_wp_sub_basin so a track
+    that brushes multiple regions gets credit for the densest one.
+
+    Mexico Pacific Coast (Acapulco / Manzanillo / Mazatlán / Puerto
+    Vallarta) is intentionally the broadest box because most EP
+    landfalls happen there. Baja and Central America are tighter so a
+    Mexico mainland storm doesn't accidentally classify as either.
+    """
+    if not snapshots:
+        return "EP_GENERAL"
+
+    regions = [
+        # key,                  lat_min, lat_max, lon_min, lon_max
+        ("EP_BAJA",              22.0, 27.0, -111.0, -105.0),  # Cabo to Loreto
+        ("EP_HAWAII",            18.5, 22.5, -160.5, -154.5),  # Hawaiian Islands
+        ("EP_MEXICO_PACIFIC",    16.0, 22.0, -106.0,  -97.0),  # Acapulco / Manzanillo
+        ("EP_CENTRAL_AMERICA",   10.0, 16.0,  -94.0,  -83.0),  # El Salvador / Guatemala / Nicaragua
+    ]
+
+    counts = {key: 0 for key, *_ in regions}
+    for snapshot in snapshots:
+        lat = snapshot.get("lat", 0)
+        lon = snapshot.get("lon", 0)
+        for key, lat_min, lat_max, lon_min, lon_max in regions:
+            if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
+                counts[key] += 1
+
+    max_region = max(counts, key=counts.get)
+    return max_region if counts[max_region] > 0 else "EP_GENERAL"
+
+
 # ============================================================================
 # POPULATION EXPOSURE WEIGHTS (R3 — Coastal Asset Density)
 # ============================================================================
@@ -439,6 +522,12 @@ COASTAL_EXPOSURE_WEIGHTS = {
     # Similar density class to Taiwan: dense island coast + major US military
     # infrastructure + tourism economy.
     "Mariana Islands":          0.55,
+    # Eastern Pacific — added 2026-05-15 (EP_DPS_AUDIT.md). Calibrated
+    # against published damage profiles for the major EP landfall sites.
+    "Mexico Pacific":           0.55,  # Acapulco / Manzanillo / Mazatlán / PV
+    "Baja California":          0.30,  # Cabo / La Paz — sparse coast
+    "Central America Pacific":  0.40,  # El Salvador / Guatemala / Nicaragua
+    "Hawaii":                   0.55,  # Oahu metro / Hilo / Maui
     # Default
     "Coast":                    0.20,
 }
@@ -598,6 +687,18 @@ def apply_basin_dps_adjustment(cum_dpi, basin, snapshots,
         if abs(sub_multiplier - 1.0) > 0.01:
             adjusted_dps *= sub_multiplier
             adjustment_notes.append(f"×{sub_multiplier:.2f}({sub_basin})")
+    elif basin == "EASTERN_PACIFIC":
+        # EP sub-basin multiplier (v11). Mirrors the WP path:
+        # determine region by snapshot-density, look up multiplier in
+        # coeffs, apply before the additive RI/LF/ORO bonuses so the
+        # bonuses stay basin-comparable. EP_DPS_AUDIT.md §6.
+        sub_basin = determine_ep_sub_basin(snapshots)
+        sub_multiplier = coeffs.get("sub_basin_multipliers", {}).get(
+            sub_basin, coeffs.get("sub_basin_multipliers", {}).get("EP_GENERAL", 1.0)
+        )
+        if abs(sub_multiplier - 1.0) > 0.01:
+            adjusted_dps *= sub_multiplier
+            adjustment_notes.append(f"×{sub_multiplier:.2f}({sub_basin})")
 
     # Check for rapid intensification.
     #
@@ -711,6 +812,65 @@ def apply_basin_dps_adjustment(cum_dpi, basin, snapshots,
         #    Apply a 0.60 dampener when the storm never made a significant
         #    landfall. This is applied LAST so it dampens the full score
         #    (base × sub-basin + RI + LF + ORO).
+        if landfall_count == 0:
+            adjusted_dps *= 0.60
+            adjustment_notes.append("×0.60(no-landfall)")
+
+    # Eastern Pacific-specific enhancements (v11, EP_DPS_AUDIT.md).
+    # Mirrors the WP enhancement block — multi-landfall, orographic,
+    # rainfall-footprint, no-landfall dampener — but with EP-specific
+    # parameters (Sierra Madre del Sur orographic, Mexico/Hawaii sub-
+    # basin rainfall set, etc.). Calibrated against Otis 2023, John
+    # 2024, Hilary 2023, Patricia 2015, Linda 1997.
+    if basin == "EASTERN_PACIFIC":
+        # 1. Multiple landfall bonus — same shape as WP. John 2024 made
+        #    three Mexico Pacific landfalls; the multi-LF pattern is rare
+        #    in EP but does happen.
+        landfall_count, _ = count_significant_landfalls(snapshots)
+        if landfall_count > 1:
+            landfall_bonus = min((landfall_count - 1) * 2.5, 8)
+            adjusted_dps += landfall_bonus
+            adjustment_notes.append(f"+{landfall_bonus:.1f}LF")
+
+        # 2. Orographic rainfall bonus — Sierra Madre del Sur, Hawaiian
+        #    volcanic peaks, Central American highlands. Otis 2023 and
+        #    John 2024 both produced catastrophic Sierra Madre rainfall.
+        #    Same +9 cap as WP; mountain peak list is extended above in
+        #    has_orographic_rainfall_potential.
+        has_orographic, max_wind_near_mountains = has_orographic_rainfall_potential(
+            snapshots, basin
+        )
+        if has_orographic and max_wind_near_mountains >= 20:
+            orographic_bonus = min(max_wind_near_mountains / 18, 9)
+            adjusted_dps += orographic_bonus
+            adjustment_notes.append(f"+{orographic_bonus:.1f}ORO")
+
+        # 3. Rainfall-footprint proxy. Same form as WP — +6 × duration_frac
+        #    × breadth_frac, gated on rainfall-prone EP sub-basins. Mexico
+        #    Pacific Coast and Central America Pacific are gated because
+        #    of Sierra Madre / TGR orographic amplification. Baja and
+        #    Hawaii are excluded — they're drier than the Mexican mainland
+        #    Pacific corridor (Baja is desert-adjacent; Hawaii has it but
+        #    the brevity of TC interaction with the islands rarely
+        #    saturates breadth × duration enough to fire).
+        EP_RAINFALL_PRONE = {"EP_MEXICO_PACIFIC", "EP_CENTRAL_AMERICA"}
+        if (sub_basin in EP_RAINFALL_PRONE
+                and duration_factor is not None
+                and breadth_factor is not None):
+            _DUR_CAP = 0.10
+            _BRD_CAP = 0.10
+            dfrac = min(duration_factor / _DUR_CAP, 1.0)
+            bfrac = min(breadth_factor / _BRD_CAP, 1.0)
+            rainfall_bonus = 6.0 * dfrac * bfrac
+            if rainfall_bonus > 0.1:
+                adjusted_dps += rainfall_bonus
+                adjustment_notes.append(f"+{rainfall_bonus:.1f}RAIN")
+
+        # 4. No-landfall dampener. Same 0.60 multiplier as WP. The EP
+        #    basin is enormous and most storms recurve harmlessly into
+        #    open ocean — without this, every basin Cat 5 (Linda 1997,
+        #    Patricia briefly in 2015 at peak intensity, etc.) scores
+        #    in the high 90s even with no realized impact.
         if landfall_count == 0:
             adjusted_dps *= 0.60
             adjustment_notes.append("×0.60(no-landfall)")
