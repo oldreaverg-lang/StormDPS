@@ -250,6 +250,108 @@ _REGISTRY: dict[str, GroundTruth] = {
         fema_major_disaster=True,
         sources=["NHC TCR AL062018 (Stewart & Berg 2019)"],
     ),
+
+    # ── Eastern Pacific calibration set (2026-05-15) ─────────────────────
+    # Added ahead of the El Niño 2026 EP season. Damage figures are 2024
+    # USD where reported by NHC TCRs; Mexico-side damage estimates come
+    # from CENAPRED / CONAGUA / news consolidation and are less rigorous
+    # than NCEI's billion-dollar disaster framework. peak_rainfall_in
+    # values are critical for the rainfall-warning override path —
+    # without them EP storms fall back to the stall-hour heuristic which
+    # misses fast-moving rainfall-dominant events like Otis 2023.
+    "EP182023": GroundTruth(
+        storm_id="EP182023",
+        name="Otis",
+        year=2023,
+        damage_usd=15_000_000_000,        # CENAPRED + insurance industry
+        deaths_total=52,                  # 51 confirmed + 1 indirect; ~100 missing
+        peak_surge_ft=16.0,               # Acapulco Bay (~5m)
+        peak_surge_location="Acapulco, Guerrero",
+        peak_rainfall_in=22.0,            # ~560mm in Guerrero highlands
+        peak_rainfall_location="Acapulco / Sierra Madre del Sur, Guerrero",
+        peak_wind_landfall_mph=165,       # 145 kt at Cat 5 landfall
+        landfall_category_saffir=5,
+        landfall_pressure_mb=923,
+        fema_counties_declared=0,         # Mexico — no FEMA equivalent here
+        fema_states=[],
+        fema_major_disaster=False,
+        sources=["NHC TCR EP182023 (Reinhart 2024)", "CENAPRED", "CONAGUA"],
+    ),
+    "EP102024": GroundTruth(
+        storm_id="EP102024",
+        name="John",
+        year=2024,
+        damage_usd=2_700_000_000,
+        deaths_total=29,                  # 23 in Mexico + 6 in Guatemala (preliminary)
+        peak_surge_ft=6.0,
+        peak_surge_location="Punta Maldonado, Guerrero",
+        peak_rainfall_in=31.0,            # ~790mm — Sierra Madre del Sur stations
+        peak_rainfall_location="Tlapa de Comonfort area, Guerrero",
+        peak_wind_landfall_mph=120,       # Cat 3 at first landfall
+        landfall_category_saffir=3,
+        landfall_pressure_mb=957,
+        fema_counties_declared=0,
+        fema_states=[],
+        fema_major_disaster=False,
+        sources=["NHC preliminary EP102024", "CONAGUA SMN", "CENAPRED"],
+    ),
+    "EP092023": GroundTruth(
+        storm_id="EP092023",
+        name="Hilary",
+        year=2023,
+        damage_usd=1_000_000_000,
+        deaths_total=4,                   # 3 Mexico + 1 US
+        peak_surge_ft=5.0,
+        peak_surge_location="San Carlos / Mulegé, Baja California Sur",
+        peak_rainfall_in=11.7,            # 297mm at Lytle Creek, CA — first TS in SoCal since 1939
+        peak_rainfall_location="Lytle Creek, CA (San Bernardino Mountains)",
+        peak_wind_landfall_mph=80,        # Cat 1 at Baja Sur landfall
+        landfall_category_saffir=1,
+        landfall_pressure_mb=978,
+        fema_counties_declared=2,         # CA (San Bernardino, Riverside)
+        fema_states=["CA"],
+        fema_major_disaster=True,
+        sources=["NHC TCR EP092023 (Brown 2024)", "NWS WFO LOX/SGX"],
+    ),
+    "EP202015": GroundTruth(
+        storm_id="EP202015",
+        name="Patricia",
+        year=2015,
+        damage_usd=462_000_000,           # NHC TCR — sparse-coast landfall limited damage
+        deaths_total=8,
+        peak_surge_ft=3.5,                # rural landfall — limited gauge coverage
+        peak_surge_location="Cuixmala / Chamela, Jalisco",
+        peak_rainfall_in=20.0,            # ~500mm in Sierra Madre Occidental foothills
+        peak_rainfall_location="Cuajinicuilapa area, Jalisco",
+        peak_wind_landfall_mph=150,       # weakened from 185 kt peak to ~130 kt at landfall
+        landfall_category_saffir=4,
+        landfall_pressure_mb=932,         # weakened from 872 mb (strongest WH on record)
+        fema_counties_declared=0,
+        fema_states=[],
+        fema_major_disaster=False,
+        sources=["NHC TCR EP202015 (Kimberlain et al. 2016)", "CENAPRED"],
+    ),
+    "EP142018": GroundTruth(
+        storm_id="EP142018",
+        name="Lane",
+        year=2018,
+        damage_usd=250_000_000,
+        deaths_total=0,
+        peak_surge_ft=2.0,                # passed offshore — no direct surge impact
+        peak_surge_location="Hilo coast, HI (offshore pass)",
+        peak_rainfall_in=58.0,            # 1473mm at Mountain View, HI — 2nd-highest US TC rainfall on record
+        peak_rainfall_location="Mountain View, HI (Big Island)",
+        # No formal landfall — closest approach ~190 mi south of the Big
+        # Island. Landfall-specific fields left None so to_dict() omits
+        # them rather than reporting a misleading "0 mph at Cat 0".
+        peak_wind_landfall_mph=None,
+        landfall_category_saffir=None,
+        landfall_pressure_mb=None,
+        fema_counties_declared=4,
+        fema_states=["HI"],
+        fema_major_disaster=True,
+        sources=["NHC TCR EP142018 (Cangialosi 2019)", "NWS WFO HFO"],
+    ),
 }
 
 
