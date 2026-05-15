@@ -185,6 +185,90 @@ _DPS_LABEL_RATING = {
 }
 
 
+# Curated long-form breakdowns for storms where the displayed DPS would
+# otherwise puzzle a casual reader. Surfaced by the outlier scan
+# (scratch/dps_outlier_scan.py): Dorian (high score, $5B damage),
+# Sandy (high score, Cat 1 at landfall), Ike (Cat 2 with Cat 4
+# footprint), Matthew (high score, no US-mainland landfall). Each
+# entry is a list of HTML paragraphs inserted after the generic
+# Saffir-Simpson contrast paragraph in _build_storm_summary_html.
+# Numbers are anchored to the production bundle values.
+_PER_STORM_BREAKDOWNS: dict[str, list[str]] = {
+    # ── Dorian (2019) — 87.8 DPS, $5B damage, Bahamas Cat 5 stall ──
+    "AL052019": [
+        "Dorian held Category 5 intensity for roughly 48 hours over the "
+        "northwestern Bahamas, with peak winds of 160 knots and a central "
+        "pressure of 910 mb. The track stalled almost entirely — forward "
+        "speed dropped near zero for <strong>57 hours</strong> while the "
+        "eyewall ground over Abaco and Grand Bahama. DPS measures that "
+        "intensity-and-duration profile regardless of where the destruction "
+        "lands. The Bahamas zone is already weighted at 0.15 in the "
+        "duration integral (versus 1.0 for the US mainland), which dampens "
+        "Dorian's score compared to a hypothetical US Cat 5 stall of the "
+        "same length; without that weighting Dorian would score in "
+        "Katrina territory. The $5B damage figure reflects the Bahamas's "
+        "economic scale, not the storm's destructive potential."
+    ],
+
+    # ── Sandy (2012) — 83.3 DPS, Cat 1 at NJ landfall, largest IKE ──
+    "AL182012": [
+        "Sandy made New Jersey landfall as a post-tropical Category 1 — "
+        "and remains the most destructive storm in modern Northeast "
+        "history. The Saffir-Simpson Category label captures peak "
+        "one-minute wind at landfall; it does not capture the "
+        "<strong>1,000-mile wind field</strong> Sandy carried into the "
+        "I-95 corridor. Sandy's Integrated Kinetic Energy peaked at "
+        "<strong>640 TJ</strong>, the largest in the StormDPS Atlantic "
+        "dataset. Tropical-storm-force winds extended 485 nautical miles "
+        "from the center, exposing the entire DC-to-Boston corridor to "
+        "30+ hours of damaging wind, surge, and rain. The 83 DPS reflects "
+        "that footprint: 73.6 from the per-snapshot composite, plus the "
+        "maximum 10% from breadth (wind-field size × coastal exposure) "
+        "and another 8% from Northeast economic density. This is exactly "
+        "the storm DPS was built to catch."
+    ],
+
+    # ── Ike (2008) — 86.5 DPS, Cat 2 at Texas landfall ──
+    "AL092008": [
+        "Ike made Texas landfall as a Category 2 hurricane and ranks "
+        "among the costliest US storms on record. The mismatch is the "
+        "canonical case for replacing Saffir-Simpson: Ike's landfall "
+        "winds were modest, but the tropical-storm-force wind field "
+        "extended <strong>275 nautical miles</strong> from the center — "
+        "roughly three times the width of Hurricane Charley (Category 4, "
+        "2004). Integrated Kinetic Energy was 190 TJ versus Charley's "
+        "~12. The storm surge across the upper Texas coast reached "
+        "Category 4 equivalents (peak ~17 feet at Galveston Bay), "
+        "inundating the Bolivar Peninsula and killing 195 people. The 87 "
+        "DPS captures what wind speed alone misses — Ike was a Cat 4 in "
+        "every variable except the one Saffir-Simpson measures."
+    ],
+
+    # ── Matthew (2016) — 79.5 DPS, no US-mainland landfall ──
+    "AL142016": [
+        "Matthew never made a true US-mainland landfall — but tracked "
+        "parallel to the Florida, Georgia, and South Carolina coasts for "
+        "roughly <strong>84 hours</strong> at Category 3-4 intensity, "
+        "close enough to drive an estimated $10 billion in US surge, "
+        "wind, and inland-flooding damage from the Treasure Coast to "
+        "Cape Hatteras. (It had already devastated Haiti as a Cat 4 days "
+        "earlier — 600+ killed, $2.8 billion in damage.) The 80 DPS "
+        "reflects the coast-tracking bonus that fires when a large storm "
+        "parallels populated coastline: Matthew exposed sequential metros "
+        "from West Palm Beach to Charleston to Wilmington for a day each, "
+        "even though the eyewall stayed offshore. The score is "
+        "intentionally lower than a comparable storm that crossed the "
+        "coast — but higher than purely open-ocean Cat 5s that never "
+        "threatened land."
+    ],
+}
+
+
+def _get_per_storm_breakdown(storm_id: str) -> list[str]:
+    """Return curated breakdown paragraphs for outlier storms, or []."""
+    return _PER_STORM_BREAKDOWNS.get((storm_id or "").upper(), [])
+
+
 def _rating_from_dps(dps: Optional[float]) -> str:
     if not isinstance(dps, (int, float)):
         return ""
@@ -287,6 +371,11 @@ def _build_storm_summary_html(storm_id: str, storm: dict, canonical: str) -> str
             "duration of coastal exposure, and geographic reach — capturing "
             "what the traditional Saffir-Simpson Category scale misses."
         )
+
+    # Curated breakdown paragraphs for the outlier set (Dorian, Sandy, Ike,
+    # Matthew). For everyone else this is a no-op.
+    for paragraph in _get_per_storm_breakdown(storm_id):
+        prose_parts.append(paragraph)
 
     landfall_text = _format_landfalls(landfalls)
     if landfall_text:
