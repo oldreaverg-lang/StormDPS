@@ -313,6 +313,54 @@ app.add_middleware(
     max_age=600,  # Cache preflight for 10 min (reduces OPTIONS roundtrips on mobile)
 )
 
+
+# ---------------------------------------------------------------------------
+# Security response headers
+# ---------------------------------------------------------------------------
+# Cloudflare adds HSTS at the edge for stormdps.com, but X-Frame-Options,
+# X-Content-Type-Options, Referrer-Policy, and Permissions-Policy must be
+# set by the origin so they reach SSR'd /storm/{id} pages too. We also
+# emit a permissive but real Content-Security-Policy — restrictive enough
+# to block obvious injection vectors, permissive enough not to break the
+# inline scripts the SPA already ships.
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    headers = response.headers
+    # Belt-and-suspenders HSTS in case the request bypasses Cloudflare
+    headers.setdefault(
+        "Strict-Transport-Security",
+        "max-age=31536000; includeSubDomains",
+    )
+    headers.setdefault("X-Content-Type-Options", "nosniff")
+    headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    # Disable browser features we don't use — narrows what an exploited
+    # script could do if one ever slipped through.
+    headers.setdefault(
+        "Permissions-Policy",
+        "geolocation=(), microphone=(), camera=(), payment=(), usb=()",
+    )
+    # CSP: the SPA inlines a large <script> block, so 'unsafe-inline' is
+    # currently required for scripts. We pin third-party origins to the
+    # exact hosts already wired into preconnects + the service worker so
+    # a future supply-chain attack on a random CDN can't pivot through us.
+    # img-src is permissive (NASA GIBS tile servers + dynamic IBTrACS plot URLs).
+    headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; "
+        "style-src 'self' 'unsafe-inline' https://unpkg.com; "
+        "font-src 'self' data:; "
+        "img-src 'self' data: blob: https:; "
+        "connect-src 'self' https://*.stormdps.com https://api.open-meteo.com; "
+        "frame-ancestors 'self'; "
+        "base-uri 'self'; "
+        "form-action 'self'",
+    )
+    return response
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
