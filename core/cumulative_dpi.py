@@ -100,6 +100,14 @@ ZONE_WEIGHTS = {
     "Philippines":         0.35,
     "Vietnam / Cambodia":  0.30,
     "Thailand / Laos":     0.25,
+    # Eastern Pacific — added 2026-05-15 ahead of El Niño 2026 season.
+    # Without these entries every EP storm got duration_factor=0 and
+    # breadth_factor=0, the same way WP did pre-v9. Calibrated against
+    # exposure density and historical damage profile.
+    "Mexico Pacific":      0.55,  # Acapulco, Manzanillo, Mazatlán — dense + vulnerable
+    "Baja California":     0.30,  # Cabo, La Paz — sparse coast, low density
+    "Central America Pacific": 0.40,  # El Salvador, Guatemala, Nicaragua coast
+    "Hawaii":              0.55,  # Oahu metro / Hilo / Maui — dense small islands, high-value
     # Default for any near-coast snapshot not in the above list
     "Open Ocean":          0.0,
 }
@@ -129,6 +137,16 @@ COASTAL_BOXES = [
     (24,   45,   123,   145,   "Japan"),
     (15,   25,   105,   122,   "Thailand / Laos"),
     (15,   40,   105,   125,   "China"),
+    # --- Eastern Pacific ---
+    # Added 2026-05-15 ahead of El Niño 2026 EP season. Without these
+    # the EP basin had no coastal coverage; every EP storm got
+    # duration_factor=0 / breadth_factor=0, the same gap WP had pre-v9.
+    # Boxes are ordered specific → general so Acapulco (16.9N, -99.8W)
+    # matches "Mexico Pacific" not the broader Central America box.
+    (22.0, 27.0, -111.0, -105.0, "Baja California"),    # Cabo to La Paz to Loreto
+    (16.0, 22.0, -106.0,  -97.0, "Mexico Pacific"),     # Acapulco, Manzanillo, PV, Mazatlán
+    (10.0, 16.0,  -94.0,  -83.0, "Central America Pacific"),  # El Salvador, Guatemala, Nicaragua
+    (18.5, 22.5, -160.5, -154.5, "Hawaii"),             # Hawaiian Islands
 ]
 
 
