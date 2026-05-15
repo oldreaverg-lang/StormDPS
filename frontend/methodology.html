@@ -165,6 +165,69 @@
             line-height: 1.55;
             margin: .9rem 0 0;
         }
+        /* "Make full page" toggle — opens an overlay so the diagram can
+           render at its native 1200px width instead of squeezing into the
+           780px prose column. */
+        .formula-pipeline .fullpage-toggle {
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            padding: .4rem .8rem;
+            border-radius: var(--radius);
+            cursor: pointer;
+            font-size: .85rem;
+            font-weight: 600;
+            font-family: inherit;
+            margin-bottom: .9rem;
+            display: inline-flex;
+            align-items: center;
+            gap: .45rem;
+            transition: all .15s;
+        }
+        .formula-pipeline .fullpage-toggle:hover {
+            border-color: var(--primary);
+            color: var(--text-main);
+            background: var(--bg-card);
+        }
+        .formula-pipeline .fullpage-toggle svg.icon {
+            width: 14px; height: 14px;
+        }
+        .formula-fullpage-overlay {
+            position: fixed;
+            inset: 0;
+            background: var(--bg-dark);
+            z-index: 9999;
+            overflow: auto;
+            padding: 4.5rem 1.5rem 2rem;
+        }
+        .formula-fullpage-overlay[hidden] { display: none; }
+        .formula-fullpage-overlay .close-btn {
+            position: fixed;
+            top: 1rem; right: 1rem;
+            width: 44px; height: 44px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 1.4rem; line-height: 1;
+            display: flex; align-items: center; justify-content: center;
+            transition: all .15s;
+            font-family: inherit;
+            z-index: 10000;
+        }
+        .formula-fullpage-overlay .close-btn:hover {
+            border-color: var(--primary);
+            color: #fff;
+        }
+        .formula-fullpage-overlay .fullpage-svg-wrap {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .formula-fullpage-overlay .fullpage-svg-wrap svg {
+            width: 100%; height: auto; display: block;
+            border-radius: var(--radius);
+        }
         table {
             width: 100%; border-collapse: collapse; margin: 1.25rem 0;
             background: var(--bg-card); border-radius: var(--radius); overflow: hidden;
@@ -252,6 +315,10 @@
         <details class="formula-pipeline">
             <summary>Show the computational pipeline (Atlantic basin)</summary>
             <div class="pipeline-body">
+                <button type="button" class="fullpage-toggle" onclick="openFormulaFullpage()" aria-label="Open computational pipeline in full-page view">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+                    Make full page
+                </button>
                 <svg viewBox="0 0 1200 2720" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="pipeline-title pipeline-desc">
                     <title id="pipeline-title">StormDPS Atlantic-basin computational pipeline</title>
                     <desc id="pipeline-desc">Five-stage flowchart converting a tropical cyclone's track snapshots into a final Destructive Power Score from 0 to 99. Stage 1 computes per-snapshot DPI from a weighted blend of IKE, surge-rain, and economic sub-scores plus interaction bonuses, dampened by land proximity. Stage 2 derives cumulative DPI from peak DPI, duration factor, and breadth factor. Stage 3 adds US economic boost factors. Stage 4 is the Atlantic baseline (no-op). Stage 5 applies square-root compression to map the score into the 0 to 99 display range.</desc>
@@ -421,6 +488,62 @@
             <a href="/data" class="btn-link secondary">Download the dataset</a>
         </div>
     </main>
+
+    <div class="formula-fullpage-overlay" id="formulaFullpageOverlay" role="dialog" aria-modal="true" aria-label="Computational pipeline (full page)" hidden>
+        <button type="button" class="close-btn" onclick="closeFormulaFullpage()" aria-label="Close full-page view" id="formulaFullpageClose">&times;</button>
+        <div class="fullpage-svg-wrap" id="formulaFullpageSvg"></div>
+    </div>
+    <script>
+        // Full-page viewer for the computational-pipeline diagram. Clones
+        // the inline SVG into a fixed-position overlay so the diagram can
+        // render at its native 1200px width. Closes on X click, ESC, or
+        // clicking outside the diagram. Focus is moved to the close
+        // button on open and returned to the toggle button on close for
+        // keyboard accessibility.
+        (function() {
+            let _lastFocused = null;
+
+            function openFormulaFullpage() {
+                const src = document.querySelector('.formula-pipeline svg');
+                const overlay = document.getElementById('formulaFullpageOverlay');
+                const wrap = document.getElementById('formulaFullpageSvg');
+                const closeBtn = document.getElementById('formulaFullpageClose');
+                if (!src || !overlay || !wrap) return;
+                _lastFocused = document.activeElement;
+                wrap.innerHTML = '';
+                wrap.appendChild(src.cloneNode(true));
+                overlay.hidden = false;
+                document.body.style.overflow = 'hidden';
+                if (closeBtn) closeBtn.focus();
+            }
+
+            function closeFormulaFullpage() {
+                const overlay = document.getElementById('formulaFullpageOverlay');
+                if (!overlay) return;
+                overlay.hidden = true;
+                document.body.style.overflow = '';
+                if (_lastFocused && typeof _lastFocused.focus === 'function') {
+                    _lastFocused.focus();
+                }
+            }
+
+            // ESC closes
+            document.addEventListener('keydown', function(e) {
+                if (e.key !== 'Escape') return;
+                const overlay = document.getElementById('formulaFullpageOverlay');
+                if (overlay && !overlay.hidden) closeFormulaFullpage();
+            });
+
+            // Click outside the SVG (i.e. on the overlay backdrop) closes
+            document.getElementById('formulaFullpageOverlay').addEventListener('click', function(e) {
+                if (e.target === this) closeFormulaFullpage();
+            });
+
+            // Expose for inline onclick handlers
+            window.openFormulaFullpage = openFormulaFullpage;
+            window.closeFormulaFullpage = closeFormulaFullpage;
+        })();
+    </script>
 
     <footer>
         <a href="/">Tracker</a> ·
