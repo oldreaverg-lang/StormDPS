@@ -406,13 +406,28 @@ async def not_found_handler(request: Request, exc):
     path = request.url.path
 
     # ── Security: block probes for sensitive files ──
-    # Bots routinely probe for .env, .git, wp-admin, etc.
-    # Return a hard 404 — never serve content for these paths.
+    # Bots routinely probe for .env, .git, wp-admin, etc. Return a hard
+    # 404 — never serve content for these paths. Expanded 2026-05-15
+    # after Cloudflare showed ~60k 4xx probes; added .htpasswd, .npmrc,
+    # .DS_Store, .svn, /actuator, /metrics, /vendor, /backup, /console,
+    # /jenkins, /api-docs (the FastAPI /docs is already disabled in
+    # prod via ENABLE_API_DOCS=false, but scanners still hit /api-docs).
     _blocked_patterns = (
-        ".env", ".git", ".aws", ".ssh", ".docker",
-        "wp-admin", "wp-login", "phpinfo", ".php",
-        "/.htaccess", "/server-status", "/debug",
-        "/config", "/credentials", "/secret",
+        # Dotfiles / VCS
+        ".env", ".git", ".aws", ".ssh", ".docker", ".svn", ".hg",
+        ".DS_Store", ".npmrc", ".htaccess", ".htpasswd",
+        # WordPress
+        "wp-admin", "wp-login", "wp-config", "wp-content", "xmlrpc.php",
+        # PHP / generic
+        "phpinfo", ".php", "phpmyadmin", "/pma/", "/myadmin",
+        # Spring / Java
+        "/actuator", "/jolokia",
+        # Generic management endpoints
+        "/server-status", "/server-info", "/metrics", "/console",
+        "/jenkins", "/api-docs", "/swagger-ui", "/debug", "/admin.",
+        # Sensitive paths
+        "/config", "/credentials", "/secret", "/vendor/",
+        "/backup", "/dump", "/.well-known/security",
     )
     path_lower = path.lower()
     if any(p in path_lower for p in _blocked_patterns):

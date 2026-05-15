@@ -10,7 +10,7 @@
 // v4: pre-cache the long-form SEO pages (/methodology, /historic-storms,
 // /data, /faq, /about) so they're available offline; bump evicts v3 caches
 // that still held the pre-SSR index.html + pre-drawer mobile assets.
-const CACHE_NAME = 'stormdps-v4';
+const CACHE_NAME = 'stormdps-v5';
 const STATIC_ASSETS = [
   '/',
   '/frontend/index.html',
@@ -118,12 +118,21 @@ self.addEventListener('fetch', event => {
   }
 
   // Everything else (CSS, JS libraries, fonts, images): cache-first.
+  // Cross-origin caching is limited to the exact CDN hosts we depend on.
+  // Previous version used hostname.includes('cdn'|'unpkg'), which would
+  // have matched cdn.attacker.com — tightened 2026-05-15.
+  const _SW_CACHEABLE_ORIGINS = new Set([
+    'cdn.jsdelivr.net',
+    'unpkg.com',
+  ]);
   event.respondWith(
     caches.match(event.request).then(cached => {
       if (cached) return cached;
       return fetch(event.request).then(response => {
         // Cache new static resources
-        if (response.ok && (url.origin === self.location.origin || url.hostname.includes('cdn') || url.hostname.includes('unpkg'))) {
+        const sameOrigin = url.origin === self.location.origin;
+        const trustedCdn = _SW_CACHEABLE_ORIGINS.has(url.hostname);
+        if (response.ok && (sameOrigin || trustedCdn)) {
           const clone = response.clone();
           caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
         }

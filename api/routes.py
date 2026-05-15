@@ -74,16 +74,66 @@ logger = logging.getLogger(__name__)
 # ------------------------------------------------------------------
 # Admin auth + path-sanitization helpers
 # ------------------------------------------------------------------
-def require_admin(x_admin_token: Optional[str] = Header(None, alias="X-Admin-Token")):
+
+# Per-IP rate limit for admin-auth attempts. ADMIN_TOKEN is 32 bytes of
+# entropy and effectively unbruteable, but capping attempts at 5/min per
+# IP prevents log spam from probe traffic and shrinks the window if the
+# token were ever rotated to something weaker. Belt-and-suspenders on
+# top of the global 300/min slowapi default.
+from collections import deque
+from threading import Lock as _AdminLock
+
+_ADMIN_RATE_LIMIT = 5
+_ADMIN_RATE_WINDOW_SEC = 60
+_admin_attempts: dict[str, deque] = {}
+_admin_attempts_lock = _AdminLock()
+
+
+def _admin_rate_check(client_ip: str) -> bool:
+    """Return True if this IP is under the admin rate limit, False if over."""
+    if not client_ip:
+        # No identifiable client IP — let Cloudflare's own rate limiting
+        # handle it rather than fail open or globally deny.
+        return True
+    now = time.time()
+    with _admin_attempts_lock:
+        dq = _admin_attempts.setdefault(client_ip, deque())
+        while dq and (now - dq[0]) > _ADMIN_RATE_WINDOW_SEC:
+            dq.popleft()
+        if len(dq) >= _ADMIN_RATE_LIMIT:
+            return False
+        dq.append(now)
+        return True
+
+
+def _client_ip_for_admin(request: Request) -> str:
+    """Resolve the real client IP, honoring Cloudflare's CF-Connecting-IP."""
+    cf_ip = request.headers.get("cf-connecting-ip")
+    if cf_ip:
+        return cf_ip
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else ""
+
+
+def require_admin(
+    request: Request,
+    x_admin_token: Optional[str] = Header(None, alias="X-Admin-Token"),
+):
     """Reject requests without a valid admin token.
 
     Token is read from the ADMIN_TOKEN env var on each request so it can be
     rotated without a restart. If ADMIN_TOKEN is unset, the gated endpoint
-    is disabled entirely (503) — refuses to fall back to "no auth".
+    is disabled entirely (503) — refuses to fall back to "no auth". Adds
+    a 5/min/IP rate limit on top of the global slowapi default so admin
+    auth attempts are extra-throttled.
     """
     expected = os.getenv("ADMIN_TOKEN")
     if not expected:
         raise HTTPException(503, "admin endpoints disabled (ADMIN_TOKEN unset)")
+    if not _admin_rate_check(_client_ip_for_admin(request)):
+        raise HTTPException(429, "too many admin requests")
     if not x_admin_token or not hmac.compare_digest(x_admin_token, expected):
         raise HTTPException(403, "invalid or missing admin token")
     return True
