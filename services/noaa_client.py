@@ -40,6 +40,34 @@ NHC_ACTIVE_STORMS_URL = "https://www.nhc.noaa.gov/CurrentStorms.json"
 NHC_GIS_BASE_URL = "https://www.nhc.noaa.gov/gis"
 HURDAT2_URL = "https://www.nhc.noaa.gov/data/hurdat/hurdat2-1851-2024-040425.txt"
 
+# East Pacific HURDAT2 file. NHC publishes a parallel reanalysis covering
+# the EP basin (1949-present), updated on a separate cadence from the
+# Atlantic file — the Atlantic file above is the April 2025 reanalysis
+# (data through 2024), the EP file below is the February 2026 reanalysis
+# (data through 2025). Each filename embeds the publication date in
+# MMDDYY format; the URL has to be updated annually after NHC pushes the
+# new reanalysis. If the date stamp drifts, the URL 404s and the caller
+# falls back to IBTrACS (see get_historical_track + api/routes
+# get_storm_track for the fallback chain), so a stale URL degrades
+# gracefully rather than breaking.
+HURDAT2_EPAC_URL = "https://www.nhc.noaa.gov/data/hurdat/hurdat2-nepac-1949-2025-022726.txt"
+
+
+def _hurdat2_url_for(storm_id: str) -> tuple[str, str]:
+    """Pick the right HURDAT2 file + cache filename based on storm prefix.
+
+    Returns (download_url, cache_filename). NHC publishes Atlantic
+    (AL prefix) and East Pacific (EP prefix) HURDAT2 reanalyses as
+    separate files; CP (Central Pacific) storms don't have a HURDAT2
+    file at all and rely on IBTrACS exclusively.
+    """
+    prefix = (storm_id or "")[:2].upper()
+    if prefix == "EP":
+        return (HURDAT2_EPAC_URL, "hurdat2_epac.txt")
+    # Default: Atlantic file. Covers AL prefix; for CP / WP / IO / SH the
+    # caller falls back to IBTrACS after a HURDAT2 parse miss.
+    return (HURDAT2_URL, "hurdat2_atl.txt")
+
 # Extended Best Track (EBTRK) — historical wind radii data
 # NOTE: The AOML EBTRK URLs are no longer available (404). The dataset was last
 # updated with 2018 data. RAMMB/CIRA hosts an archive, but for storms after 2018
@@ -688,21 +716,34 @@ class NOAAClient:
         especially important for accurate IKE calculations of pre-2010 storms.
         Enhanced to extract full quadrant wind radii at 34, 50, and 64 kt
         thresholds from the extended data formats.
+
+        Routes between Atlantic and East Pacific HURDAT2 files based on
+        the storm_id prefix (AL → Atlantic file, EP → East Pacific file).
         """
         # EBTRK URLs at Colorado State have been 404 since ~2018.
         # Skip the attempt entirely to avoid noisy HTTP error logs.
         # The EBTRK parser code is retained in case a mirror appears.
-        hurdat_text = await self._fetch_hurdat2()
+        hurdat_text = await self._fetch_hurdat2(storm_id=storm_id)
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._parse_hurdat2, hurdat_text, storm_id)
 
-    async def _fetch_hurdat2(self) -> str:
+    async def _fetch_hurdat2(self, storm_id: str = "") -> str:
         """Download HURDAT2 text file (cached if cache_dir set).
 
-        File I/O is offloaded to avoid blocking the event loop.
+        File I/O is offloaded to avoid blocking the event loop. Picks the
+        Atlantic or East Pacific HURDAT2 file based on the storm_id prefix
+        via _hurdat2_url_for. Each basin is cached as its own file
+        (hurdat2_atl.txt vs hurdat2_epac.txt) so an Atlantic miss doesn't
+        invalidate an EP cache hit and vice versa.
+
+        Backward-compat: if storm_id is empty (older callers), defaults
+        to the Atlantic file.
         """
+        url, cache_name = _hurdat2_url_for(storm_id)
+        log_tag = "HURDAT2-EP" if cache_name == "hurdat2_epac.txt" else "HURDAT2"
+
         if self.cache_dir:
-            cached = self.cache_dir / "hurdat2.txt"
+            cached = self.cache_dir / cache_name
             if cached.exists():
                 loop = asyncio.get_event_loop()
                 return await loop.run_in_executor(None, cached.read_text)
@@ -710,26 +751,32 @@ class NOAAClient:
         if NOAAClient.nhc_is_down():
             # NHC is down — try stale cache before giving up
             if self.cache_dir:
-                stale = self.cache_dir / "hurdat2.txt"
+                stale = self.cache_dir / cache_name
                 if stale.exists():
-                    logger.warning("[HURDAT2] NHC down, returning stale cached data")
+                    logger.warning(f"[{log_tag}] NHC down, returning stale cached data")
                     loop = asyncio.get_event_loop()
                     return await loop.run_in_executor(None, stale.read_text)
-            raise NOAAClientError("NHC recently unreachable — skipping HURDAT2")
+            raise NOAAClientError(f"NHC recently unreachable — skipping {log_tag}")
 
         try:
-            resp = await self.http.get(HURDAT2_URL, timeout=10.0)
+            resp = await self.http.get(url, timeout=10.0)
             resp.raise_for_status()
         except (httpx.ConnectError, httpx.TimeoutException) as e:
             NOAAClient.mark_nhc_down()
             # Try stale cache before raising
             if self.cache_dir:
-                stale = self.cache_dir / "hurdat2.txt"
+                stale = self.cache_dir / cache_name
                 if stale.exists():
-                    logger.warning(f"[HURDAT2] NHC unreachable ({e}), returning stale cached data")
+                    logger.warning(f"[{log_tag}] NHC unreachable ({e}), returning stale cached data")
                     loop = asyncio.get_event_loop()
                     return await loop.run_in_executor(None, stale.read_text)
             raise NOAAClientError(f"NHC unreachable: {e}") from e
+        except httpx.HTTPStatusError as e:
+            # 404 on the EP file most likely means the date stamp in
+            # HURDAT2_EPAC_URL drifted (NHC sometimes publishes the EP
+            # and Atlantic reanalyses on different days). Don't mark
+            # NHC down — let the caller fall through to IBTrACS.
+            raise NOAAClientError(f"{log_tag} unavailable: HTTP {e.response.status_code}") from e
 
         NOAAClient.mark_nhc_up()
         text = resp.text
@@ -737,7 +784,7 @@ class NOAAClient:
         if self.cache_dir:
             def _write():
                 self.cache_dir.mkdir(parents=True, exist_ok=True)
-                (self.cache_dir / "hurdat2.txt").write_text(text)
+                (self.cache_dir / cache_name).write_text(text)
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(None, _write)
 
