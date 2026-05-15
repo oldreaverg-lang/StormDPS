@@ -504,7 +504,10 @@
             let _lastFocused = null;
 
             function openFormulaFullpage() {
-                const src = document.querySelector('.formula-pipeline svg');
+                // Direct-child selector ('.pipeline-body > svg') so we
+                // skip the tiny <svg class="icon"> inside the toggle
+                // button and only clone the actual pipeline diagram.
+                const src = document.querySelector('.formula-pipeline .pipeline-body > svg');
                 const overlay = document.getElementById('formulaFullpageOverlay');
                 const wrap = document.getElementById('formulaFullpageSvg');
                 const closeBtn = document.getElementById('formulaFullpageClose');
