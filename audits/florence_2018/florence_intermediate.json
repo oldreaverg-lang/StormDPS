@@ -1,0 +1,143 @@
+{
+  "storm_id": "AL062018",
+  "name": "Florence",
+  "year": 2018,
+  "basin": "ATLANTIC",
+  "archetype": "Cat 4 lifetime / Cat 2 landfall / inland rainfall catastrophe",
+  "stages": {
+    "stage_1_per_snapshot_dpi": {
+      "description": "Max single-snapshot DPI along the track. Per-snapshot DPI computed by core/dpi.py:compute_dpi as a 0.30/0.35/0.35 weighted blend of IKE / SurgeRain / Economic sub-scores plus interaction bonuses, dampened by land-proximity.",
+      "max_wind_ms_at_peak": 66.9,
+      "max_wind_kt_at_peak": 130.0,
+      "min_pressure_hpa": 937.0,
+      "peak_ike_tj": 218.8,
+      "snapshot_count": 78,
+      "peak_dpi_raw": 58.1,
+      "notes": "Peak intensity (130 kt, 937 mb) occurred 2018-09-11 18z over the open Atlantic at 27N/66W \u2014 three days BEFORE landfall. Florence weakened from Cat 4 to Cat 2 between the peak and landfall due to wind shear + dry-air entrainment. So peak_dps reflects the open-ocean peak, not the landfall snapshot, which is correct: the per-snapshot composite captures destructive *potential* not *realized* impact.",
+      "source": "compute_storm_dps output, field 'peak_dps'"
+    },
+    "stage_2_cumulative_dpi": {
+      "description": "cum_dpi = peak_dpi x (1 + duration_factor + breadth_factor). Both factors cap at 0.10.",
+      "formula": "cum_dpi = peak_dpi * (1 + duration_factor + breadth_factor)",
+      "inputs": {
+        "peak_dpi": 58.1,
+        "duration_factor": 0.1,
+        "duration_factor_capped": true,
+        "breadth_factor": 0.1,
+        "breadth_factor_capped": true,
+        "coastal_hours": 75.0,
+        "track_hours": 459.0
+      },
+      "calculation": "58.1 * (1 + 0.1 + 0.1) = 69.72",
+      "cum_dpi_computed": 69.72,
+      "cum_dpi_in_bundle": 69.7,
+      "source": "core/cumulative_dpi.py compute_cumulative_dpi -> bundle field 'dps_original'"
+    },
+    "stage_3_combined_boost": {
+      "description": "Stage-3 economic boost factors. boosted = peak x (cum/peak + sum(boosts)).",
+      "factors": {
+        "exposure_factor": {
+          "value": 0.055,
+          "region": "Carolinas",
+          "source": "compile_cache.compute_exposure_factor; Carolinas COASTAL_EXPOSURE_WEIGHTS=0.55 x cap 0.10 = 0.055"
+        },
+        "perp_factor": {
+          "value": 0.0,
+          "note": "0.0 from stale-bundle bug (us_landfall_count issue fixed in commit 659342b). Florence had 1 US landfall so the corrected code would yield ~0.03.",
+          "source": "compile_cache.compute_perpendicular_factor (stale)"
+        },
+        "stall_bonus": {
+          "value": 0.027500000000000004,
+          "stall_hours": 42.0,
+          "note": "Florence's stall_bonus (0.0275) is the largest among audited storms \u2014 driven by 42 stall_hours weighted by the Carolinas COASTAL_EXPOSURE_WEIGHT of 0.55. The cap is 0.05, so at 55% stall_econ Florence reaches roughly half of the available headroom.",
+          "source": "core/dps_engine.py Stage 3 stall_bonus"
+        },
+        "rain_inland_factor": {
+          "value": 0.022000000000000002,
+          "rainfall_warning_score": 87.5,
+          "rainfall_level": "Historic",
+          "estimated_rainfall_mm": 2281.0,
+          "observed_rainfall_mm": 912.6,
+          "observed_rainfall_in": 35.93,
+          "observed_location": "Elizabethtown, NC",
+          "estimator_over_ratio": 2.5,
+          "note": "Engine's stall-rainfall heuristic estimates 2281 mm; observed peak was 913 mm at Elizabethtown, NC (NWS WFO MHX). That's a 2.5x over-estimate. Florence's rain_inland_factor (0.022) is much smaller than the engine's `warning_score` of 87.5 would suggest \u2014 the cap (0.04) prevents unbounded growth even with an extreme estimate.",
+          "source": "core/rainfall_warning.py compute_rainfall_warning (heuristic) \u2014 NOT the ground_truth override path because bundle was compiled before the ground_truth.peak_rainfall_in override hook ran for this storm"
+        },
+        "inland_pen_factor": {
+          "value": 0.0,
+          "note": "0.0 because Florence weakened to TS quickly after landfall; the inland-TS-wind threshold requires sustained 18+ m/s well past the coast. Florence dropped below that threshold before clearing the coastal box.",
+          "source": "core/dps_engine.py Stage 3 inland_pen_factor"
+        }
+      },
+      "combined_boost": 0.1045,
+      "boosted_formula": "boosted = peak_dpi x ((cum_dpi / peak_dpi) + combined_boost)",
+      "boosted_calculation": "58.1 x (1.2 + 0.10450000000000001) = 75.79",
+      "boosted_value": 75.79
+    },
+    "stage_4_basin_adjustment": {
+      "description": "Atlantic basin: dps_multiplier=1.00, ri_bonus=0, no WP/EP enhancements. No-op.",
+      "basin": "ATLANTIC",
+      "dps_multiplier": 1.0,
+      "ri_bonus": 0,
+      "adjustment_notes": "",
+      "adjusted": 75.79,
+      "source": "compile_cache.apply_basin_dps_adjustment (BASIN_COEFFICIENTS ATLANTIC)"
+    },
+    "stage_5_compression": {
+      "description": "Per-basin sqrt compression. Atlantic uses (T=60, S=4). See methodology.html: 'A note on Stage 5 \u2014 the presentation layer' for the editorial framing.",
+      "params": {
+        "T": 60.0,
+        "S": 4.0,
+        "basin": "ATLANTIC"
+      },
+      "formula": "if adjusted > T: adjusted = T + S * sqrt(adjusted - T); final = min(adjusted, 99)",
+      "calculation": "60 + 4 * sqrt(75.79 - 60) = 60 + 4 * 3.974 = 75.9",
+      "compressed_value": 75.9,
+      "hard_cap_99": false,
+      "pre_to_post_delta": -0.1,
+      "source": "compile_cache.apply_basin_dps_adjustment Stage-5 sqrt compression"
+    }
+  },
+  "final": {
+    "displayed_dps": 75.9,
+    "displayed_dps_in_bundle": 75.88531397234566,
+    "dps_label": "Devastating",
+    "category_lifetime": 4,
+    "category_landfall": 2,
+    "match_check": true
+  },
+  "ground_truth_reference": {
+    "damage_usd_2024": 24230000000,
+    "deaths_total": 52,
+    "peak_surge_ft": 10.1,
+    "peak_surge_location": "Emerald Isle, NC",
+    "peak_rainfall_in": 35.93,
+    "peak_rainfall_location": "Elizabethtown, NC",
+    "peak_wind_landfall_mph": 90,
+    "landfall_pressure_mb": 956,
+    "landfall_saffir": 1,
+    "fema_states": [
+      "NC",
+      "SC"
+    ],
+    "source": "core/ground_truth.py:AL062018 (NHC TCR Stewart & Berg 2019)"
+  },
+  "headline_finding": {
+    "rainfall_estimator_overshoot": {
+      "engine_estimate_mm": 2281.0,
+      "observed_peak_mm": 912.6,
+      "observed_location": "Elizabethtown, NC",
+      "ratio": 2.5,
+      "interpretation": "Florence's engine rainfall estimate (2281 mm) is 2.5x the observed peak (913 mm). Comparison: Ian's was 1.56x. This is the audit's most actionable finding: the stall-hour rainfall heuristic in core/rainfall_warning.py systematically over-estimates for stall-dominant storms. The cap on rain_inland_factor (0.04) prevents this from detonating the score, but the over-estimate matters for borderline storms where the gate's threshold (rainfall_est_mm > 250) determines whether the factor activates at all.",
+      "next_step": "Dedicated rainfall-estimator audit \u2014 compare engine's rainfall_est_mm against the peak_rainfall_in field in core/ground_truth.py for all 15 storms with curated data. Quantify systematic bias and propose a calibration correction."
+    }
+  },
+  "known_caveats": [
+    "perp_factor = 0.0 is the same stale-bundle artifact documented in the Ian audit. Fix in commit 659342b not yet in bundle. Florence's 1 US landfall would yield ~0.03 under fixed code.",
+    "Bundle was compiled before the v11 EP-basin commit and before the v10 per-basin compression. Atlantic numbers happen to be unchanged because per-basin compression reverts Atlantic to (T=60, S=4) which is what the bundle was originally compiled under. Manual recompute matches bundle within rounding.",
+    "Florence's huge track_hours (459) is because the bundle tracks the storm from genesis off Cape Verde on 2018-08-30 through extratropical transition on 2018-09-18 \u2014 19 days. Coastal_hours (75) and stall_hours (42) are what actually drive the score; track_hours is informational.",
+    "ground_truth.py has Florence's peak_rainfall_in = 35.93 (observed) but the bundle was compiled before the observed-rainfall override hook was added to compute_storm_dps. Next recompile would activate the override and Florence's rain_inland_factor would be recomputed from the 685 mm observed value rather than the 2281 mm heuristic estimate. Score impact: small (the cap is already binding), but the diagnostic fields would change."
+  ],
+  "audit_method": "Re-derived from compile_cache.py + core/dps_engine.py + bundle field values. Cross-checked against HURDAT2 best-track AL062018 (79 records) + NHC TCR (Stewart & Berg 2019). One landfall (Wrightsville Beach NC at 34.2N/77.8W, 80 kt / 956 mb on 2018-09-14 11:15z) matches the bundle's single-entry landfalls array (which records the 12:00z synoptic-grid approximation at 33.1N/75.1W, 95 kt / 954 mb)."
+}
