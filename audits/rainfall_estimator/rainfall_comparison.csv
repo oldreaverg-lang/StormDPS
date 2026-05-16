@@ -1,0 +1,16 @@
+storm_id,name,year,in_bundle,obs_in,obs_mm,est_mm,ratio,rainfall_level,rainfall_warning,stall_hours,peak_wind_kt,peak_ike_tj,snapshot_count
+AL122005,Katrina,2005,True,15.0,381.0,1137.0,2.98,High,50.5,6.0,148.0,203.6,32
+AL182012,Sandy,2012,True,12.55,318.8,787.0,2.47,High,53.2,12.0,100.0,640.4,41
+EP202015,Patricia,2015,False,20.0,508.0,,,,,,,,
+AL092017,Harvey,2017,True,60.58,1538.7,2558.0,1.66,Extreme,79.0,113.0,115.0,111.6,71
+AL112017,Irma,2017,True,21.66,550.2,552.0,1.0,Elevated,30.8,0.0,155.0,226.6,62
+AL142018,Michael,2018,True,9.08,230.6,836.0,3.62,Elevated,38.4,0.0,140.0,321.1,19
+AL062018,Florence,2018,True,35.93,912.6,2281.0,2.5,Historic,87.5,42.0,130.0,218.8,78
+EP142018,Lane,2018,False,58.0,1473.2,,,,,,,,
+AL052019,Dorian,2019,True,24.0,609.6,2673.0,4.38,Extreme,77.8,57.0,160.0,235.7,67
+AL092022,Ian,2022,True,26.95,684.5,1068.0,1.56,High,56.6,0.0,140.0,246.8,37
+EP182023,Otis,2023,False,22.0,558.8,,,,,,,,
+EP092023,Hilary,2023,False,11.7,297.2,,,,,,,,
+AL092024,Helene,2024,True,31.33,795.8,711.0,0.89,Elevated,36.6,0.0,120.0,236.1,23
+AL142024,Milton,2024,True,19.0,482.6,459.0,0.95,Elevated,22.0,0.0,153.0,119.0,31
+EP102024,John,2024,False,31.0,787.4,,,,,,,,
