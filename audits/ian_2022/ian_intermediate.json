@@ -1,0 +1,122 @@
+{
+  "storm_id": "AL092022",
+  "name": "Ian",
+  "year": 2022,
+  "basin": "ATLANTIC",
+  "stages": {
+    "stage_1_per_snapshot_dpi": {
+      "description": "Max single-snapshot DPI along the track. Computed by core/dpi.py:compute_dpi for each 6-hourly snapshot \u2014 raw_dpi = 0.30*IKE_score + 0.35*SurgeRain_score + 0.35*Economic_score + bonuses (vuln, compact, coast_tracking, stall_dpi, RI), then dampened by land_proximity_factor.",
+      "max_wind_ms_at_peak": 72.0,
+      "max_wind_kt_at_peak": 140.0,
+      "min_pressure_hpa": 937.0,
+      "peak_ike_tj": 246.8,
+      "snapshot_count": 37,
+      "peak_dpi_raw": 82.1,
+      "source": "compute_storm_dps output, field 'peak_dps'"
+    },
+    "stage_2_cumulative_dpi": {
+      "description": "cum_dpi = peak_dpi x (1 + duration_factor + breadth_factor). Both factors cap at 0.10.",
+      "formula": "cum_dpi = peak_dpi * (1 + duration_factor + breadth_factor)",
+      "inputs": {
+        "peak_dpi": 82.1,
+        "duration_factor": 0.1,
+        "duration_factor_capped": true,
+        "breadth_factor": 0.1,
+        "breadth_factor_capped": true,
+        "coastal_hours": 61.0,
+        "track_hours": 201.0
+      },
+      "calculation": "82.1 * (1 + 0.1 + 0.1) = 98.52",
+      "cum_dpi_computed": 98.52,
+      "cum_dpi_in_bundle": 98.5,
+      "source": "core/cumulative_dpi.py compute_cumulative_dpi -> bundle field 'dps_original'"
+    },
+    "stage_3_combined_boost": {
+      "description": "Stage-3 economic boost factors added to the peak-fraction multiplier. boosted = peak x (cum/peak + sum(boosts)).",
+      "factors": {
+        "exposure_factor": {
+          "value": 0.065,
+          "region": "Tampa Bay",
+          "source": "compile_cache.compute_exposure_factor; Tampa Bay COASTAL_EXPOSURE_WEIGHTS=0.65 x cap 0.10 = 0.065"
+        },
+        "perp_factor": {
+          "value": 0.0,
+          "note": "Should be > 0 for Ian (2 US landfalls). The 0 in the bundle reflects the us_landfall_count bug fixed in commit 659342b but unchanged in the bundle until next compile_cache run.",
+          "source": "compile_cache.compute_perpendicular_factor (stale-bundle artifact)"
+        },
+        "stall_bonus": {
+          "value": 0.010000000000000002,
+          "stall_hours": 0.0,
+          "source": "core/dps_engine.py Stage 3"
+        },
+        "rain_inland_factor": {
+          "value": 0.026000000000000002,
+          "rainfall_warning_score": 56.6,
+          "estimated_rainfall_mm": 1068.0,
+          "source": "core/rainfall_warning.py + observed rainfall ground_truth override (Grove City FL: 26.95 in)"
+        },
+        "inland_pen_factor": {
+          "value": 0.024,
+          "source": "core/dps_engine.py: tropical-storm-force winds reaching inland after FL landfall"
+        }
+      },
+      "combined_boost": 0.125,
+      "boosted_formula": "boosted = peak_dpi x ((cum_dpi / peak_dpi) + combined_boost)",
+      "boosted_calculation": "82.1 x (1.2 + 0.125) = 108.78",
+      "boosted_value": 108.78
+    },
+    "stage_4_basin_adjustment": {
+      "description": "Atlantic basin: dps_multiplier=1.00, ri_bonus=0, no WP/EP enhancements. The Stage-4 block is a no-op for Atlantic by design.",
+      "basin": "ATLANTIC",
+      "dps_multiplier": 1.0,
+      "ri_bonus": 0,
+      "adjustment_notes": "",
+      "adjusted": 108.78,
+      "source": "compile_cache.apply_basin_dps_adjustment (BASIN_COEFFICIENTS ATLANTIC)"
+    },
+    "stage_5_compression": {
+      "description": "Per-basin sqrt compression. Atlantic uses (T=60, S=4), the pre-v7-audit calibration preserved to keep the hand-tuned Atlantic spread (Katrina 93 / Maria 86 / Harvey 83).",
+      "params": {
+        "T": 60.0,
+        "S": 4.0,
+        "basin": "ATLANTIC"
+      },
+      "formula": "if adjusted > T: adjusted = T + S * sqrt(adjusted - T); final = min(adjusted, 99)",
+      "calculation": "60 + 4 * sqrt(108.78 - 60) = 60 + 4 * sqrt(48.78) = 60 + 4 * 6.984 = 87.94",
+      "compressed_value": 87.94,
+      "hard_cap_99": false,
+      "source": "compile_cache.apply_basin_dps_adjustment Stage-5 sqrt compression"
+    }
+  },
+  "final": {
+    "displayed_dps": 87.94,
+    "displayed_dps_in_bundle": 87.93206043241351,
+    "dps_label": "Catastrophic",
+    "category_lifetime": 4,
+    "category_landfall": 4,
+    "match_check": true
+  },
+  "ground_truth_reference": {
+    "damage_usd_2024": 112900000000,
+    "deaths_total": 156,
+    "peak_surge_ft": 15.0,
+    "peak_surge_location": "Fort Myers Beach, FL",
+    "peak_rainfall_in": 26.95,
+    "peak_rainfall_location": "Grove City, FL",
+    "peak_wind_landfall_mph": 150,
+    "landfall_pressure_mb": 936,
+    "landfall_saffir": 5,
+    "fema_states": [
+      "FL",
+      "SC",
+      "NC"
+    ],
+    "source": "core/ground_truth.py:AL092022 (NHC TCR Bucci et al. 2023 + USGS STN)"
+  },
+  "known_caveats": [
+    "perp_factor = 0.0 in the bundle is a stale-bundle artifact. The fix in commit 659342b corrected compute_perpendicular_factor; current code would yield perp_factor ~ 0.06 for Ian (2 US landfalls x 0.03 = 0.06). Bundle does not reflect this until next compile_cache.py run.",
+    "Bundle was compiled under the v9-era global compression (T=70, S=2.5). Atlantic numbers happen to be unchanged under v10+v11 per-basin compression that reverts Atlantic to (T=60, S=4) - verified by manual recompute in commit 659342b sanity-check.",
+    "dpi_timeseries values are scaled to match the final displayed DPS, not the raw per-snapshot DPI. Peak entry in the series (87.9 at 2022-09-28 12:00z) equals the displayed final 87.93; the unscaled peak_dps is 82.1. Bundle stores both."
+  ],
+  "audit_method": "Re-derived from compile_cache.py + core/dps_engine.py + bundle field values. Cross-checked against HURDAT2 best-track AL092022 + NHC TCR (Bucci et al. 2023). Three-landfall sequence (Pinar del Rio Cuba 22.2N/83.7W as Cat 3, Cayo Costa FL 26.7N/82.2W as Cat 5, SC coast 33.3N/79.2W as Cat 1) matches the bundle's landfalls array."
+}
