@@ -564,6 +564,21 @@ async def serve_about():
     )
 
 
+@app.get("/commercial")
+async def serve_commercial():
+    """Commercial-use / enterprise-access landing page. Demand-test for
+    a future paid API tier — pricing TBD, currently a sales page with a
+    mailto contact rather than a self-serve checkout flow."""
+    fp = FRONTEND_DIR / "commercial.html"
+    if not fp.exists():
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(
+        fp,
+        media_type="text/html",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
 @app.get("/privacy")
 async def serve_privacy():
     """Privacy policy — required for Apple App Store submission and a

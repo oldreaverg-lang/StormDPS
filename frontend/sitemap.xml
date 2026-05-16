@@ -39,6 +39,12 @@
         <priority>0.7</priority>
     </url>
     <url>
+        <loc>https://stormdps.com/commercial</loc>
+        <lastmod>2026-05-15</lastmod>
+        <changefreq>monthly</changefreq>
+        <priority>0.7</priority>
+    </url>
+    <url>
         <loc>https://stormdps.com/privacy</loc>
         <lastmod>2026-05-12</lastmod>
         <changefreq>yearly</changefreq>
@@ -83,9 +89,11 @@
     <url><loc>https://stormdps.com/storm/AL042019</loc><lastmod>2026-05-12</lastmod><priority>0.7</priority></url> <!-- Barry -->
 
     <!-- Notable East Pacific storms -->
-    <url><loc>https://stormdps.com/storm/EP202015</loc><lastmod>2026-05-12</lastmod><priority>0.7</priority></url> <!-- Patricia -->
-    <url><loc>https://stormdps.com/storm/EP142023</loc><lastmod>2026-05-12</lastmod><priority>0.7</priority></url> <!-- Otis -->
-    <url><loc>https://stormdps.com/storm/EP182018</loc><lastmod>2026-05-12</lastmod><priority>0.7</priority></url> <!-- Willa -->
+    <url><loc>https://stormdps.com/storm/EP202015</loc><lastmod>2026-05-15</lastmod><priority>0.7</priority></url> <!-- Patricia -->
+    <url><loc>https://stormdps.com/storm/EP182023</loc><lastmod>2026-05-15</lastmod><priority>0.7</priority></url> <!-- Otis (was EP142023 — wrong; Otis was 18th EP storm of 2023) -->
+    <url><loc>https://stormdps.com/storm/EP092023</loc><lastmod>2026-05-15</lastmod><priority>0.7</priority></url> <!-- Hilary -->
+    <url><loc>https://stormdps.com/storm/EP102024</loc><lastmod>2026-05-15</lastmod><priority>0.7</priority></url> <!-- John -->
+    <url><loc>https://stormdps.com/storm/EP142018</loc><lastmod>2026-05-15</lastmod><priority>0.7</priority></url> <!-- Lane -->
 
     <!-- Notable West Pacific storms (IBTrACS SIDs where useful for SEO) -->
     <url><loc>https://stormdps.com/storm/WP312013</loc><lastmod>2026-05-12</lastmod><priority>0.7</priority></url> <!-- Haiyan -->
