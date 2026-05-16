@@ -7,9 +7,9 @@
 **Purpose:** Second storm-level audit following Ian (AL092022). Florence is the inverse-archetype — modest peak intensity at landfall (Cat 1/2), Cat 4 lifetime, and the worst inland-rainfall catastrophe in North Carolina history. Stress-tests the rainfall-flood pathway specifically.
 
 **Companion artifacts:**
-- `florence_snapshots.csv` — 79-row HURDAT2 best-track joined with the pipeline's per-snapshot DPI
-- `florence_intermediate.json` — machine-readable stage-by-stage formula trace
-- `_build_florence_audit.py` — reproduces both files from bundle field values (idempotent)
+- `florence_snapshots.csv` — 79-row HURDAT2 best-track joined with per-snapshot DPI **and per-snapshot rainfall classification** (`near_land`, `stall_flag`, `slow_flag`, `terrain_zone`, `basin_zone`, `cum_stall_h`, `cum_slow_h`, `cum_effective_rain_h`, `cum_estimated_rainfall_mm`)
+- `florence_intermediate.json` — machine-readable stage-by-stage formula trace, **including rainfall-estimator internals decomposition and 5-storm comparison block**
+- `_build_florence_audit.py` — reproduces both files from bundle field values (idempotent). v2 of the script (post audit-of-audit review) adds the rainfall classification, 5-storm comparison, and persistence-pathway design candidate.
 
 ---
 
@@ -81,6 +81,70 @@ Cumulative gives Florence a 20% lift on the peak, same as Ian — but Ian's peak
 
 ---
 
+## 4.5. Rainfall estimator internals — the structural finding
+
+Before continuing to Stage 3 (which consumes the rainfall estimator's output via `rain_inland_factor`), this section decomposes what the estimator actually computes. The audit's headline finding — that the estimator over-shoots Florence by 2.5× — is a property of the formula's structure, not of any single miscalibrated constant.
+
+**Source:** `core/rainfall_warning.py:compute_rainfall_warning`.
+
+### 4.5.1 Formula structure
+
+```
+estimated_total_mm = peak_rain_rate_mm_per_hr × effective_rain_hours
+
+peak_rain_rate_mm_per_hr =
+  17.5 + 0.10 × (vmax_kt − 100)        for vmax > 100
+  decays linearly                       for vmax ≤ 100
+  (constants from Lonfat climatology)
+
+effective_rain_hours = stall_hours + slow_hours × 0.6
+  stall_hours = hours below 5 kt forward speed, near land
+  slow_hours  = hours between 5 kt and 8 kt forward speed, near land
+```
+
+For Florence:
+
+| Component | Value |
+|---|---:|
+| Peak wind | 130 kt |
+| `peak_rain_rate_mm_per_hr` | `17.5 + 0.10 × 30 = 20.5 mm/hr` |
+| Stall hours (bundle) | 42 |
+| Slow hours (recomputed from track) | 29.2 |
+| `effective_rain_hours` | `42 + 29.2 × 0.6 = 59.6` |
+| Implied total (rate × hours) | `20.5 × 59.6 ≈ 1221 mm` |
+| Bundle's stored `rainfall_est_mm` | **2281 mm** |
+| Observed peak (Elizabethtown, NC) | **913 mm (35.93 in)** |
+
+The gap between the formula's clean derivation (1221 mm) and the bundle's stored value (2281 mm) reflects additional moisture/terrain/basin multipliers applied downstream — the audit's CSV `cum_estimated_rainfall_mm` column tracks the clean rate-times-duration accumulation; the bundle's field includes those multiplicative bumps. Both substantially overshoot the observed 913 mm.
+
+### 4.5.2 Why the formula structurally overshoots
+
+The peak rain rate (intensity-derived, constant per storm) is multiplied by the total effective hours (accumulating over near-land time). **There is no decay term, no per-snapshot rate variation, no rate ceiling.** The formula's implicit assumption is that the storm sustains its peak rain rate throughout every stall and slow hour. Physically this is wrong: rain rate decays as the storm weakens, dry-air entrains, and the moisture flux from the source ocean falls off with inland penetration.
+
+For Ian (0 stall hours, formula multiplies rate by only ~25 effective hours from slow-coastal time before landfall), the overshoot is modest (1.56×). For Florence (42 stall hours, ~60 effective hours), the overshoot compounds (2.50×). For Harvey (113 stall hours, ~140+ effective hours), the bundle stores 2558 mm vs ~1539 mm observed (1.66× overshoot — partially saved by Harvey's rate being a lower intensity-derived 19 mm/hr).
+
+The pattern: **overshoot scales with effective_rain_hours, which scales with stall_hours.** The audit's `ratio_vs_stall_hours` correlation across all 15 ground-truth storms is +0.65 (in the standalone rainfall estimator audit).
+
+### 4.5.3 The warning-score side is separately graded
+
+The rainfall *warning* path (the user-facing "Historic" / "Extreme" / "High" label) is computed from:
+
+```
+rainfall_warning_score = stall_factor (0–40) + moisture_factor (0–30)
+                       + terrain_factor (0–15) + basin_factor (0–15)
+                       → 0–100 scale
+```
+
+For Florence this totals **87.5 → "Historic"**. This score is sound — Florence *was* a historic rainfall event, even if the estimated millimeter total is 2.5× too high. The 0–100 warning score is a categorical judgment (right) while `rainfall_est_mm` is a numeric quantity (wrong by 2.5×).
+
+### 4.5.4 What feeds back into DPS
+
+Stage 3's `rain_inland_factor` is gated by `rainfall_warning_score`, not by `rainfall_est_mm`. The factor caps at 0.04 at any warning score ≥ ~80. Florence's 87.5 saturates the cap. So Florence's *DPS score* is unaffected by the 2.5× overshoot — the path is hard-capped before the noisy number reaches it. But the public-facing rainfall text ("Est. 2281 mm / 90 in") *is* affected, and would mislead a reader.
+
+This is the structural finding that motivates Section 9's reframing: the rainfall pathway is graded separately from the wind pathway, capped before it can dominate, and the only place the estimator's overshoot leaks is the user-facing text rather than the score.
+
+---
+
 ## 5. Stage 3 — combined_boost = **0.1045**
 
 | Factor | Value | Notes |
@@ -149,50 +213,92 @@ Bundle stores `dps = 75.89`. Manual recompute matches within 0.01. ✓
 
 ---
 
-## 9. Headline finding — rainfall estimator over-shoots **2.5× observed**
+## 9. Headline finding — persistence is a distinct pathway, not a coefficient
 
-The engine's stall-hour heuristic estimates Florence's peak rainfall at **2281 mm**. The NWS-observed peak (Elizabethtown, NC; via NHC TCR Stewart & Berg 2019) was **913 mm** (35.93 in).
+Two findings of unequal weight emerged from this audit. The smaller, calibration-class finding is that the engine's rainfall estimator over-shoots Florence by 2.5×. The larger, structural finding is *why* that overshoot doesn't change her displayed score — and what it implies about the architecture.
 
-The engine over-estimates by **a factor of 2.5×.**
+### 9.1 The calibration-class finding
 
-For comparison: Ian's overshoot was 1.56× (1068 mm engine / 685 mm observed). Florence is worse.
+The engine's stall-hour heuristic estimates Florence's peak rainfall at **2281 mm**. The NWS-observed peak (Elizabethtown, NC; NHC TCR Stewart & Berg 2019) was **913 mm** (35.93 in). The engine over-estimates by **a factor of 2.5×**. For comparison: Ian's overshoot was 1.56×; Harvey's was 1.66×.
 
-**Why Florence's overshoot is larger than Ian's:** the engine's stall-rainfall estimator multiplies `stall_hours × stall_rainfall_rate_mm_per_hour`. Florence stalled for 42 hours; Ian for 0. The estimator's rate constant is calibrated against Harvey-class generational stalls, where the rate over 100+ stall hours is physically plausible. Florence stalled for less than half that duration in a much smaller storm, and the per-hour rate doesn't appropriately decay for moderate stalls. Result: an estimated rainfall amount that's plausible for a 90-inch-rain event when the actual event was 35.93 in.
+The mechanism is identified in §4.5: `estimated_total_mm = peak_rain_rate × effective_rain_hours`, with no decay term. The peak rate (Lonfat-climatology, intensity-derived) is multiplied across every stall/slow hour as if it were sustained, when in reality rain rate falls off with weakening, dry-air entrainment, and inland penetration. **The standalone `rainfall_estimator/` audit covers this finding across all 15 ground-truth storms with mean overshoot 2.20×; it's the natural locus for a calibration fix.** That's not Florence's headline.
 
-**Why this doesn't break Florence's displayed score:** the `rain_inland_factor` is capped at 0.04 and gated multiplicatively by the regional `COASTAL_EXPOSURE_WEIGHT` (Carolinas = 0.55). At any rainfall_warning_score above ~80, the factor saturates the cap. Both 2281 mm and 913 mm produce the same saturated factor, so Florence's final DPS is unchanged whether the estimator over-shoots or matches observation. Ian's audit reached the same conclusion.
+### 9.2 The structural finding
 
-**Why this matters anyway:** the `rainfall_warning_score` and `rainfall_level` ("Historic" for Florence) are displayed *user-facing values* that don't get re-derived from observed data — they reflect the engine's heuristic. Florence's stormpage will show **"Generational rainfall disaster. Multi-day flooding comparable to Harvey (2017)... Est. 2281mm (90in) rainfall"** — which over-states the actual event. The "comparable to Harvey" framing is accurate (both stalled, both rainfall-dominant) but the 90 in is 2.5× off. This is misleading for a user reading the storm card.
+**The 2.5× overshoot does not change Florence's displayed DPS.** The `rain_inland_factor` is capped at 0.04 and gated by Carolinas exposure 0.55, so at any `rainfall_warning_score ≥ ~80` it saturates. Both 2281 mm and 913 mm produce the same factor. The score is invariant to the estimator's accuracy because the architecture *deliberately* prevents rainfall from cascading into the score the way wind does.
 
-**Recommended next action:** dedicated rainfall-estimator audit. Cross-check engine's `rainfall_est_mm` against `peak_rainfall_in` for all 15 storms in `core/ground_truth.py`. Calibrate the stall-rainfall-rate constant downward, or add a duration-dependent decay term so moderate stalls don't extrapolate Harvey-class rates.
+Look at the six-storm table in §10.1. Florence has the second-highest rainfall (2281 mm, behind only Harvey's 2558 mm), the second-highest stall_hours (42, behind Harvey's 113), the longest track in the group (459 hours / 19 days), and the largest stall_bonus among any audited Atlantic storm (0.0275). She still scores 75.89 — lower than every other storm in the comparison. The wind-anchored mechanism (peak × multipliers) ranks her on her *Cat 1 landfall*, not her *generational inland flood*.
+
+**This isn't a coefficient bug.** Increasing the rainfall coefficient would lift Florence by maybe 1–2 points and destabilize the calibration of every wind-dominant storm in the bundle. Removing the 0.04 cap would let the estimator's noise (the 2.5× overshoot) leak directly into the score. The architecture's gating choices are correct *given* the current single-pathway design.
+
+**The structural choice this audit surfaces:** rainfall catastrophe is a distinct destruction mechanism — additive in nature (more hours of moderate rain = more cumulative damage, no decay-to-peak ceiling), terrain-modulated, and persistence-driven. Representing it as a percentage modifier on a wind-intensity anchor systematically under-represents storms where the dominant mechanism is hydrologic rather than aerodynamic.
+
+### 9.3 A candidate architectural response (design only — not implemented)
+
+The framing surfaced by the audit-of-audit review is: *the rainfall pathway might need its own anchor, not a larger multiplier on the wind anchor.*
+
+Currently the engine produces two parallel 0-100 scales:
+
+- **DPS** — peak-anchored, wind-dominant, the displayed score
+- **`rainfall_warning_score`** — persistence-anchored, hydrologically modeled, currently feeds DPS only via the capped 0.04 `rain_inland_factor`
+
+A candidate design — surfaced here, not implemented — is **`max(intensity_anchored_DPS, persistence_anchored_DPS)`** where the persistence pathway uses `rainfall_warning_score` (plus optional surge and inland-penetration terms) as its own *anchor* with its own compression curve, rather than as a small modifier. Florence's persistence-anchored score would likely be in the high 80s based on her warning_score 87.5; her intensity-anchored score stays at 75.89. The displayed value would take the max, preserving wind-anchored calibration for everyone else.
+
+This is *not* a calibration tweak. It's a parallel pathway. It would require:
+
+1. Lifting `rainfall_warning_score` from a 0-100 alert grade to a fully formed DPS-equivalent scale (additional inputs: surge, inland penetration, terrain spatial integration)
+2. Choosing a compression curve for the persistence pathway separate from the Atlantic (T=60, S=4) wind curve
+3. Re-validating against the bundle to confirm wind-dominant storms aren't shifted (the `max()` operator preserves them if their wind anchor is higher than their persistence anchor)
+4. Likely a new methodology-page section explaining the two-pathway architecture
+
+**This audit does not advocate for the change.** It documents that the choice exists, that the wind-only pathway can't represent Florence's archetype regardless of how the rainfall estimator is calibrated, and that the architectural decision belongs to the project rather than to the audit. The structural observation is the headline; the calibration overshoot is a footnote.
+
+### 9.4 What does change without the architectural lift
+
+Even without a parallel pathway, two narrower fixes from this audit are worth landing:
+
+1. **Activate the observed-rainfall override.** `core/dps_engine.py:L112-129` already has the hook to override `rain_result.estimated_total_mm` with `ground_truth.peak_rainfall_in` at compile time. The bundle was compiled before that activated for Florence. Recompile and the user-facing "Est. 2281 mm" becomes "Est. 913 mm" — the displayed text matches reality. Score impact is small (cap is binding) but the rainfall_text becomes honest.
+
+2. **Recalibrate the rainfall estimator.** Add a duration-dependent decay term so the per-hour rate falls off across long stalls, OR cap `effective_rain_hours` at a Lonfat-climatology-derived ceiling. The standalone rainfall audit recommends a specific multiplier (≈ 0.45×) that reduces mean overshoot from 2.20× to ~1.0×. This is calibration-class work and belongs in `rainfall_warning.py`, not the DPS engine.
+
+These two fixes correct the *displayed text* and the *estimator value* without touching the architectural question of whether persistence deserves a parallel scoring pathway.
 
 ---
 
-## 10. Comparison with Ian — what the two audits jointly establish
+## 10. Six-storm comparison — what the audit sequence jointly establishes
 
-| Property | Ian (AL092022) | Florence (AL062018) |
-|---|---:|---:|
-| Archetype | Compact Cat 5 perpendicular landfall | Cat 4 lifetime / Cat 1-2 landfall / inland flood |
-| Peak intensity at land | 140 kt at landfall | 80 kt at landfall (130 kt 3 days offshore) |
-| Stage 1 peak_dps | 82.1 | **58.1** |
-| Stage 2 cum_dpi | 98.5 | 69.7 |
-| Stage 3 combined_boost | 0.125 | 0.1045 |
-| Stage 4 adjusted (pre-comp) | 108.78 | 75.79 |
-| Stage 5 compression effect | −20.8 pts | **+0.1 pts** (near no-op) |
-| Final displayed DPS | 87.93 | 75.89 |
-| Observed damage (2024 USD) | $112.9 B | $24.2 B |
-| Observed deaths | 156 | 52 |
-| Rainfall estimator overshoot | 1.56× | **2.50×** |
-| Stall hours | 0 | 42 |
-| Peak rainfall observed (in) | 26.95 | 35.93 |
-| Compression carries editorial weight | Yes (Ian's case) | **No** (Florence's case) |
+The audits so far covered Ian (AL092022) and Florence (AL062018). To frame the structural observation in Section 9, the table below pulls four additional archetypal Atlantic storms from the bundle and decomposes them through the same five-stage pipeline. Numbers come from the bundle directly (the same fields this audit script reads for Florence); no re-derivation.
 
-**Key methodological observations from running both audits:**
+### 10.1 Six-storm table — Atlantic basin, same formula path
 
-1. **The peak_dps anchor dominates the final score.** Florence's bonus stack works as designed and adds ~30% to her cum_dpi, but it can't compensate for a Stage-1 peak that's already 24 points below Ian. This is a structural property of the cumulative pipeline (peak × multiplier rather than peak + additive integration), and it means storms whose damage profile is rainfall-dominated rather than wind-dominated will systematically score lower regardless of inland flooding magnitude. **This is by design, not a bug** — DPS measures destructive *potential* anchored to peak intensity, and Florence's potential was Cat 4 (which her peak captures) even though her realized impact was Cat 1.
+| Storm | Year | Archetype | Peak_DPS | Cum_DPI | Stage 3 Boosted | Display DPS | Label | Stall_h | Rain_mm (engine) |
+|---|---:|---|---:|---:|---:|---:|---|---:|---:|
+| Ian | 2022 | Compact Cat 5 perp landfall | 82.1 | 98.5 | 108.8 | **87.93** | Catastrophic | 0 | 1068 |
+| Ida | 2021 | Compact Cat 4 LA + NE remnants | 79.1 | 91.7 | 101.8 | **85.87** | Catastrophic | 0 | 647 |
+| Harvey | 2017 | 5-day TX stall, gen'l rainfall | 72.8 | 87.4 | 94.2 | **83.41** | Devastating | 113 | 2558 |
+| Sandy | 2012 | Huge wind field NE corridor | 73.6 | 83.1 | 93.9 | **83.27** | Devastating | 12 | 787 |
+| Michael | 2018 | Compact Cat 5 FL panhandle | 69.6 | 83.6 | 89.3 | **81.68** | Devastating | 0 | 836 |
+| Florence | 2018 | Cat 4 lifetime / Cat 1-2 land / **inland flood** | **58.1** | 69.7 | 75.8 | **75.89** | Devastating | 42 | 2281 |
 
-2. **Stage 5 compression only carries editorial weight above pre-comp ~76.** For Atlantic-storm scores in the 70–80 displayed band, the curve is effectively transparent. Compression's editorial role kicks in for the catastrophic / historic bands (80+), which is where the spacing between Katrina / Maria / Ian / Harvey is dictated by the curve choice. This is consistent with the methodology page's framing of Stage 5 as the public-facing presentation layer (added in commit 8e5e8c3).
+### 10.2 What the table reveals
 
-3. **The rainfall estimator over-shoots systematically and the size of the overshoot scales with stall duration.** Ian's 0 stall hours → 1.56× overshoot; Florence's 42 stall hours → 2.50× overshoot. The third audit in this sequence — the rainfall estimator audit against all 15 ground_truth storms — should quantify the scaling relationship and recommend a calibration correction.
+**Florence's peak_dps anchor (58.1) is 11.5 points below the next-lowest in the group (Michael's 69.6).** Every other storm in this comparison had its lifetime peak occur over or near land. Florence's peak occurred three days offshore at 27N/66W — the land-proximity dampener cut her per-snapshot composite by ~70%. From that lower anchor, the cumulative pipeline's 20% lift (capped) and Stage-3 ~10% boost (capped factors) cannot close the gap.
+
+**Florence's stall hours (42) are second only to Harvey's (113).** Yet Harvey reaches displayed 83.41 because Harvey's peak_dps anchor (72.8) was already 15 points above Florence's. **Stall hours are an additive percentage modifier on a multiplicative peak anchor — they cannot rescue a depressed anchor.**
+
+**Florence's engine rainfall estimate (2281 mm) is the second-highest of these six** (only Harvey's 2558 mm is higher). But the `rain_inland_factor` is capped at 0.04 and gated by Carolinas exposure weight 0.55, so this contributes at most ~2.2 percentage points of the displayed score. There is no pathway in the current architecture by which a 2281 mm rainfall event scores higher than a 647 mm event (Ida) if Ida's wind peak was harder.
+
+**Sandy and Michael land within 1.6 points of each other (83.27 vs 81.68) despite radically different mechanisms** — Sandy's destruction was the integral of huge wind field × NJ/NY exposure over many hours; Michael's was a compact Cat 5 punch into a low-exposure region. The formula reproduces the consensus that they were *similar magnitude* catastrophes despite being opposite shape. This is well-calibrated behavior on the wind-anchored side.
+
+**The wind-anchored pathway works.** Ian → Ida → Harvey → Sandy → Michael span 87.93 → 81.68, a reasonable spread for storms most analysts would order similarly. **The persistence/rainfall pathway is the one that doesn't have a real seat at the scoring table.** Florence is the test case where the architecture's structural choice (peak × multipliers) hits its limit.
+
+### 10.3 Key methodological observations
+
+1. **The peak_dps anchor dominates the final score.** Florence's bonus stack works as designed and adds ~30% to her cum_dpi, but it can't compensate for a Stage-1 peak that's already 24 points below Ian. This is a structural property of the cumulative pipeline (peak × multiplier rather than peak + additive integration). **This is by design** — DPS measures destructive *potential* anchored to peak intensity. The question Section 9 raises is whether that peak-anchoring should be the *only* pathway, or whether rainfall catastrophe deserves a parallel one.
+
+2. **Stage 5 compression only carries editorial weight above pre-comp ~76.** For Atlantic-storm scores in the 70–80 displayed band, the curve is effectively transparent. Compression's editorial role kicks in for the Catastrophic band (80+), which is where the spacing between Maria / Ian / Ida / Harvey is dictated by the curve choice. Florence sits exactly at the pivot point (75.79 → 75.9, a no-op).
+
+3. **The rainfall estimator over-shoots systematically and the size of the overshoot scales with stall duration.** Ian's 0 stall hours → 1.56× overshoot; Florence's 42 stall hours → 2.50× overshoot; Harvey's 113 stall hours → 1.66× (smaller ratio but largest absolute miss). The standalone `rainfall_estimator/` audit found mean overshoot 2.20× across all 15 ground-truth storms with `ratio_vs_stall_hours` Pearson +0.65. The structural cause is identified in §4.5: peak rate × total hours, no decay term.
 
 ---
 
