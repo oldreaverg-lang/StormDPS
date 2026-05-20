@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python compile + import
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Every script + module must at least parse. Mirrors SurgeDPS CI
+      # so both repos catch the same class of typos.
+      - name: Compile-check every .py file
+        run: |
+          set -e
+          find . -name '*.py' \
+            -not -path './node_modules/*' \
+            -not -path './.git/*' \
+            -print0 \
+          | xargs -0 -n 32 python -m py_compile
