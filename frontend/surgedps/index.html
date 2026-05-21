@@ -5,13 +5,28 @@
     <link rel="icon" type="image/svg+xml" href="/surgedps/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SurgeDPS — Storm Surge Damage Analysis</title>
-    <script type="module" crossorigin src="/surgedps/assets/index-3-1Qr106.js"></script>
+
+    <!-- Preconnect to the basemap tile origin. Lighthouse mobile reported
+         the dark-matter style.json fetch alone added ~1.7 s to the critical
+         path; preconnecting opens the TCP + TLS handshake during the HTML
+         parse so by the time the map needs tiles the connection is live. -->
+    <link rel="preconnect" href="https://basemaps.cartocdn.com" crossorigin />
+    <link rel="dns-prefetch" href="https://basemaps.cartocdn.com" />
+
+    <!-- Preconnect to CARTO tile servers used at runtime (sub-domains rotate
+         a-d.basemaps.cartocdn.com). dns-prefetch is cheap and covers all of
+         them; an explicit preconnect to the wildcard isn't possible. -->
+    <link rel="dns-prefetch" href="https://a.basemaps.cartocdn.com" />
+    <link rel="dns-prefetch" href="https://b.basemaps.cartocdn.com" />
+    <link rel="dns-prefetch" href="https://c.basemaps.cartocdn.com" />
+    <link rel="dns-prefetch" href="https://d.basemaps.cartocdn.com" />
+    <script type="module" crossorigin src="/surgedps/assets/index-CIBdTKvi.js"></script>
     <link rel="modulepreload" crossorigin href="/surgedps/assets/rolldown-runtime-Dw2cE7zH.js">
     <link rel="modulepreload" crossorigin href="/surgedps/assets/vendor-DqFeiqAK.js">
     <link rel="modulepreload" crossorigin href="/surgedps/assets/maplibre-X0oGUUNF.js">
     <link rel="modulepreload" crossorigin href="/surgedps/assets/vendor-react-DxrLDkTy.js">
     <link rel="stylesheet" crossorigin href="/surgedps/assets/maplibre-B2k4QVOw.css">
-    <link rel="stylesheet" crossorigin href="/surgedps/assets/index-BZqHRXld.css">
+    <link rel="stylesheet" crossorigin href="/surgedps/assets/index-Cvm9Jqb3.css">
   </head>
   <body>
     <div id="root"></div>
