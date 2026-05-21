@@ -662,8 +662,21 @@ async def serve_surgedps_spa(path: str, request: Request):
 
     if asset_file.is_file():
         response = FileResponse(asset_file)
-        # Vite hashed assets are immutable — cache aggressively
-        if path.startswith("assets/"):
+        # Vite hashed assets are immutable — cache aggressively.
+        # Root-level static images (logo, favicon, social cards) are
+        # content-stable too: a real change ships under a different
+        # filename. Same year-long Cache-Control applies. Lighthouse
+        # mobile previously flagged logo-180.png as "None" TTL,
+        # accounting for 29 KiB of repeat-visit bandwidth.
+        is_hashed_asset = path.startswith("assets/")
+        is_root_static_image = (
+            "/" not in path
+            and path.lower().endswith((
+                ".png", ".webp", ".jpg", ".jpeg", ".svg",
+                ".ico", ".gif", ".avif",
+            ))
+        )
+        if is_hashed_asset or is_root_static_image:
             response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return response
     # Client-side routing fallback → SPA shell
