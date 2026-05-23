@@ -702,6 +702,22 @@ async def serve_bing_site_auth():
     )
 
 
+@app.get("/.well-known/security.txt")
+async def serve_security_txt():
+    """RFC 9116 — vulnerability disclosure contact for stormdps.com.
+
+    Serves the static file from frontend/.well-known/security.txt. Returning
+    text/plain (the RFC-mandated content type) and a short cache so updates
+    to the contact / Expires field propagate within a day instead of being
+    cached at the edge for the immutable-asset year.
+    """
+    return FileResponse(
+        FRONTEND_DIR / ".well-known" / "security.txt",
+        media_type="text/plain",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Compiled bundle — served from the persistent volume with fallback.
 #
