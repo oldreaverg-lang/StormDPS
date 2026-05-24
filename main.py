@@ -397,6 +397,80 @@ async def storage_health():
 
 FRONTEND_DIR = Path(__file__).parent / "frontend"
 
+
+# ---------------------------------------------------------------------------
+# Scanner-probe block list — substring patterns that any non-routed path is
+# matched against. A hit returns 404 instantly without consulting the SPA
+# fallback. Shared between the root 404 handler and the /surgedps SPA route
+# so the two don't drift.
+#
+# Maintenance notes:
+#   • Patterns are substring-matched against the lowercased path.
+#   • Any legitimate route (defined elsewhere in this file) must NOT
+#     contain any of these substrings. When adding a pattern, mentally
+#     scan the route list above for collisions.
+#   • Keep WordPress / PHP / IIS sections together so the next person can
+#     audit at a glance.
+#   • Bandwidth savings are real: each blocked probe is a 50-byte JSON
+#     instead of a ~350 KB SPA shell.
+# ---------------------------------------------------------------------------
+SCANNER_PROBE_PATTERNS: tuple[str, ...] = (
+    # ── Dotfiles / VCS / shell history ──
+    ".env", ".git", ".aws", ".ssh", ".docker", ".svn", ".hg", ".bzr",
+    ".DS_Store", ".npmrc", ".htaccess", ".htpasswd",
+    ".bash_history", ".sh_history", ".python_history",
+    ".mysql_history", ".lesshst",
+    "/cvs/",  # ancient SCM
+    # ── Admin / login panel probes ──
+    "/admin",         # broader than the old /admin. — catches bare /admin too
+    "/login", "/signin", "/signup",
+    "/dashboard", "/portal", "/manager", "/manage",
+    "/console",
+    # ── Auth service discovery (OIDC / OAuth / SAML) ──
+    "openid-config", "oauth-authorization-server",
+    "/oauth/", "/oidc/", ".well-known/openid",
+    ".well-known/oauth", ".well-known/jwks",
+    ".well-known/host-meta", "saml/metadata",
+    # ── WordPress ──
+    "wp-admin", "wp-login", "wp-config", "wp-content",
+    "wp-includes", "/wp-json", "/wp-trackback",
+    "xmlrpc.php",
+    # ── PHP / generic ──
+    "phpinfo", ".php", "phpmyadmin", "/pma/", "/myadmin",
+    "eval-stdin.php", "/setup.cgi", "/cgi-bin/",
+    # ── Spring / Java / JMX ──
+    "/actuator", "/jolokia",
+    # ── Enterprise search / metrics / dashboards ──
+    "/solr", "/druid", "/struts", "/elasticsearch",
+    "/kibana", "/grafana", "/prometheus", "/spring",
+    # ── Microsoft / SharePoint / IIS / OWA ──
+    "/owa/", "/exchange/", "/autodiscover",
+    "/_vti_bin", "/_layouts", "/aspnet_client",
+    "/iisstart", "trace.axd",
+    # ── IoT / router exploit probes (Mirai-style) ──
+    "hnap1", "picsdesc.xml", "/upnp",
+    "boaform", "currentsetting.htm",
+    # ── Generic management / status endpoints ──
+    "/server-status", "/server-info", "/metrics",
+    "/jenkins", "/api-docs", "/swagger-ui", "/debug",
+    # ── Sensitive paths / config dumps ──
+    "/config", "/credentials", "/secret", "/vendor/",
+    "/backup", "/dump", "/.well-known/security/",
+    # NOTE the trailing slash on "/.well-known/security/" — without it,
+    # this would match our own /.well-known/security.txt route. The route
+    # itself is matched explicitly above, but defense in depth.
+    # ── Backup / archive / dump files ──
+    ".bak", ".backup", ".old", ".orig", ".swp",
+    "db.sql", "dump.sql", "database.sql",
+    # ── Dependency manifests (source repo probes) ──
+    "/.idea", "/.vscode",
+    "composer.json", "composer.lock",
+    "package-lock.json", "yarn.lock",
+    "/pom.xml", "/build.gradle", "/cargo.toml",
+    "gemfile",
+)
+
+
 # ---------------------------------------------------------------------------
 # Error handling — return JSON for all errors (mobile clients expect JSON)
 # ---------------------------------------------------------------------------
@@ -406,31 +480,10 @@ async def not_found_handler(request: Request, exc):
     path = request.url.path
 
     # ── Security: block probes for sensitive files ──
-    # Bots routinely probe for .env, .git, wp-admin, etc. Return a hard
-    # 404 — never serve content for these paths. Expanded 2026-05-15
-    # after Cloudflare showed ~60k 4xx probes; added .htpasswd, .npmrc,
-    # .DS_Store, .svn, /actuator, /metrics, /vendor, /backup, /console,
-    # /jenkins, /api-docs (the FastAPI /docs is already disabled in
-    # prod via ENABLE_API_DOCS=false, but scanners still hit /api-docs).
-    _blocked_patterns = (
-        # Dotfiles / VCS
-        ".env", ".git", ".aws", ".ssh", ".docker", ".svn", ".hg",
-        ".DS_Store", ".npmrc", ".htaccess", ".htpasswd",
-        # WordPress
-        "wp-admin", "wp-login", "wp-config", "wp-content", "xmlrpc.php",
-        # PHP / generic
-        "phpinfo", ".php", "phpmyadmin", "/pma/", "/myadmin",
-        # Spring / Java
-        "/actuator", "/jolokia",
-        # Generic management endpoints
-        "/server-status", "/server-info", "/metrics", "/console",
-        "/jenkins", "/api-docs", "/swagger-ui", "/debug", "/admin.",
-        # Sensitive paths
-        "/config", "/credentials", "/secret", "/vendor/",
-        "/backup", "/dump", "/.well-known/security",
-    )
+    # Patterns live in SCANNER_PROBE_PATTERNS at the top of this file so
+    # the /surgedps/{path:path} handler can use the same list.
     path_lower = path.lower()
-    if any(p in path_lower for p in _blocked_patterns):
+    if any(p in path_lower for p in SCANNER_PROBE_PATTERNS):
         return JSONResponse(status_code=404, content={"detail": "Not found"})
 
     if path.startswith("/api/"):
@@ -643,8 +696,15 @@ async def serve_surgedps_spa(path: str, request: Request):
         raise HTTPException(status_code=404, detail="Not found")
 
     # ── Security: block sensitive file probes ──
+    # Uses the shared SCANNER_PROBE_PATTERNS list to stay in sync with the
+    # root 404 handler — previously this handler had its own tiny copy that
+    # missed most patterns. Path is matched WITHOUT a leading slash here
+    # because the {path:path} param strips the leading slash from the
+    # request URL.
     path_lower = path.lower()
-    if any(p in path_lower for p in (".env", ".git", ".aws", ".php", ".htaccess", "wp-")):
+    # Prepend "/" so the patterns that anchor with "/" (e.g. "/admin",
+    # "/oauth/") match the way they would against a full request path.
+    if any(p in ("/" + path_lower) for p in SCANNER_PROBE_PATTERNS):
         raise HTTPException(status_code=404, detail="Not found")
 
     # ── Path traversal protection ──
