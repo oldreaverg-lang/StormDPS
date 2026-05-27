@@ -3,7 +3,9 @@ FROM python:3.12-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies + tippecanoe build deps
+# Install system dependencies + tippecanoe build deps + gosu (for the
+# privilege-drop pattern in docker-entrypoint.sh — see that file's
+# header for why we need it).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     g++ \
@@ -15,6 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libcurl4 \
     zlib1g-dev \
     git \
+    gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # Build tippecanoe from source (vector tile generator for PMTiles)
@@ -38,13 +41,18 @@ COPY . .
 # Falls back to /app/data when env var is not set
 RUN mkdir -p /app/persistent/cache/ike /app/persistent/validation
 
-# Run as a non-root user. Owns /app and /app/persistent so the volume
-# mount is writable. Railway mounts volumes preserving ownership of the
-# mount point, so the chown here applies before the volume attaches.
+# Create the non-root app user. Note: we do NOT `USER app` here —
+# the entrypoint script needs to run as root briefly so it can chown
+# the Railway-mounted volume to app:app before exec'ing gunicorn via
+# gosu. Without that step the app user can't write to /app/persistent.
 RUN groupadd --system --gid 1001 app \
     && useradd  --system --uid 1001 --gid app --home /app --shell /usr/sbin/nologin app \
     && chown -R app:app /app
-USER app
+
+# Entrypoint script: chowns the volume, then drops to `app` via gosu.
+# See docker-entrypoint.sh for the why and how.
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Railway sets PORT automatically (8080); default to 8080 for consistency
 ENV PORT=8080
@@ -52,9 +60,15 @@ ENV PORT=8080
 # Expose the port
 EXPOSE ${PORT}
 
-# --preload loads the app in the master process before forking, so IBTrACS
-# data (~100MB) is shared via copy-on-write instead of duplicated per worker.
-# --workers 1 prevents OOM on 512MB Railway containers.
+# Container starts as root, runs entrypoint, entrypoint drops to app
+# via gosu and execs the CMD below. --preload loads the app in the
+# master process before forking, so IBTrACS data (~100MB) is shared
+# via copy-on-write instead of duplicated per worker. --workers 1
+# prevents OOM on 512MB Railway containers.
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+# Shell-form CMD so ${PORT} expands at runtime — combined with the
+# ENTRYPOINT above, Docker hands the entrypoint argv equivalent to
+# ["/bin/sh", "-c", "gunicorn ..."], which gosu execs as the app user.
 CMD gunicorn main:app \
     --worker-class uvicorn.workers.UvicornWorker \
     --bind 0.0.0.0:${PORT} \
