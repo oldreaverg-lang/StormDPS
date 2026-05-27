@@ -1659,8 +1659,20 @@ def _load_dps_cache(storm_id: str) -> Optional[dict]:
 
 
 def _save_dps_cache(storm_id: str, bundle: dict) -> None:
+    """Persist a storm's computed DPS bundle to the volume.
+
+    Uses atomic_write_json (tmp file + os.rename) instead of write_text.
+    The rename-based path only needs WRITE on the directory, not on the
+    destination file. Some files on the volume ended up with restrictive
+    ownership at some point in the volume's history — likely written
+    during an early deploy before the `USER app` Dockerfile directive,
+    or by a one-off admin tool — and Path.write_text was failing to
+    truncate them with [Errno 13] Permission denied, spamming the log
+    every hour when the active-storm refresh loop hit those storm_ids.
+    Atomic rename sidesteps the per-file permission entirely.
+    """
     try:
-        _dps_cache_path(storm_id).write_text(json.dumps(bundle, separators=(",", ":")))
+        _atomic_write_json(_dps_cache_path(storm_id), bundle)
     except OSError as e:
         logger.warning(f"[DPS CACHE] Failed to save {storm_id}: {e}")
 
