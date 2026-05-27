@@ -1661,18 +1661,28 @@ def _load_dps_cache(storm_id: str) -> Optional[dict]:
 def _save_dps_cache(storm_id: str, bundle: dict) -> None:
     """Persist a storm's computed DPS bundle to the volume.
 
-    Uses atomic_write_json (tmp file + os.rename) instead of write_text.
-    The rename-based path only needs WRITE on the directory, not on the
-    destination file. Some files on the volume ended up with restrictive
-    ownership at some point in the volume's history — likely written
-    during an early deploy before the `USER app` Dockerfile directive,
-    or by a one-off admin tool — and Path.write_text was failing to
-    truncate them with [Errno 13] Permission denied, spamming the log
-    every hour when the active-storm refresh loop hit those storm_ids.
-    Atomic rename sidesteps the per-file permission entirely.
+    NOTE on the EACCES landscape (Railway volume permission state, May 2026):
+    `/app/persistent/cache/dps/` is owned by root with mode 755. The app
+    user (uid 1001) has READ but not WRITE on the directory itself. There
+    are 17 pre-existing files in the dir that ARE app-writable (file mode
+    permits truncate-overwrite), but new-file creation fails with EACCES.
+
+    write_text() on an existing file:  works (just truncates the file)
+    write_text() on a new file:        FAILS (needs dir-write to create)
+    atomic_write_json + os.rename:     FAILS (needs dir-write to create .tmp)
+
+    Tried switching to atomic_write_json in commit 30273b5 — that broke
+    even the 17 existing-file writes because the .tmp creation needs
+    dir-write too. Reverted in this commit.
+
+    Real fix is a Dockerfile entrypoint script that chowns the volume
+    at boot before dropping to `app` user. Until then: write_text keeps
+    the 17 existing storms updatable; new storm_ids (e.g. WP062026) will
+    still log a single warning per refresh tick until they get a writable
+    cache slot somehow.
     """
     try:
-        _atomic_write_json(_dps_cache_path(storm_id), bundle)
+        _dps_cache_path(storm_id).write_text(json.dumps(bundle, separators=(",", ":")))
     except OSError as e:
         logger.warning(f"[DPS CACHE] Failed to save {storm_id}: {e}")
 
