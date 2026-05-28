@@ -309,27 +309,33 @@ class NOAAClient:
         if not points:
             return []
 
-        # Parse a representative point for the probe
+        # Probe date MUST be a date the SST datasets have already published.
+        # The CoralTemp / MUR datasets typically run 1–3 days behind real time,
+        # and active-storm tracks include forecast points that extend 5 days
+        # into the future. If we probe with the track's first timestamp, a
+        # forecast point would trigger ERDDAP's "Start is greater than axis
+        # maximum" 404 even though the dataset is healthy — and the probe
+        # would falsely conclude every source is down, falling back to
+        # stale-cached or null SST and spamming the log every poll.
+        #
+        # The probe is only checking "can the dataset respond?" — it doesn't
+        # consume the response. Using today-minus-3-days guarantees a date
+        # that's safely inside the published window for all three sources.
+        probe_dt = datetime.utcnow() - timedelta(days=3)
+        sample_date = probe_dt.strftime("%Y-%m-%dT12:00:00Z")
+
+        # Use a known-good probe location too — first track point's lat/lon
+        # is fine since SST coverage is global, but fall back to a tropical
+        # Atlantic point if the track sample is missing coords.
         sample = points[0]
-        sample_ts = sample.get("timestamp", "")
-        try:
-            if isinstance(sample_ts, str):
-                sample_dt = datetime.fromisoformat(sample_ts.replace("Z", "+00:00"))
-            else:
-                sample_dt = sample_ts
-            sample_date = sample_dt.strftime("%Y-%m-%dT12:00:00Z")
-        except Exception as e:
-            logger.warning(f"[SST] Failed to parse sample timestamp '{sample_ts}': {e}; using today's date")
-            sample_date = datetime.utcnow().strftime("%Y-%m-%dT12:00:00Z")
+        probe_lat = sample.get("lat") if sample.get("lat") is not None else 25.0
+        probe_lon = sample.get("lon") if sample.get("lon") is not None else -80.0
 
         # Find a working SST source (probe starting from current preferred)
         working_idx = None
         for offset in range(len(self.ERDDAP_SST_SOURCES)):
             idx = (self._sst_source_idx + offset) % len(self.ERDDAP_SST_SOURCES)
-            if await self._probe_sst_source(
-                idx, sample_date,
-                sample.get("lat", 25.0), sample.get("lon", -80.0)
-            ):
+            if await self._probe_sst_source(idx, sample_date, probe_lat, probe_lon):
                 working_idx = idx
                 break
 
