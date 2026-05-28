@@ -49,9 +49,35 @@ else
     echo "[entrypoint] /app/persistent not mounted — skipping chown (local dev?)"
 fi
 
-# ── Drop privileges and exec the CMD ────────────────────────────────
-# gosu is preferred over `su` because it doesn't fork an intermediate
-# shell, so signals propagate correctly and there's no extra PID.
-# The "$@" forwards the Dockerfile's CMD (shell-form gunicorn invocation
-# wrapped by Docker as `/bin/sh -c '...'`) verbatim.
-exec gosu app:app "$@"
+# ── Drop privileges and exec gunicorn directly ─────────────────────
+#
+# We invoke gunicorn from this script rather than relying on the
+# Dockerfile's CMD because shell-form CMD lines get wrapped by Docker
+# as `["/bin/sh", "-c", "..."]`, leaving a shell process between PID 1
+# and gunicorn. SIGTERM from Railway during graceful shutdown then
+# hits the shell, which doesn't reliably forward signals to gunicorn —
+# in-flight requests get killed instead of finishing within
+# --graceful-timeout. BuildKit calls this out as JSONArgsRecommended.
+#
+# With `exec gosu ... gunicorn ...`:
+#   • gosu drops privileges in-place (no fork)
+#   • exec replaces this shell with gunicorn (no extra PID)
+#   • gunicorn becomes the direct child of the container init
+#   • SIGTERM hits gunicorn's master, which gracefully stops workers
+#
+# PORT comes from Railway (or the Dockerfile's ENV PORT=8080 fallback).
+# Any args passed by `docker run ... <args>` (via CMD or override)
+# are appended after our base list, allowing local-dev overrides like
+#   docker run img --reload
+# without rewriting this script.
+PORT="${PORT:-8080}"
+exec gosu app:app gunicorn main:app \
+    --worker-class uvicorn.workers.UvicornWorker \
+    --bind "0.0.0.0:${PORT}" \
+    --workers 1 \
+    --preload \
+    --timeout 120 \
+    --graceful-timeout 30 \
+    --access-logfile - \
+    --error-logfile - \
+    "$@"

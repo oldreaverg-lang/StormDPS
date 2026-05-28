@@ -60,21 +60,19 @@ ENV PORT=8080
 # Expose the port
 EXPOSE ${PORT}
 
-# Container starts as root, runs entrypoint, entrypoint drops to app
-# via gosu and execs the CMD below. --preload loads the app in the
-# master process before forking, so IBTrACS data (~100MB) is shared
-# via copy-on-write instead of duplicated per worker. --workers 1
-# prevents OOM on 512MB Railway containers.
+# Container starts as root, runs entrypoint, entrypoint chowns the
+# Railway volume + drops to `app` via gosu + execs gunicorn directly
+# (no intermediate shell, so SIGTERM during graceful shutdown reaches
+# gunicorn's master process and workers can drain in-flight requests
+# within --graceful-timeout 30). All gunicorn flags live in the script.
+# --preload loads the app in the master before forking so IBTrACS
+# (~100 MB) is shared via copy-on-write instead of duplicated per
+# worker; --workers 1 prevents OOM on 512 MB Railway containers.
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-# Shell-form CMD so ${PORT} expands at runtime — combined with the
-# ENTRYPOINT above, Docker hands the entrypoint argv equivalent to
-# ["/bin/sh", "-c", "gunicorn ..."], which gosu execs as the app user.
-CMD gunicorn main:app \
-    --worker-class uvicorn.workers.UvicornWorker \
-    --bind 0.0.0.0:${PORT} \
-    --workers 1 \
-    --preload \
-    --timeout 120 \
-    --graceful-timeout 30 \
-    --access-logfile - \
-    --error-logfile -
+# The gunicorn invocation lives in docker-entrypoint.sh (see that file
+# for the rationale — TL;DR: shell-form CMD wraps in /bin/sh -c which
+# breaks SIGTERM propagation during Railway's graceful shutdown).
+# CMD is JSON exec form so any docker-run override args get appended
+# verbatim to the gunicorn command line inside the entrypoint:
+#   docker run img --reload --log-level=debug
+CMD []
