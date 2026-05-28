@@ -4560,6 +4560,12 @@ async function initSatelliteLayer(data, opts) {
     window._windState.bbox     = _computeStormBbox(data, 5);
     window._pressureState.bbox = _computeStormBbox(data, 8);
     window._precipState.bbox   = _computeStormBbox(data, 5);
+    // Bbox changed (likely new storm) — invalidate wind prefetch state so
+    // the next animation play re-prefetches for this storm's bbox+timestamps.
+    if (window._windState.prefetched) {
+        window._windState.prefetched = new Set();
+        window._windState.prefetchStarted = false;
+    }
 }
 
 // Historic/archived storms can't show satellite tiles (GIBS archive depth
@@ -4570,6 +4576,10 @@ async function initSatelliteLayer(data, opts) {
 function enableHistoricOverlays(data) {
     if (!data || !data.length || !currentMap) return;
     window._windState.bbox = _computeStormBbox(data, 5);
+    if (window._windState.prefetched) {
+        window._windState.prefetched = new Set();
+        window._windState.prefetchStarted = false;
+    }
 
     // Unhide the overlay-control panel. initSatelliteLayer normally does this
     // when wiring up active-storm satellite frames, but it bails early for
@@ -4757,6 +4767,8 @@ window._windState = {
     fetchToken: 0,          // monotonic counter to drop stale responses
     debounceTimer: null,    // debounce rapid scrubs (Open-Meteo 10 req/min)
     pendingTs: null,        // most-recent satellite ts queued behind debounce
+    prefetched: new Set(),  // wind timestamps known to be in the server cache
+    prefetchStarted: false, // guard so we only kick off prefetch once per toggle
 };
 
 // Reset the Wind toggle button to its idle "Off" appearance. Used on fetch
@@ -4788,23 +4800,87 @@ function _satelliteTsToWindTs(ts) {
 function setWindFrame(satelliteTs) {
     const st = window._windState;
     if (!st.enabled || !st.bbox || !currentMap) return;
-    // Skip wind fetches during animation playback. Hourly wind frames hit
-    // Open-Meteo (10 req/min free tier); a 60-snapshot storm animating at
-    // 1fps produces 60 requests/min — 6x over the limit, which returns
-    // HTTP 429 firehose and the animation stack-traces fill the console.
-    // Wind updates still run for manual scrubs (onScrub) and when the user
-    // pauses, which is when users actually want to read wind values.
-    if (window.animationFrameId) return;
+    // During animation playback, only update wind for frames we've already
+    // pre-fetched into the server cache. A cache-hit fetch is ~50 ms so the
+    // animation stays smooth; a cache-miss would hit Open-Meteo (10 req/min
+    // free tier) and at 1fps the animation would burst over the limit,
+    // taking HTTP 429 firehose for the remainder of the play. The prefetch
+    // started in toggleWindLayer populates st.prefetched as each frame
+    // completes — so initial play shows partial wind updates and subsequent
+    // plays are smooth.
+    if (window.animationFrameId) {
+        const windTsCheck = _satelliteTsToWindTs(satelliteTs);
+        if (!windTsCheck || !st.prefetched.has(windTsCheck)) return;
+    }
     st.pendingTs = satelliteTs;
     if (st.debounceTimer) clearTimeout(st.debounceTimer);
-    // 500ms debounce — wind frames hit Open-Meteo on cache miss (30s+) so
-    // we absorb rapid scrubs before committing to a fetch.
+    // 500ms for manual scrubs; 200ms during animation so wind keeps up.
+    const _debounce = window.animationFrameId ? 200 : 500;
     st.debounceTimer = setTimeout(() => {
         st.debounceTimer = null;
         const ts = st.pendingTs;
         st.pendingTs = null;
         if (ts) _setWindFrameNow(ts);
-    }, 500);
+    }, _debounce);
+}
+
+// Background-prefetch every wind timestamp the current storm track will
+// iterate through during animation. Populates the server-side wind cache so
+// that setWindFrame's per-frame fetches during playback are all cache hits
+// (~50 ms each, never hitting Open-Meteo). Fires once per wind-toggle-on.
+async function _prefetchWindFramesForTrack() {
+    const st = window._windState;
+    if (!st.enabled || !st.bbox || !window.stormData || !window.stormData.length) return;
+    if (st.prefetchStarted) return;
+    st.prefetchStarted = true;
+
+    // Build the unique set of hourly wind timestamps the animation will use.
+    const uniqueWindTs = new Set();
+    for (const snap of window.stormData) {
+        if (!snap || !snap.timestamp) continue;
+        const ms = Date.parse(snap.timestamp);
+        if (!Number.isFinite(ms)) continue;
+        const satTs = window._tsMsToSatTsString(ms);
+        const windTs = _satelliteTsToWindTs(satTs);
+        if (windTs) uniqueWindTs.add(windTs);
+    }
+    const todo = [...uniqueWindTs].filter(t => !st.prefetched.has(t));
+    const total = todo.length;
+    if (total === 0) return;
+
+    const [s, w, n, e] = st.bbox;
+    const _btn = () => document.getElementById('windToggleBtn');
+    let done = 0;
+
+    // Concurrency cap of 3 — Open-Meteo's free tier is ~10 req/min; the
+    // server's own open_meteo_limiter throttles further; 3 in flight gives
+    // ~6 req/min sustained which sits safely under the upstream ceiling.
+    const concurrency = 3;
+    async function worker() {
+        // eslint-disable-next-line no-unmodified-loop-condition
+        while (todo.length > 0 && st.enabled) {
+            const ts = todo.shift();
+            if (!ts) break;
+            const url = `${API_BASE}/wind/field?bbox=${s.toFixed(2)},${w.toFixed(2)},${n.toFixed(2)},${e.toFixed(2)}&ts=${ts}&res=1.0`;
+            try {
+                const r = await fetch(url, { method: 'GET' });
+                if (r.ok) st.prefetched.add(ts);
+            } catch (_e) {
+                // Network blip — leave the ts out of prefetched. We'll just
+                // miss that frame's wind update on first play.
+            }
+            done += 1;
+            const b = _btn();
+            if (b && st.enabled && b.textContent.startsWith('Wind:')) {
+                if (done < total) {
+                    b.textContent = `Wind: On (caching ${done}/${total})`;
+                } else {
+                    b.textContent = 'Wind: On';
+                }
+            }
+        }
+    }
+    await Promise.all(Array.from({ length: concurrency }, worker));
 }
 
 async function _setWindFrameNow(satelliteTs) {
@@ -4873,6 +4949,16 @@ async function _setWindFrameNow(satelliteTs) {
             if (cvs) cvs.style.opacity = String(_op);
         } catch (e) {}
     }
+    // First frame is now on screen. Mark its ts as prefetched (we just
+    // populated the server cache by fetching it) and kick off background
+    // prefetch of the rest of the storm's wind hours so the animation
+    // can update wind per-snapshot. Fires once per toggle-on.
+    st.prefetched.add(windTs);
+    if (!st.prefetchStarted) {
+        // setTimeout so the first frame's render isn't competing with
+        // the prefetch fetch barrage for the same network/parse budget.
+        setTimeout(() => { _prefetchWindFramesForTrack(); }, 250);
+    }
 }
 
 // Attach to window explicitly. Plain function declarations here were
@@ -4933,6 +5019,10 @@ function toggleWindLayer() {
         }
         st.layer = null;
         st.currentTs = null;
+        // Reset the prefetch state so the next toggle-on re-evaluates the
+        // current storm's track (may be a different storm now).
+        st.prefetched = new Set();
+        st.prefetchStarted = false;
         if (btn) {
             btn.style.background = 'rgba(100,116,139,.18)';
             btn.style.borderColor = 'rgba(100,116,139,.4)';
