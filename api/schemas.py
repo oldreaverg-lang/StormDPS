@@ -59,6 +59,14 @@ class IKEResponse(BaseModel):
         description="Wind radii data confidence (0.0-1.0) from cross-source audit. "
                     "None if audit has not run for this advisory cycle.",
     )
+    sdp: Optional[float] = Field(
+        None,
+        description="Surge Destructive Potential (Powell & Reinhold 2007), 0-6 scale, "
+                    "derived from IKE_TS (the >=34-kt IKE). Higher = greater surge/wave threat.",
+    )
+    sdp_label: Optional[str] = Field(
+        None, description="SDP band: Minimal / Low / Moderate / High / Very High / Extreme.",
+    )
 
 
 class ValuationResponse(BaseModel):

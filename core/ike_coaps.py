@@ -118,6 +118,22 @@ def sdp_from_ike_ts(ike_ts: float) -> float:
     return min(5.99, max(0.0, sdp))
 
 
+def sdp_label(sdp: float) -> str:
+    """SDP band label (0-6 scale, interpreted like Saffir-Simpson per
+    Powell & Reinhold 2007: most destructive > 5, least < 1)."""
+    if sdp >= 5.0:
+        return "Extreme"
+    if sdp >= 4.0:
+        return "Very High"
+    if sdp >= 3.0:
+        return "High"
+    if sdp >= 2.0:
+        return "Moderate"
+    if sdp >= 1.0:
+        return "Low"
+    return "Minimal"
+
+
 def sdp_from_radii(r18_km: float, r33_km: float) -> float:
     """Surge Destructive Potential (0-6) directly from radii — Eq (A8)."""
     if not r18_km:

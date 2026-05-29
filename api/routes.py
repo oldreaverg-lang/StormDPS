@@ -451,6 +451,8 @@ def _ike_to_response(result, snapshot=None) -> IKEResponse:
         except Exception:
             pass  # Audit DB not yet populated is normal
 
+    from core.ike_coaps import sdp_from_ike_ts, sdp_label
+    _sdp_val = round(sdp_from_ike_ts(result.ike_total_tj), 2)
     return IKEResponse(
         storm_id=result.storm_id,
         timestamp=result.timestamp,
@@ -472,6 +474,8 @@ def _ike_to_response(result, snapshot=None) -> IKEResponse:
         forward_speed_knots=round(ms_to_knots(snapshot.forward_speed_ms), 1) if snapshot and snapshot.forward_speed_ms else None,
         forward_direction_deg=round(snapshot.forward_direction_deg, 1) if snapshot and snapshot.forward_direction_deg is not None else None,
         radii_confidence=radii_confidence,
+        sdp=_sdp_val,
+        sdp_label=sdp_label(_sdp_val),
     )
 
 
