@@ -252,9 +252,16 @@ def compute_ike_from_quadrants(
     r50_quadrants_m: Optional[dict] = None,
     r64_quadrants_m: Optional[dict] = None,
     rho: float = RHO_AIR,
+    apply_size_corrections: bool = False,
 ) -> tuple[float, float, float]:
     """
-    Compute IKE using the official NOAA wind-band methodology.
+    Compute IKE by physical wind-band integration. NOT in the production path.
+
+    Retained for reference/comparison only — production IKE for ALL basins uses
+    the canonical COAPS / Powell & Reinhold (2007) regression (core.ike_coaps).
+    This physical band estimate over-counts large storms ~2-3x (it applies
+    band-edge winds uniformly across each annulus); `apply_size_corrections`
+    (default OFF) gates the Atlantic-target heuristics that crudely compensated.
 
     This implements the calculation method used by the NOAA HRD IKE calculator,
     which integrates kinetic energy in wind speed bands rather than over a full grid.
@@ -297,7 +304,11 @@ def compute_ike_from_quadrants(
         # Cap r50 at 300 km to prevent overestimation for extreme outliers (Sandy).
         r34 = r34_quadrants_m.get(quad) if r34_quadrants_m else None
         r50_raw = r50_quadrants_m.get(quad) if r50_quadrants_m else None
-        r50 = min(r50_raw, 300_000.0) if (r50_raw and r50_raw > 0) else r50_raw
+        # 300 km r50 cap: Atlantic-target anti-overestimation hack; off by default.
+        if apply_size_corrections and r50_raw and r50_raw > 0:
+            r50 = min(r50_raw, 300_000.0)
+        else:
+            r50 = r50_raw
         r64 = r64_quadrants_m.get(quad) if r64_quadrants_m else None
 
         if not r34 or r34 <= 0:
@@ -310,7 +321,9 @@ def compute_ike_from_quadrants(
         # highly variable, often sub-34-kt winds interspersed throughout.
         # Capping preserves accuracy for normal storms while preventing Sandy-class
         # outliers from dominating the error budget.
-        r34_eff = min(r34, 320_000.0)  # 320 km (~173 nm) max
+        # 320 km r34 cap: Atlantic-target hack to truncate Sandy-class wind
+        # fields; off by default (the physical method should not truncate).
+        r34_eff = min(r34, 320_000.0) if apply_size_corrections else r34
 
         # Calculate wind band areas for this quadrant
         # Each quadrant is 1/4 of the full circle (multiply by 1/4)
@@ -323,11 +336,11 @@ def compute_ike_from_quadrants(
         # wind speeds in outer bands are significantly lower than band averages
         # for very large storms. This quadratic-log correction is calibrated
         # against RMS HWind IKE values for storms of various sizes.
+        # Size-efficiency penalty for large wind fields: an Atlantic-target
+        # heuristic that runs OPPOSITE to the canonical P&R-2007 regression
+        # (whose positive quadratic grows IKE with size). Off by default.
         size_ratio = r34_eff / r34_ref_m
-        if size_ratio > 1.0:
-            # Aggressive correction for very large wind fields.
-            # Uses log² to penalize extreme outliers more heavily:
-            # At 1.5x: factor ~0.93; at 2x: ~0.82; at 3x: ~0.62; at 4x: ~0.48
+        if apply_size_corrections and size_ratio > 1.0:
             log_ratio = math.log(size_ratio)
             size_efficiency = 1.0 / (1.0 + 0.50 * log_ratio ** 1.6)
         else:
@@ -415,7 +428,10 @@ def compute_ike_from_quadrants(
     # despite the massive wind field, because the outer bands were highly
     # disorganized and sub-tropical-storm force in many sectors.
     # Reference: Blake et al. (2013) "NHC TC Report: Sandy"
-    if vmax_ms < 45.0:
+    # Post-tropical IKE suppression: an Atlantic-target heuristic. (The block's
+    # comment cites a P&R-2007 "Sandy ~80 TJ" figure that cannot exist — Sandy is
+    # 2012 — and contradicts COAPS's published Sandy IKE >300 TJ.) Off by default.
+    if apply_size_corrections and vmax_ms < 45.0:
         # Check for post-tropical signature using available data
         # We don't have latitude directly here, but can infer from r34 size:
         # Very large r34 (>300nm per quad average) + weak winds = post-tropical
@@ -608,6 +624,61 @@ def estimate_r50_r64(vmax_ms: float, rmw_m: float, r34_m: float) -> tuple[float,
     return r50_m, r64_m
 
 
+def _is_atlantic_basin(lat: Optional[float], lon: Optional[float]) -> bool:
+    """North Atlantic / Caribbean / Gulf of Mexico.
+
+    The Powell & Reinhold (2007) IKE regressions used for Atlantic storms are
+    Atlantic-calibrated; the authors explicitly warn other basins need tailored
+    coefficients. Non-Atlantic storms therefore use the physical band method
+    with the Atlantic-target corrections disabled.
+
+    Box covers the Atlantic MDR, Caribbean, and Gulf (lon -100..0, lat 0..65).
+    Eastern Pacific (lon < -100) and all other basins fall through to the
+    physical method. Unknown location defaults to Atlantic (the validated path).
+    """
+    if lat is None or lon is None:
+        return True
+    return 0.0 <= lat <= 65.0 and -100.0 <= lon <= 0.0
+
+
+def _ike_result_from_quadrants(snapshot, r34_q_m, r50_q_m, r64_q_m, source):
+    """Build an IKEResult from quadrant radii using the canonical COAPS /
+    Powell & Reinhold (2007) regression (core.ike_coaps).
+
+    The regression is Atlantic-calibrated. Per project decision it is applied to
+    ALL basins: it generalizes far better than a physical band integration,
+    which over-counts large storms ~2-3x because it applies band-edge winds
+    uniformly across each annulus. Non-Atlantic results are tagged
+    'coaps_extrabasin' to mark them as an Atlantic-calibrated approximation;
+    basin-tailored coefficients are future work (see basin-specific DPS).
+    """
+    from core.ike_coaps import compute_ike_coaps
+
+    def _to_km(q):
+        return ({k: v / 1000.0 for k, v in q.items() if v and v > 0}
+                if q else None)
+
+    cz = compute_ike_coaps(
+        vms_ms=snapshot.max_wind_ms,
+        r34_quadrants_km=_to_km(r34_q_m),
+        r50_quadrants_km=_to_km(r50_q_m),
+        r64_quadrants_km=_to_km(r64_q_m),
+        rmax_km=(snapshot.rmw_m / 1000.0 if snapshot.rmw_m else None),
+    )
+    ts, h = cz["ike_ts_tj"], cz["ike_h_tj"]
+    src = "coaps" if _is_atlantic_basin(snapshot.lat, snapshot.lon) else "coaps_extrabasin"
+    if "synthetic" in source:
+        src += "_synthetic"
+    return IKEResult(
+        ike_total_tj=ts,
+        ike_hurricane_tj=h,
+        ike_tropical_storm_tj=max(0.0, ts - h),
+        storm_id=snapshot.storm_id,
+        timestamp=snapshot.timestamp,
+        wind_field_source=src,
+    )
+
+
 def compute_ike_from_snapshot(
     snapshot: HurricaneSnapshot,
     grid_resolution_m: float = 5000.0,
@@ -701,25 +772,16 @@ def compute_ike_from_snapshot(
     # Simple, reliable, and matches published reference values
     if snapshot.has_quadrant_data and (snapshot.r34_quadrants_m):
         logger.info(
-            f"{snapshot.storm_id} {snapshot.timestamp}: Using NOAA quadrant method "
+            f"{snapshot.storm_id} {snapshot.timestamp}: Using quadrant method "
             f"(real quadrant data: r34={snapshot.r34_quadrants_m})"
         )
-        ike_total_tj, ike_hur_tj, ike_ts_tj = compute_ike_from_quadrants(
-            vmax_ms=snapshot.max_wind_ms,
-            r34_quadrants_m=snapshot.r34_quadrants_m,
-            r50_quadrants_m=snapshot.r50_quadrants_m,
-            r64_quadrants_m=snapshot.r64_quadrants_m,
-            rho=rho,
+        return _ike_result_from_quadrants(
+            snapshot,
+            snapshot.r34_quadrants_m,
+            snapshot.r50_quadrants_m,
+            snapshot.r64_quadrants_m,
+            source="noaa_quadrant",
         )
-        result = IKEResult(
-            ike_total_tj=ike_total_tj,
-            ike_hurricane_tj=ike_hur_tj,
-            ike_tropical_storm_tj=ike_ts_tj,
-            storm_id=snapshot.storm_id,
-            timestamp=snapshot.timestamp,
-            wind_field_source="noaa_quadrant",
-        )
-        return result
 
     # Priority 2.5: asymmetric parametric model (fallback when quadrant-level data unavailable)
     if snapshot.has_quadrant_data:
@@ -757,25 +819,16 @@ def compute_ike_from_snapshot(
         # Route synthetic quadrants through the NOAA wind-band method
         # This matches official methodology and avoids grid-based overestimation
         logger.info(
-            f"{snapshot.storm_id} {snapshot.timestamp}: Using NOAA quadrant method "
+            f"{snapshot.storm_id} {snapshot.timestamp}: Using quadrant method "
             f"with synthetic quadrants (no real quadrant data available)"
         )
-        ike_total_tj, ike_hur_tj, ike_ts_tj = compute_ike_from_quadrants(
-            vmax_ms=snapshot.max_wind_ms,
-            r34_quadrants_m=synthetic_quads["r34"],
-            r50_quadrants_m=synthetic_quads.get("r50"),
-            r64_quadrants_m=synthetic_quads.get("r64"),
-            rho=rho,
+        return _ike_result_from_quadrants(
+            snapshot,
+            synthetic_quads["r34"],
+            synthetic_quads.get("r50"),
+            synthetic_quads.get("r64"),
+            source="noaa_quadrant_synthetic",
         )
-        result = IKEResult(
-            ike_total_tj=ike_total_tj,
-            ike_hurricane_tj=ike_hur_tj,
-            ike_tropical_storm_tj=ike_ts_tj,
-            storm_id=snapshot.storm_id,
-            timestamp=snapshot.timestamp,
-            wind_field_source="noaa_quadrant_synthetic",
-        )
-        return result
 
     # Priority 3: symmetric Holland fallback (low-wind snapshots only)
     logger.warning(
