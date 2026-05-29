@@ -3863,7 +3863,7 @@ function renderDPSChart(data){
 function renderChart(data){
     const ctx=document.getElementById('ikeChart').getContext('2d');if(currentChart)currentChart.destroy();
     const labels=data.map(d=>{const t=new Date(d.timestamp);return`${t.getMonth()+1}/${t.getDate()} ${String(t.getHours()).padStart(2,'0')}Z`});
-    const peakSdp=data.reduce((m,d)=>Math.max(m,sdpFromIke(d.ike_total_tj||0)),0);
+    const peakSdp=data.reduce((m,d)=>d.et?m:Math.max(m,sdpFromIke(d.ike_total_tj||0)),0);
     const sdpSub=`Peak Surge Destructive Potential (Powell–Reinhold): ${peakSdp.toFixed(1)} / 6 — ${sdpLabel(peakSdp)}`;
     currentChart=new Chart(ctx,{type:'line',data:{labels,datasets:[
         {label:'Total IKE',data:data.map(d=>d.ike_total_tj),borderColor:'#8b5cf6',backgroundColor:'rgba(139,92,246,.08)',borderWidth:2.5,fill:true,tension:.35,pointRadius:0,pointHitRadius:10},

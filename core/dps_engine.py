@@ -238,8 +238,10 @@ def compute_storm_dps(
 
     # 12. Peak snapshot stats for display
     peak_wind = max((s.get("max_wind_ms", 0) or 0) for s in snapshots) if snapshots else 0
+    # Peak IKE over tropical-phase snapshots only (exclude extratropical, et=True).
+    _trop_snaps = [s for s in snapshots if not s.get("et")] or snapshots
     peak_ike = (
-        max((s.get("ike_total_tj", 0) or 0) for s in snapshots) if snapshots else 0
+        max((s.get("ike_total_tj", 0) or 0) for s in _trop_snaps) if snapshots else 0
     )
     min_pressure = (
         min((s.get("min_pressure_hpa", 1013) or 1013) for s in snapshots)

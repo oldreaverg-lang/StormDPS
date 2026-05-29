@@ -345,12 +345,17 @@ def compute_cumulative_dpi(
             "max_wind_ms": snap.get("max_wind_ms", 0),
             "ike_tj": ike_tj,
             "fwd_kt": snap.get("forward_speed_knots", 0),
+            "et": bool(snap.get("et", False)),
         })
 
     # Find peak DPI
     peak_entry = max(dpi_series, key=lambda x: x["dpi"])
     peak_dpi = peak_entry["dpi"]
-    peak_ike = max(s["ike_tj"] for s in dpi_series)
+    # Peak IKE excludes extratropical snapshots (NATURE=ET / USA_STATUS=EX): the
+    # post-tropical phase otherwise dominates the peak for recurving storms and
+    # misrepresents the tropical-phase threat. Falls back to all if fully ET.
+    _trop = [s for s in dpi_series if not s.get("et")]
+    peak_ike = max((s["ike_tj"] for s in (_trop or dpi_series)), default=0)
 
     if peak_dpi < 5:
         return CumulativeDPIResult(
