@@ -52,13 +52,38 @@ def _avg_radii_km(quadrants_km: Optional[dict]) -> Optional[float]:
     return sum(vals) / len(vals) if vals else None
 
 
+def _estimate_r64_km(r18_km: float, vms_ms: float) -> float:
+    """Estimate the 64-kt (R33) radius from the 34-kt radius when R64 is not
+    reported (IBTrACS frequently omits it, esp. for older storms). Mirrors the
+    R64/R34 ratios in core.ike.estimate_r50_r64: ~0.35 for marginal hurricanes,
+    tightening to ~0.20-0.28 for intense ones. Returns 0 for sub-hurricane
+    storms (no 64-kt winds)."""
+    if not r18_km or vms_ms < 33.0:
+        return 0.0
+    vmax_kt = vms_ms / 0.514444
+    if vmax_kt < 100:
+        ratio = 0.35 - 0.002 * (vmax_kt - 64)
+    else:
+        ratio = 0.28 - 0.0005 * (vmax_kt - 100)
+    ratio = max(0.20, min(0.40, ratio))
+    return r18_km * ratio
+
+
 def ike_ts_tj(r18_km: float, r33_km: float, vms_ms: float) -> float:
-    """IKE for winds >= 18 m/s (34 kt) — the headline surge-proxy IKE. Eq (A1)."""
+    """IKE for winds >= 18 m/s (34 kt) — the headline surge-proxy IKE. Eq (A1).
+
+    The R33 (64-kt radius) terms are applied only when R33 > 0. At R33 = 0 (no
+    reported hurricane-force radius, or a genuine sub-hurricane storm) the fitted
+    -0.004*(R33-113.15)^2 term would subtract ~51 TJ — nonsense that sent Cat-5
+    Katrina to 19 TJ when IBTrACS omitted her R64. Callers with hurricane-force
+    winds should pass an estimated R33 (compute_ike_coaps does); otherwise only
+    the R18 terms are used.
+    """
     if vms_ms < 18.0 or not r18_km:
         return 0.0
-    r33 = r33_km or 0.0
-    val = (-46.42 + 0.352 * r18_km + 0.0007 * (r18_km - 305.97) ** 2
-           + 0.187 * r33 - 0.004 * (r33 - 113.15) ** 2)
+    val = -46.42 + 0.352 * r18_km + 0.0007 * (r18_km - 305.97) ** 2
+    if r33_km and r33_km > 0:
+        val += 0.187 * r33_km - 0.004 * (r33_km - 113.15) ** 2
     return max(0.0, val)
 
 
@@ -122,12 +147,23 @@ def compute_ike_coaps(
         return {"ike_ts_tj": 0.0, "ike_h_tj": 0.0, "ike_25_40_tj": 0.0,
                 "sdp": 0.0, "sdp_radii": 0.0,
                 "r18_km": None, "r26_km": None, "r33_km": None}
-    ts = ike_ts_tj(r18, r33 or 0.0, vms_ms)
+    # Clamp radii to the P&R-2007 fit range (Table 1: R18 <= 532 km [Isabel],
+    # R33 <= 217 km [Katrina-LA]). The positive quadratic in A1 extrapolates to
+    # unobserved IKE (>900 TJ) for storms with anomalously large reported radii
+    # (often extratropical-transition systems or bad data, e.g. Oscar 2018 at
+    # R18=1167 km); hold at the calibration ceiling rather than extrapolate.
+    r18 = min(r18, 532.0)
+    # R64 radius is frequently absent (esp. IBTrACS / older storms). The A1/A3
+    # regressions are ill-posed at R33=0; if the storm has hurricane-force winds
+    # estimate R33 from R18 so the formula is well-conditioned.
+    r33_eff = r33 if (r33 and r33 > 0) else _estimate_r64_km(r18, vms_ms)
+    r33_eff = min(r33_eff, 217.0)
+    ts = ike_ts_tj(r18, r33_eff, vms_ms)
     return {
         "ike_ts_tj": ts,
-        "ike_h_tj": ike_h_tj(r18, r33 or 0.0, vms_ms),
+        "ike_h_tj": ike_h_tj(r18, r33_eff, vms_ms),
         "ike_25_40_tj": ike_25_40_tj(r18, r26 or 0.0, vms_ms),
         "sdp": sdp_from_ike_ts(ts),
-        "sdp_radii": sdp_from_radii(r18, r33 or 0.0),
-        "r18_km": r18, "r26_km": r26, "r33_km": r33,
+        "sdp_radii": sdp_from_radii(r18, r33_eff),
+        "r18_km": r18, "r26_km": r26, "r33_km": r33, "r33_eff_km": r33_eff,
     }

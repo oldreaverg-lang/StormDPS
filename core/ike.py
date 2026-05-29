@@ -753,9 +753,12 @@ def compute_ike_from_snapshot(
     # Fast path: sub-TS points (<18 m/s / ~34 kt) produce negligible IKE.
     # Return a minimal result without the expensive grid computation.
     if snapshot.max_wind_ms < TS_THRESHOLD:
-        # Simple analytical IKE estimate: 0.5 * rho * v^2 * pi * r34^2
-        # This is small enough that the exact value barely matters for charting.
-        r = snapshot.r34_m or 50_000.0  # ~27 nm default
+        # Simple analytical IKE estimate: 0.5 * rho * v^2 * pi * r^2.
+        # Cap r at 100 km: a sub-TS system has no >=18 m/s winds so IKE_TS is
+        # ~0, but a bogus-large r34 (common on weak / extratropical-transition
+        # snapshots) would otherwise blow this full-disk estimate up to hundreds
+        # of TJ — that masked the real peaks of Nicole (~1025), Ida, and Debby.
+        r = min(snapshot.r34_m or 50_000.0, 100_000.0)  # ~27 nm default, 54 nm cap
         approx_ike_j = 0.5 * rho * snapshot.max_wind_ms**2 * 3.14159 * r**2
         approx_tj = approx_ike_j / 1e12
         return IKEResult(
