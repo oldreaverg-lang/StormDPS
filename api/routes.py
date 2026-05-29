@@ -259,7 +259,10 @@ _GLOBAL_IBTRACS_CACHE_FILE = _GLOBAL_IBTRACS_CACHE_FILE_PATH
 #     removed WP_GENERAL double-count, expanded sub-basins (Korea, Hainan,
 #     split China), tightened orographic radius to 110 km, raised orographic
 #     cap to +9.
-_IKE_CACHE_VERSION = "v5"
+# v6: IKE methodology change — canonical Powell & Reinhold (2007) regression
+#     (core.ike_coaps) replaces the heuristic band integration. Invalidates all
+#     cached IKE so storms (incl. active, e.g. JANGMI) recompute with it.
+_IKE_CACHE_VERSION = "v6-coaps"
 
 # Eviction policy: keep at most this many cache files.  When exceeded, the
 # oldest files by mtime are purged.  A typical hurricane season has ~20
