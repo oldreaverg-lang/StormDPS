@@ -4727,6 +4727,29 @@ window.setWindfieldFrameByIdx = function(stormIdx) {
     _windfieldDraw(stormIdx);
 };
 
+// Pre-compute and cache the Holland B image for every track index so the
+// timelapse plays back fully populated on its first run — every frame is
+// "stored" before the user hits play. Compute is cheap (<20ms/frame) but we
+// slice the work across idle callbacks so a long (50+ point) track doesn't
+// block the main thread when the layer enables.
+function _windfieldPrewarmAll() {
+    const st = window._windfieldState;
+    if (!st || !st.enabled) return;
+    const n = (window.stormData || []).length;
+    if (!n) return;
+    let i = 0;
+    const schedule = window.requestIdleCallback
+        ? (fn) => window.requestIdleCallback(fn, { timeout: 250 })
+        : (fn) => setTimeout(fn, 0);
+    function slice() {
+        if (!st.enabled) return;   // bailed if toggled off / storm changed mid-warm
+        let budget = 6;            // ~6 frames per slice keeps each tick short
+        while (i < n && budget-- > 0) { _windfieldImageFor(i); i++; }
+        if (i < n) schedule(slice);
+    }
+    schedule(slice);
+}
+
 function toggleWindfieldLayer() {
     const st = window._windfieldState;
     const btn = document.getElementById('windfieldToggleBtn');
@@ -4754,6 +4777,9 @@ function toggleWindfieldLayer() {
         ? Math.floor(window.currentAnimIndex)
         : ((window.stormData || []).length - 1);
     _windfieldDraw(stormIdx);
+    // Warm the per-index image cache so the whole animation is ready to play
+    // through immediately — every frame stored up front, no first-play hitch.
+    _windfieldPrewarmAll();
 }
 
 // ── Wind layer state (mutable across calls) ───────────────────────────────
@@ -6067,22 +6093,26 @@ function syncVisualization(fi,snap){
         // Update wind field overlay
         updateWindField(bi);
 
-        // Drive overlays from the storm timeline. Active storms snap to the
-        // nearest satellite frame via syncOverlaysToTimestampMs. Historic
-        // storms have no satellite slider, so we drive the wind + windfield
-        // layers directly from the track timestamp / index.
+        // Redraw the Holland B windfield for THIS track index on every frame.
+        // Cheap client-side compute, memoized per index in _windfieldState.cache.
+        // Must run for active storms too: their satellite-coupled sync path
+        // (syncOverlaysToTimestampMs) became a dead no-op when the satellite
+        // layer was removed, so without a direct redraw the windfield froze on
+        // the single frame drawn at enable time.
+        if (window._windfieldState && window._windfieldState.enabled
+            && typeof window.setWindfieldFrameByIdx === 'function') {
+            window.setWindfieldFrameByIdx(bi);
+        }
+        // Drive the remaining timeline-synced overlays. Active storms snap to
+        // the nearest satellite frame via syncOverlaysToTimestampMs (currently
+        // a no-op — satellite layer removed — but kept so it revives cleanly if
+        // satellite ever returns). Historic storms drive the wind layer direct.
         if (d1 && d1.timestamp) {
             if (window._isActiveStorm && window.syncOverlaysToTimestampMs) {
                 syncOverlaysToTimestampMs(new Date(d1.timestamp).getTime());
-            } else {
-                if (window._windState && window._windState.enabled && window._tsMsToSatTsString) {
-                    const satTs = window._tsMsToSatTsString(new Date(d1.timestamp).getTime());
-                    if (satTs) setWindFrame(satTs);
-                }
-                if (window._windfieldState && window._windfieldState.enabled
-                    && typeof window.setWindfieldFrameByIdx === 'function') {
-                    window.setWindfieldFrameByIdx(bi);
-                }
+            } else if (window._windState && window._windState.enabled && window._tsMsToSatTsString) {
+                const satTs = window._tsMsToSatTsString(new Date(d1.timestamp).getTime());
+                if (satTs) setWindFrame(satTs);
             }
         }
 
