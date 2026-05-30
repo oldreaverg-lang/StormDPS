@@ -316,9 +316,15 @@
         .storm-title-name{font-size:1.25rem;font-weight:800;letter-spacing:-.04em;color:var(--text-main);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         .storm-title-meta{font-size:.78rem;color:var(--text-muted);white-space:nowrap}
         .storm-title-cat{display:inline-block;padding:2px 7px;border-radius:4px;font-size:.68rem;font-weight:700;color:#fff;letter-spacing:.03em}
-        .storm-title-reset{background:none;border:1px solid var(--border);color:var(--text-dim);width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:.85rem;margin-left:auto;transition:all .15s;flex-shrink:0;font-family:inherit;line-height:1}
+        .storm-title-reset{background:none;border:1px solid var(--border);color:var(--text-dim);width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:.85rem;transition:all .15s;flex-shrink:0;font-family:inherit;line-height:1}
         .storm-title-reset:hover{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.3);color:#fca5a5}
         .storm-title-rank{font-size:.72rem;font-weight:700;color:var(--primary);background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);padding:2px 8px;border-radius:4px;white-space:nowrap;letter-spacing:.01em}
+        /* Share control — sits right of the title group, left of the reset ✕ */
+        .storm-title-share{margin-left:auto;display:inline-flex;align-items:center;gap:.3rem;background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.3);color:var(--primary);height:26px;padding:0 .65rem;border-radius:13px;cursor:pointer;font-size:.72rem;font-weight:700;font-family:inherit;letter-spacing:.02em;transition:all .15s;flex-shrink:0;line-height:1;white-space:nowrap}
+        .storm-title-share:hover{background:rgba(99,102,241,.2);border-color:var(--primary)}
+        .storm-title-share svg{display:block}
+        .storm-title-share.copied{background:rgba(34,197,94,.15);border-color:rgba(34,197,94,.4);color:#86efac}
+        @media(max-width:600px){.storm-title-share .share-label{display:none}.storm-title-share{padding:0;width:26px;justify-content:center;border-radius:50%}}
 
         /* Collapsible map legend */
         .map-legend-toggle{position:absolute;bottom:8px;left:8px;z-index:501;background:rgba(10,14,26,.88);backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:var(--radius);padding:.25rem .45rem;cursor:pointer;font-size:.65rem;color:var(--text-muted);font-weight:600;display:none;align-items:center;gap:.25rem;transition:all .15s;font-family:inherit}
@@ -595,6 +601,7 @@
             <span class="storm-title-meta" id="stormTitleMeta"></span>
             <span class="storm-title-cat" id="stormTitleCat"></span>
             <span class="storm-title-rank" id="stormTitleRank"></span>
+            <button class="storm-title-share" id="stormShareBtn" onclick="shareStorm(this)" title="Share this storm"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"/><path d="M16 6l-4-4-4 4"/><path d="M12 2v13"/></svg><span class="share-label">Share</span></button>
             <button class="storm-title-reset" onclick="resetToWelcome()" title="New search">&#10005;</button>
         </div>
         <div id="statsRow" class="stats-row">
@@ -6239,7 +6246,49 @@ function updateStormTitleBar(stormId, name, year, cat, heroDPS) {
     } else {
         rankEl.style.display = 'none';
     }
+    window._shareInfo = { id: stormId, name: name, year: year, cat: cat, dps: heroDPS };
     bar.classList.add('visible');
+}
+
+// Share the current storm — native share sheet where supported (mobile + some desktop),
+// otherwise copy the canonical link to the clipboard with inline "Copied!" feedback.
+async function shareStorm(btn) {
+    const info = window._shareInfo || {};
+    const id = info.id || '';
+    const url = id ? (location.origin + '/storm/' + encodeURIComponent(id)) : location.href.split(/[?#]/)[0];
+    const yr = info.year ? ' (' + info.year + ')' : '';
+    const catTxt = (info.cat >= 1) ? ' — Category ' + info.cat : '';
+    const hasScore = (info.dps !== null && info.dps !== undefined && info.dps !== '');
+    const who = info.name || 'This storm';
+    const title = who + yr + (hasScore ? ' — DPS ' + info.dps : '') + ' · StormDPS';
+    const text = who + yr + (hasScore ? ' scored ' + info.dps + '/100 on the Destructive Power Score' : '') + catTxt + '. See the full breakdown:';
+    if (navigator.share) {
+        try { await navigator.share({ title: title, text: text, url: url }); return; }
+        catch (e) { if (e && e.name === 'AbortError') return; /* otherwise fall through to copy */ }
+    }
+    try {
+        await navigator.clipboard.writeText(url);
+        _flashShareCopied(btn);
+    } catch (e) {
+        const ta = document.createElement('textarea');
+        ta.value = url; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.focus(); ta.select();
+        try { document.execCommand('copy'); _flashShareCopied(btn); } catch (e2) {}
+        document.body.removeChild(ta);
+    }
+}
+function _flashShareCopied(btn) {
+    if (!btn) return;
+    const label = btn.querySelector('.share-label');
+    const original = label ? label.textContent : '';
+    btn.classList.add('copied');
+    if (label) label.textContent = 'Copied!';
+    btn.setAttribute('title', 'Link copied to clipboard');
+    setTimeout(() => {
+        btn.classList.remove('copied');
+        if (label) label.textContent = original || 'Share';
+        btn.setAttribute('title', 'Share this storm');
+    }, 1600);
 }
 
 function resetToWelcome() {
