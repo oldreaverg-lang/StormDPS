@@ -3300,7 +3300,7 @@ function toggleChartExpand() {
         : '&#9650; Hide detailed charts';
     // Re-render visible charts when expanding (Chart.js needs this)
     if (!isCollapsed && window.stormData && window.stormData.length > 0) {
-        try { renderIKEChart(window.stormData); } catch(e) {}
+        try { renderChart(window.stormData); } catch(e) {}
     }
 }
 
@@ -3863,7 +3863,10 @@ function renderDPSChart(data){
 function renderChart(data){
     const ctx=document.getElementById('ikeChart').getContext('2d');if(currentChart)currentChart.destroy();
     const labels=data.map(d=>{const t=new Date(d.timestamp);return`${t.getMonth()+1}/${t.getDate()} ${String(t.getHours()).padStart(2,'0')}Z`});
-    const peakSdp=data.reduce((m,d)=>d.et?m:Math.max(m,sdpFromIke(d.ike_total_tj||0)),0);
+    let peakSdp=data.reduce((m,d)=>d.et?m:Math.max(m,sdpFromIke(d.ike_total_tj||0)),0);
+    // Fully-extratropical storms have no tropical snapshot; fall back to all-track
+    // (mirrors the backend peak-IKE fallback) so the subtitle isn't a bogus 0.
+    if(peakSdp===0) peakSdp=data.reduce((m,d)=>Math.max(m,sdpFromIke(d.ike_total_tj||0)),0);
     const sdpSub=`Peak Surge Destructive Potential (Powell–Reinhold): ${peakSdp.toFixed(1)} / 6 — ${sdpLabel(peakSdp)}`;
     currentChart=new Chart(ctx,{type:'line',data:{labels,datasets:[
         {label:'Total IKE',data:data.map(d=>d.ike_total_tj),borderColor:'#8b5cf6',backgroundColor:'rgba(139,92,246,.08)',borderWidth:2.5,fill:true,tension:.35,pointRadius:0,pointHitRadius:10},
@@ -3871,7 +3874,7 @@ function renderChart(data){
         {label:'TS IKE',data:data.map(d=>d.ike_tropical_storm_tj),borderColor:'#3b82f6',borderWidth:1.5,fill:false,tension:.35,pointRadius:0,pointHitRadius:10}
     ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
         onClick:(evt,els)=>{if(els&&els.length){if(window.animationFrameId)stopAnimation();const i=els[0].index;window.currentAnimIndex=i;document.getElementById('scrubSlider').value=i;syncVisualization(i,true)}},
-        plugins:{subtitle:{display:true,text:sdpSub,color:'#94a3b8',font:{size:10,style:'italic'},padding:{bottom:6}},zoneBands:{zones:IKE_ZONES},legend:{position:'top',labels:{color:'#e2e8f0',font:{size:11,weight:500},boxWidth:12,padding:14}},tooltip:{backgroundColor:'rgba(10,14,26,.92)',titleColor:'#f1f5f9',bodyColor:'#94a3b8',borderColor:'#1e293b',borderWidth:1,padding:8,cornerRadius:8,displayColors:true,titleFont:{weight:600},callbacks:{label:c=>`${c.dataset.label}: ${c.parsed.y.toFixed(1)} TJ (Terajoules)`,footer:(items)=>{const d=data[items[0].dataIndex];const s=sdpFromIke((d&&d.ike_total_tj)||0);return `Surge Destructive Potential: ${s.toFixed(1)} / 6 (${sdpLabel(s)})`;}}}},
+        plugins:{subtitle:{display:true,text:sdpSub,color:'#94a3b8',font:{size:10,style:'italic'},padding:{bottom:6}},zoneBands:{zones:IKE_ZONES},legend:{position:'top',labels:{color:'#e2e8f0',font:{size:11,weight:500},boxWidth:12,padding:14}},tooltip:{backgroundColor:'rgba(10,14,26,.92)',titleColor:'#f1f5f9',bodyColor:'#94a3b8',borderColor:'#1e293b',borderWidth:1,padding:8,cornerRadius:8,displayColors:true,titleFont:{weight:600},callbacks:{label:c=>`${c.dataset.label}: ${c.parsed.y.toFixed(1)} TJ (Terajoules)`,footer:(items)=>{const d=data[items[0].dataIndex];const s=sdpFromIke((d&&d.ike_total_tj)||0);return `Surge Destructive Potential: ${s.toFixed(1)} / 6 (${sdpLabel(s)})`+((d&&d.et)?' — extratropical':'');}}}},
         scales:{x:{grid:{color:'rgba(30,41,59,.5)',drawBorder:false},ticks:{maxTicksLimit:10,font:{size:10}}},y:{beginAtZero:true,grid:{color:'rgba(30,41,59,.5)',drawBorder:false},title:{display:true,text:'Wind Energy (Terajoules)',color:'#94a3b8',font:{size:10,weight:500}},ticks:{font:{size:10}}}}}});
 }
 
