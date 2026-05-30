@@ -3290,6 +3290,33 @@ function setLoadingStep(stepId) {
     });
 }
 
+// Fetch with an abort timeout so a slow historical-archive lookup can't hang the
+// UI forever, plus an onSlow callback that fires if the request runs long (to
+// show progress instead of a frozen-looking skeleton). The server caches +
+// single-flights the work, so even an aborted request warms the cache for retry.
+async function fetchWithTimeout(url, opts = {}, ms = 60000, onSlow = null) {
+    const ctrl = new AbortController();
+    const slow = onSlow ? setTimeout(onSlow, 4000) : null;
+    const kill = setTimeout(() => ctrl.abort(), ms);
+    try {
+        return await fetch(url, { ...opts, signal: ctrl.signal });
+    } catch (e) {
+        if (e && e.name === 'AbortError') {
+            throw new Error('Search timed out fetching the historical archive. Try the storm name with its year (e.g. "Camille" 1969), or pick one from Historic Storms.');
+        }
+        throw e;
+    } finally {
+        if (slow) clearTimeout(slow);
+        clearTimeout(kill);
+    }
+}
+
+// Re-label the "Fetching" step when a search dips into the (slow) IBTrACS archive.
+function _markArchiveSearch() {
+    const el = document.getElementById('stepFetch');
+    if (el) el.innerHTML = '<span class="step-icon">&#9696;</span>Searching the historical archive — older storms can take ~30-40s…';
+}
+
 // ---- Progressive Chart Disclosure ----
 function toggleChartExpand() {
     const stack = document.getElementById('chartsStack');
@@ -3353,7 +3380,7 @@ async function fetchHistory(){
             setLoadingStep('stepFetch');
             // Try unified track endpoint (handles ATCF IDs, IBTrACS SIDs, and auto-detection)
             // skip_points=0 means compute every other point (2x faster), skip_points=0 means all points
-            const r=await fetch(`${API_BASE}/storms/${rawId}/track?grid_resolution_km=15&skip_points=0`);
+            const r=await fetchWithTimeout(`${API_BASE}/storms/${rawId}/track?grid_resolution_km=15&skip_points=0`, {}, 60000, _markArchiveSearch);
             if(r.ok){
                 data=await r.json();
                 // Store in preload cache for future use this session
@@ -3383,7 +3410,7 @@ async function fetchHistory(){
                         data = PRELOAD_CACHE[resolvedId];
                         console.log(`[NAME-RESOLVE] Cache hit for ${resolvedId}`);
                     } else {
-                        const r3 = await fetch(`${API_BASE}/storms/${resolvedId}/track?grid_resolution_km=15&skip_points=0`);
+                        const r3 = await fetchWithTimeout(`${API_BASE}/storms/${resolvedId}/track?grid_resolution_km=15&skip_points=0`, {}, 60000, _markArchiveSearch);
                         if(r3.ok){
                             data = await r3.json();
                             if(data && data.length > 0){
@@ -3408,11 +3435,11 @@ async function fetchHistory(){
                     ? {name:rawId, year:parseInt(yr)}
                     : {name:rawId};  // name-only: backend finds most recent match
                 console.log(`[NAME-RESOLVE] Trying IBTrACS search:`, searchBody);
-                const r2=await fetch(`${API_BASE}/ibtracs/search`,{
+                const r2=await fetchWithTimeout(`${API_BASE}/ibtracs/search`,{
                     method:'POST',
                     headers:{'Content-Type':'application/json'},
                     body:JSON.stringify(searchBody)
-                });
+                }, 60000, _markArchiveSearch);
                 if(r2.ok) {
                     data=await r2.json();
                     // Cache IBTrACS results too

@@ -179,6 +179,44 @@ _preload_cache_time = None
 _preload_lock = asyncio.Lock()
 _PRELOAD_CACHE_TTL = timedelta(minutes=5)
 
+# ── Single-flight + TTL cache for expensive IBTrACS searches ───────────────
+# A historical name search fetches + parses the IBTrACS archive and computes
+# IKE for the whole track (20-40s). Without coordination, N simultaneous users
+# searching the same storm each launch that work, exhausting the httpx pool
+# (max_connections=200) and the IKE executor. Single-flight collapses concurrent
+# identical jobs into ONE computation (the rest await it); the TTL cache makes
+# repeats instant across users and sessions.
+_ibtracs_search_cache: dict[str, tuple] = {}   # key -> (results_list, timestamp)
+_IBTRACS_SEARCH_TTL = timedelta(hours=12)
+_inflight_jobs: dict[str, "asyncio.Future"] = {}
+_inflight_guard = asyncio.Lock()
+
+
+async def _single_flight(key: str, factory):
+    """Run async ``factory()`` once per ``key`` even under concurrent callers;
+    every caller receives the same result (or the same raised exception)."""
+    async with _inflight_guard:
+        fut = _inflight_jobs.get(key)
+        is_owner = fut is None
+        if is_owner:
+            fut = asyncio.get_event_loop().create_future()
+            _inflight_jobs[key] = fut
+    if not is_owner:
+        return await fut  # ride along with the in-flight computation
+    try:
+        result = await factory()
+        if not fut.done():
+            fut.set_result(result)
+        return result
+    except BaseException as e:
+        if not fut.done():
+            fut.set_exception(e)
+        raise
+    finally:
+        async with _inflight_guard:
+            _inflight_jobs.pop(key, None)
+
+
 # Persistent data directory — centralised in storage.py
 from storage import (
     PERSISTENT_DATA_DIR as _PERSISTENT_DATA,
@@ -762,11 +800,15 @@ async def search_storms(
 
     async with NOAAClient() as client:
         try:
-            # Search by name, year, and optional basin
-            snapshots = await asyncio.wait_for(
-                client.get_ibtracs_by_name_year(query.upper(), year, basin),
-                timeout=5.0
-            )
+            # Name+year -> exact lookup; name-only -> scan for matches via
+            # get_ibtracs_by_name. (Calling get_ibtracs_by_name_year with year=None
+            # returned nothing — the bug.) Allow time for the historical-archive fetch.
+            if year:
+                snapshots = await asyncio.wait_for(
+                    client.get_ibtracs_by_name_year(query.upper(), year, basin), timeout=20.0)
+            else:
+                snapshots = await asyncio.wait_for(
+                    client.get_ibtracs_by_name(query.upper(), basin), timeout=20.0)
         except asyncio.TimeoutError:
             logger.warning(f"IBTrACS search timeout for {query}")
             return []
@@ -2933,24 +2975,23 @@ async def get_ibtracs_track(
     Args:
         sid: IBTrACS storm ID (e.g., '2005236N23285' for Katrina)
     """
-    try:
-        snapshots = await _fetch_track_with_cache(sid)
-    except (NOAAClientError, Exception) as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    async def _do():
+        try:
+            snapshots = await _fetch_track_with_cache(sid)
+        except (NOAAClientError, Exception) as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        if not snapshots:
+            raise HTTPException(status_code=404, detail=f"No IBTrACS data for {sid}")
+        ike_batch = await _compute_ike_batch(snapshots, grid_resolution_km * 1000, max_workers=4)
+        return [_ike_response_to_dict(_ike_to_response(ike, snap)) for ike, snap in ike_batch]
 
-    if not snapshots:
-        raise HTTPException(status_code=404, detail=f"No IBTrACS data for {sid}")
-
-    # Compute IKE in parallel (not serial)
-    grid_resolution_m = grid_resolution_km * 1000
-    ike_batch = await _compute_ike_batch(snapshots, grid_resolution_m, max_workers=4)
-    results = [_ike_to_response(ike, snap) for ike, snap in ike_batch]
-
-    return results
+    # Collapse concurrent requests for the same SID into one fetch+compute.
+    return JSONResponse(content=await _single_flight(f"ibtrack|{sid}|{grid_resolution_km}", _do))
 
 
 @router.post("/ibtracs/search", response_model=list[IKEResponse])
 async def search_ibtracs(
+    request: Request,
     search: IBTrACSSearchInput,
     grid_resolution_km: float = Query(10.0, ge=1.0, le=50.0),
 ):
@@ -2959,38 +3000,42 @@ async def search_ibtracs(
 
     If year is omitted, searches for all storms with the given name and returns
     the most recent match (useful when users only know the storm name).
+
+    Concurrency: results are cached (12 h TTL) and concurrent identical searches
+    are collapsed via single-flight, so many simultaneous users searching the same
+    historical storm trigger ONE archive fetch + compute instead of N. Uses the
+    shared httpx client rather than spinning up a new pool per request.
     """
-    async with NOAAClient() as client:
-        if search.year:
-            # Exact name+year search (original behavior)
+    name = (search.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Storm name is required.")
+    key = f"ibsearch|{name.upper()}|{search.year or ''}|{(search.basin or '').upper()}|{grid_resolution_km}"
+
+    # 1) TTL cache — instant for repeat searches across users/sessions.
+    hit = _ibtracs_search_cache.get(key)
+    if hit and (datetime.utcnow() - hit[1]) < _IBTRACS_SEARCH_TTL:
+        return JSONResponse(content=hit[0])
+
+    # 2) Single-flight — one fetch+compute per key under concurrent load.
+    async def _do():
+        shared = getattr(request.app.state, "http_client", None)
+        async with NOAAClient(http_client=shared) as client:
             try:
-                snapshots = await client.get_ibtracs_by_name_year(
-                    search.name, search.year, search.basin
-                )
+                if search.year:
+                    snapshots = await client.get_ibtracs_by_name_year(name, search.year, search.basin)
+                else:
+                    snapshots = await client.get_ibtracs_by_name(name, search.basin)
             except (NOAAClientError, Exception) as e:
                 raise HTTPException(status_code=404, detail=str(e))
-        else:
-            # Name-only search: scan IBTrACS for all matches, pick most recent
-            try:
-                snapshots = await client.get_ibtracs_by_name(
-                    search.name, search.basin
-                )
-            except (NOAAClientError, Exception) as e:
-                raise HTTPException(status_code=404, detail=str(e))
+        if not snapshots:
+            year_str = f" ({search.year})" if search.year else ""
+            raise HTTPException(status_code=404, detail=f"No IBTrACS data for {name}{year_str}")
+        ike_batch = await _compute_ike_batch(snapshots, grid_resolution_km * 1000, max_workers=4)
+        out = [_ike_response_to_dict(_ike_to_response(ike, snap)) for ike, snap in ike_batch]
+        _ibtracs_search_cache[key] = (out, datetime.utcnow())
+        return out
 
-    if not snapshots:
-        year_str = f" ({search.year})" if search.year else ""
-        raise HTTPException(
-            status_code=404,
-            detail=f"No IBTrACS data for {search.name}{year_str}"
-        )
-
-    # Compute IKE in parallel (not serial)
-    grid_resolution_m = grid_resolution_km * 1000
-    ike_batch = await _compute_ike_batch(snapshots, grid_resolution_m, max_workers=4)
-    results = [_ike_to_response(ike, snap) for ike, snap in ike_batch]
-
-    return results
+    return JSONResponse(content=await _single_flight(key, _do))
 
 
 # ==================================================================
