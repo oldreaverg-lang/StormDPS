@@ -124,7 +124,6 @@ def compute_dpi(
     real_sst_c: Optional[float] = None,          # °C from Open-Meteo/Google
     storm_approach_heading_deg: Optional[float] = None,  # For terrain module
     apply_land_dampening: bool = True,            # Apply open-ocean score reduction
-    use_nri: bool = False,                        # Use FEMA NRI zone overrides for active storms
 ) -> DPIResult:
     """
     Compute the unified Destructive Potential Index.
@@ -207,7 +206,6 @@ def compute_dpi(
         storm_year=storm_year,
         forward_speed_ms=snapshot.forward_speed_ms,
         track_parallel_factor=track_parallel_factor,
-        use_nri=use_nri,
     )
 
     economic_score = economic.economic_score
@@ -486,7 +484,6 @@ def compute_dpi_simple(
     real_sst_c: Optional[float] = None,
     storm_approach_heading_deg: Optional[float] = None,
     apply_land_dampening: bool = True,
-    use_nri: bool = False,
 ) -> DPIResult:
     """
     Convenience function to compute DPI from raw parameters (no snapshot needed).
@@ -498,7 +495,6 @@ def compute_dpi_simple(
         real_sst_c: Live sea surface temperature (°C) from weather APIs
         storm_approach_heading_deg: Storm heading for terrain windward/leeward calc
         apply_land_dampening: Whether to apply open-ocean score reduction
-        use_nri: If True, use FEMA NRI zone overrides for exposure/vulnerability
     """
     from datetime import datetime
 
@@ -526,5 +522,4 @@ def compute_dpi_simple(
         real_sst_c=real_sst_c,
         storm_approach_heading_deg=storm_approach_heading_deg,
         apply_land_dampening=apply_land_dampening,
-        use_nri=use_nri,
     )
