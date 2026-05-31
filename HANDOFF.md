@@ -112,6 +112,8 @@ StormDPS/
 ├── historical_storms_db.csv   # The Zenodo-deposited dataset (CSV)
 ├── historical_storms_db.json  # Same data, JSON
 ├── dataset_README.md          # Data dictionary (goes in Zenodo deposit)
+├── build_nri_zones.py         # Rebuild frontend/nri_zones.json from FEMA NRI (active/forecast ERS calibration)
+├── audit_nri_zones.py         # Sanity-audit nri_zones.json after a rebuild (run this whenever you touch it)
 ├── CITATION.cff               # GitHub "Cite this repository" config with DOI
 ├── README.md                  # Project README with DOI badge
 ├── Dockerfile                 # Railway build config
@@ -171,6 +173,14 @@ The most recent commit (`724571e`) async-loaded `leaflet.css` + `leaflet-velocit
 - `4cbdac1` — Harden API for public deploy: admin auth, rate limit, CORS, non-root
 
 Read these with `git log <hash> -1 --stat` for context.
+
+### Active/forecast ERS calibration (FEMA NRI)
+
+`frontend/nri_zones.json` holds the per-coastal-zone `exposure × vuln` used by the **Economic Risk Score for active/forecast storms** (`get_economic_exposure(..., use_nri=True)` in `core/ike.py`). Historical **presets** use the hand-tuned `_ECON_ZONES` table in `core/ike.py` instead.
+
+- **`build_nri_zones.py`** regenerates `nri_zones.json` from the FEMA National Risk Index (queried per zone bbox via the NRI Counties ArcGIS layer). **Exposure stays hand-tuned** — FEMA's real building-value exposure compresses the scale (NYC's metro dominates) and deflates active ERS below the presets. **Vulnerability is data-driven** from FEMA **SOVI + Historic Loss Ratio**, deliberately *not* Community Resilience (which had inverted post-levee New Orleans to a "resilient" 0.84). Territories (PR/USVI) lack SOVI → keep hand-tuned vuln. Re-run: `C:\Python314\python.exe build_nri_zones.py` (writes a gitignored `nri_build_cache.json` so re-runs converge despite the flaky ArcGIS host).
+- **`audit_nri_zones.py`** sanity-checks the output — vuln ranges, bbox-overlap contamination, divergence from the hand-tuned anchor, fragile-zone undercount, and effective-exposure ranking. **Run it after any rebuild.** Known limitations it flags: FEMA SOVI undercounts the *physical* fragility of low-population barrier-island zones (Keys, Outer Banks, Big Bend), and the Florida Keys bbox overlaps Miami-Dade (inherits its vuln).
+- NRI feeds **only** ERS. An orphaned NRI overlay in the economic-impact model (Formula 3) was removed (commit `bc17aa9`) so social vulnerability can't leak into the physical damage model.
 
 ---
 
