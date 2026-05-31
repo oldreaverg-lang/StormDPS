@@ -855,25 +855,115 @@ async def search_storms(
     return results
 
 
+# ── JTWC forecast-cone synthesis ──────────────────────────────────────────
+# JTWC (WP/IO/SH) publishes forecast positions in its text warnings but no
+# GeoJSON cone like NHC. We synthesize an NHC-style uncertainty cone by
+# offsetting each forecast point perpendicular to the local track heading by
+# the climatological ~5-yr-average track-error radius at that lead time.
+_CONE_ERR_NM = {0: 0, 12: 30, 24: 50, 36: 70, 48: 90, 72: 135, 96: 180, 120: 230}
+
+
+def _interp_err_nm(hour: float) -> float:
+    keys = sorted(_CONE_ERR_NM)
+    if hour <= keys[0]:
+        return _CONE_ERR_NM[keys[0]]
+    if hour >= keys[-1]:
+        return _CONE_ERR_NM[keys[-1]]
+    for i in range(1, len(keys)):
+        if hour <= keys[i]:
+            h0, h1 = keys[i - 1], keys[i]
+            f = (hour - h0) / (h1 - h0)
+            return _CONE_ERR_NM[h0] + f * (_CONE_ERR_NM[h1] - _CONE_ERR_NM[h0])
+    return _CONE_ERR_NM[keys[-1]]
+
+
+def _synthesize_cone(forecast_track: list[dict]) -> list[list[float]]:
+    """Approximate an NHC-style forecast cone as a [[lat, lon], ...] ring."""
+    import math
+    pts = [(p["lat"], p["lon"], p.get("hour", 0))
+           for p in forecast_track
+           if p.get("lat") is not None and p.get("lon") is not None]
+    if len(pts) < 2:
+        return []
+    left, right = [], []
+    n = len(pts)
+    for i in range(n):
+        lat, lon, hr = pts[i]
+        lat1, lon1 = (pts[i - 1][0], pts[i - 1][1]) if i > 0 else (lat, lon)
+        lat2, lon2 = (pts[i + 1][0], pts[i + 1][1]) if i < n - 1 else (lat, lon)
+        dlon = math.radians(lon2 - lon1)
+        y = math.sin(dlon) * math.cos(math.radians(lat2))
+        x = (math.cos(math.radians(lat1)) * math.sin(math.radians(lat2)) -
+             math.sin(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.cos(dlon))
+        brng = math.atan2(y, x)
+        r_deg = _interp_err_nm(hr) / 60.0          # 1 nm ~ 1/60 deg latitude
+        coslat = max(0.1, math.cos(math.radians(lat)))
+        for sign, acc in ((1, left), (-1, right)):
+            perp = brng + sign * math.pi / 2
+            acc.append([round(lat + r_deg * math.cos(perp), 3),
+                        round(lon + r_deg * math.sin(perp) / coslat, 3)])
+    return left + right[::-1]
+
+
+async def _jtwc_forecast(storm_id: str) -> dict:
+    """Forecast track + synthesized cone for a JTWC (WP/IO/SH) storm, built
+    from its warning bulletin. Lightweight: fetches text products only — no
+    IKE/DPS compute."""
+    from services.jtwc_client import JTWCClient
+    async with JTWCClient() as jtwc:
+        snaps = await jtwc.get_storm_track(storm_id)
+    if not snaps:
+        return {"storm_id": storm_id, "forecast_track": [], "cone_polygon": []}
+    snaps = sorted(snaps, key=lambda s: s.timestamp)
+    t0 = snaps[0].timestamp
+    track = []
+    for s in snaps:
+        hr = round((s.timestamp - t0).total_seconds() / 3600)
+        track.append({
+            "lat": round(s.lat, 2),
+            "lon": round(s.lon, 2),
+            "hour": hr,
+            "max_wind_kt": round(ms_to_knots(s.max_wind_ms)) if s.max_wind_ms else None,
+            "time": s.timestamp.strftime("%a %m/%d %HZ"),
+        })
+    return {
+        "storm_id": storm_id,
+        "forecast_track": track,
+        "cone_polygon": _synthesize_cone(track),
+        "source": "jtwc",
+    }
+
+
 @router.get("/storms/{storm_id}/forecast")
 async def get_storm_forecast(storm_id: str):
     """
-    Fetch NHC forecast track and cone for an active storm.
+    Forecast track + uncertainty cone for an active storm.
 
-    Returns GeoJSON-like data with forecast positions, the
-    uncertainty cone polygon, and stall risk analysis computed
-    from implied forward speeds between forecast positions.
+    NHC (Atlantic / E-Pacific) returns the official GeoJSON forecast track and
+    error cone. JTWC basins (WP/IO/SH) publish no GeoJSON product, so we
+    synthesize the track from the warning bulletin's forecast positions plus a
+    climatological uncertainty cone. Stall risk is computed from the implied
+    forward speeds between forecast positions.
     """
     async with NOAAClient() as client:
         try:
             forecast = await client.get_forecast_track(storm_id)
         except Exception as e:
-            raise HTTPException(status_code=404, detail=str(e))
+            logger.warning(f"[forecast] NHC forecast failed for {storm_id}: {e}")
+            forecast = {"storm_id": storm_id, "forecast_track": [], "cone_polygon": []}
+
+    # JTWC fallback for non-NHC basins (or when NHC has nothing for this ID).
+    if not forecast.get("forecast_track") and storm_id[:2].upper() in ("WP", "IO", "SH"):
+        try:
+            jtwc_fc = await _jtwc_forecast(storm_id)
+            if jtwc_fc.get("forecast_track"):
+                forecast = jtwc_fc
+        except Exception as e:
+            logger.warning(f"[forecast] JTWC synth failed for {storm_id}: {e}")
 
     # ── Stall Risk Analysis ──
-    # Compute implied forward speed between consecutive forecast positions
-    # using Haversine distance / time delta. Flag stall risk when forecast
-    # speeds drop below thresholds.
+    # Implied forward speed between consecutive forecast positions (Haversine /
+    # time delta); flags stall risk when forecast speeds drop below thresholds.
     forecast["stall_risk"] = _compute_stall_risk(forecast.get("forecast_track", []))
 
     return forecast
