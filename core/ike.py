@@ -1644,9 +1644,12 @@ _ECON_ZONES: list[tuple] = [
 ]
 
 
-# ── NRI Zone Overrides (FEMA National Risk Index 2024) ──
-# For active/forecast storms, these values replace hand-tuned exposure & vuln
-# with data-driven estimates reflecting CURRENT infrastructure resilience.
+# ── NRI Zone Overrides (rebuilt from FEMA National Risk Index) ──
+# For active/forecast storms, these override the hand-tuned VULNERABILITY with a
+# data-driven value (FEMA Social Vulnerability + Historic Loss Ratio — NOT
+# Community Resilience, which inverted New Orleans). Exposure is left at its
+# hand-tuned value (FEMA building-value exposure compresses the scale and
+# deflates active ERS vs presets). Regenerate via build_nri_zones.py.
 # Historical presets keep the hand-tuned values (vulnerability at time of storm).
 # Loaded from frontend/nri_zones.json at startup.
 _NRI_ZONES: dict = {}
@@ -1670,9 +1673,10 @@ def get_economic_exposure(lat: Optional[float], lon: Optional[float], use_nri: b
     Look up the economic exposure and vulnerability for a lat/lon position.
 
     Args:
-        use_nri: If True, override hand-tuned exposure/vuln with FEMA NRI
-                 current-resilience values (for active/forecast storms).
-                 If False, use hand-tuned historical values (for presets).
+        use_nri: If True, use the FEMA-derived overrides in nri_zones.json
+                 (data-driven vulnerability; exposure stays hand-tuned) for
+                 active/forecast storms. If False, use the hand-tuned values
+                 (for presets).
     """
     if lat is None or lon is None:
         return {"exposure": 0.10, "vuln": 1.0, "name": "Unknown", "depth_nm": 15}
