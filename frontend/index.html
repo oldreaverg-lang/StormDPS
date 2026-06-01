@@ -1822,19 +1822,56 @@ const SHELF_REGIONS = [
     // Central America Pacific: narrow
     { name:'Central America Pacific', factor:0.40, test:(lat,lon)=> lat>=8 && lat<=16 && lon>=-92 && lon<=-77 },
 
-    // ── INTERNATIONAL ──
-    // Bay of Bengal: extremely wide shelf, highest surge risk globally (Bhola, Nargis)
-    { name:'Bay of Bengal',           factor:1.10, test:(lat,lon)=> lat>=10 && lat<=24 && lon>=80 && lon<=95 },
-    // China / Vietnam coast: wide shelf (South China Sea)
-    { name:'China/Vietnam Coast',     factor:0.85, test:(lat,lon)=> lat>=10 && lat<=30 && lon>=105 && lon<=122 },
-    // Philippines / West Pacific islands: moderate, variable
-    { name:'Philippines/W Pacific',   factor:0.60, test:(lat,lon)=> lat>=5 && lat<=20 && lon>=120 && lon<=135 },
-    // Japan: moderate shelf
-    { name:'Japan',                   factor:0.65, test:(lat,lon)=> lat>=24 && lat<=40 && lon>=128 && lon<=145 },
-    // NE Australia (Great Barrier Reef): moderate-wide, reef dissipation
-    { name:'NE Australia',            factor:0.75, test:(lat,lon)=> lat>=-25 && lat<=-10 && lon>=142 && lon<=155 },
-    // West Africa: narrow shelf
-    { name:'West Africa',             factor:0.50, test:(lat,lon)=> lat>=5 && lat<=20 && lon>=-20 && lon<=0 },
+    // ── NORTH INDIAN OCEAN (the world's deadliest surge shelves) ──
+    { name:'Bangladesh / Meghna Estuary', factor:1.20, test:(lat,lon)=> lat>=21 && lat<=23.5 && lon>=88.5 && lon<=92.5 },   // Bhola 1970, Sidr 2007 — wide shelf + funnel + low delta
+    { name:'Myanmar / Irrawaddy Delta',   factor:1.15, test:(lat,lon)=> lat>=14 && lat<=18 && lon>=92.5 && lon<=97 },        // Nargis 2008
+    { name:'NE India (Odisha/Bengal)',    factor:1.10, test:(lat,lon)=> lat>=17.5 && lat<=22 && lon>=84 && lon<=88.5 },      // super-cyclone coast, very wide shelf
+    { name:'E India / Sri Lanka',         factor:0.95, test:(lat,lon)=> lat>=5 && lat<=17.5 && lon>=78 && lon<=84 },
+    { name:'Arabian Sea (W India/Pak)',   factor:0.70, test:(lat,lon)=> lat>=8 && lat<=26 && lon>=58 && lon<=78 },           // narrower, steeper
+
+    // ── SOUTHEAST ASIA ──
+    { name:'Gulf of Thailand',            factor:0.95, test:(lat,lon)=> lat>=6 && lat<=14 && lon>=99 && lon<=105 },          // shallow, semi-enclosed
+    { name:'Mekong Delta (S Vietnam)',    factor:1.00, test:(lat,lon)=> lat>=8.5 && lat<=11 && lon>=104.5 && lon<=107.5 },
+    { name:'Gulf of Tonkin / N Vietnam',  factor:1.05, test:(lat,lon)=> lat>=18.5 && lat<=21.8 && lon>=105.8 && lon<=108.5 },// shallow, Red River delta
+    { name:'Central Vietnam',             factor:0.55, test:(lat,lon)=> lat>=11 && lat<=18.5 && lon>=107.5 && lon<=110 },    // narrow shelf
+
+    // ── CHINA (funnel bays first, then regional shelves) ──
+    { name:'Hangzhou Bay',                factor:1.15, test:(lat,lon)=> lat>=29.8 && lat<=30.7 && lon>=120.3 && lon<=122.1 },// extreme tidal funnel
+    { name:'Pearl River Delta / HK',      factor:0.95, test:(lat,lon)=> lat>=21.3 && lat<=23.6 && lon>=112.3 && lon<=115.2 },// Mangkhut, Hato — wide shelf + funnel
+    { name:'Hainan / Leizhou',            factor:0.95, test:(lat,lon)=> lat>=17.5 && lat<=21.5 && lon>=108.5 && lon<=111.8 },
+    { name:'SE China (Fujian/Strait)',    factor:0.85, test:(lat,lon)=> lat>=23 && lat<=28.5 && lon>=116.5 && lon<=121 },
+    { name:'Yangtze Mouth / Jiangsu',     factor:1.05, test:(lat,lon)=> lat>=30.5 && lat<=34 && lon>=119.5 && lon<=123 },    // Shanghai — wide, shallow
+    { name:'Yellow Sea / Bohai (N China)',factor:1.10, test:(lat,lon)=> lat>=34 && lat<=41 && lon>=117.5 && lon<=123.5 },    // very shallow, very wide
+
+    // ── KOREA ──
+    { name:'Korea West Coast',            factor:1.00, test:(lat,lon)=> lat>=34.5 && lat<=37.9 && lon>=125.2 && lon<=127.2 },// Yellow Sea side, huge tidal range
+    { name:'Korea South Coast',           factor:0.65, test:(lat,lon)=> lat>=33.8 && lat<=35.6 && lon>=127.2 && lon<=129.6 },// ria coast, moderate
+
+    // ── JAPAN (surge bays first, then the steep general Pacific coast) ──
+    { name:'Ariake Sea (Kyushu)',         factor:1.05, test:(lat,lon)=> lat>=32.5 && lat<=33.3 && lon>=130.0 && lon<=130.7 },// shallow, highest tidal range in Japan
+    { name:'Osaka Bay',                   factor:0.85, test:(lat,lon)=> lat>=34.2 && lat<=34.8 && lon>=134.9 && lon<=135.55 },
+    { name:'Ise Bay (Nagoya)',            factor:0.95, test:(lat,lon)=> lat>=34.5 && lat<=35.2 && lon>=136.5 && lon<=137.2 },// Isewan Typhoon 1959 — Japan's deadliest surge
+    { name:'Tokyo Bay / Sagami',          factor:0.90, test:(lat,lon)=> lat>=34.9 && lat<=35.75 && lon>=139.5 && lon<=140.35 },
+    { name:'Seto Inland Sea',             factor:0.70, test:(lat,lon)=> lat>=33.6 && lat<=34.8 && lon>=131 && lon<=135.4 },  // enclosed
+    { name:'Japan Pacific Coast',         factor:0.55, test:(lat,lon)=> lat>=30 && lat<=38 && lon>=129 && lon<=143 },        // narrow, steep shelf (general)
+
+    // ── RYUKYU / TAIWAN ──
+    { name:'Okinawa / Ryukyu',            factor:0.50, test:(lat,lon)=> lat>=24 && lat<=28 && lon>=122.3 && lon<=129.5 },    // small islands, deep water close in
+    { name:'Taiwan Strait (W Taiwan)',    factor:0.80, test:(lat,lon)=> lat>=21.9 && lat<=25.4 && lon>=119.5 && lon<=120.95 },
+    { name:'Taiwan East Coast',           factor:0.40, test:(lat,lon)=> lat>=21.9 && lat<=25.4 && lon>=120.95 && lon<=122.2 },// steep, deep trench offshore
+
+    // ── PHILIPPINES (funnels first, then the archipelago) ──
+    { name:'Manila Bay',                  factor:0.85, test:(lat,lon)=> lat>=14.3 && lat<=14.9 && lon>=120.5 && lon<=121.05 },
+    { name:'Leyte Gulf / E Visayas',      factor:0.95, test:(lat,lon)=> lat>=10.3 && lat<=11.7 && lon>=124.7 && lon<=125.7 },// Haiyan 2013 storm surge
+    { name:'Philippines (archipelago)',   factor:0.55, test:(lat,lon)=> lat>=5 && lat<=19.5 && lon>=119 && lon<=127 },
+
+    // ── AUSTRALIA ──
+    { name:'Gulf of Carpentaria',         factor:1.00, test:(lat,lon)=> lat>=-18 && lat<=-10 && lon>=135 && lon<=142 },      // very shallow, very wide
+    { name:'NW Australia (Pilbara/Top End)',factor:0.75, test:(lat,lon)=> lat>=-22 && lat<=-11 && lon>=113 && lon<=135 },    // wide NW shelf, severe TCs
+    { name:'NE Australia (Coral Sea/GBR)',factor:0.70, test:(lat,lon)=> lat>=-26 && lat<=-10 && lon>=142 && lon<=154 },      // reef dissipation
+
+    // ── OTHER BASINS ──
+    { name:'West Africa',                 factor:0.50, test:(lat,lon)=> lat>=5 && lat<=20 && lon>=-20 && lon<=0 },           // narrow shelf
 ];
 
 function getShelfFactor(lat, lon) {
