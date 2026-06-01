@@ -1641,6 +1641,18 @@ _ECON_ZONES: list[tuple] = [
     ("US Virgin Islands",            0.30, 1.35, 10, 17.5, 18.5, -65.5, -64.5),
     ("Cancun / Riviera Maya",        0.50, 1.10, 15, 20.0, 21.5, -87.5, -86.5),
     ("Nassau / Bahamas",             0.35, 1.30, 15, 24.5, 25.5, -78.0, -77.0),
+    # ── WEST PACIFIC / ASIA (hand-tuned; FEMA NRI is US-only, so no nri_zones override) ──
+    ("Okinawa / Ryukyu (Japan)",     0.40, 1.05, 12, 24.0, 27.0, 122.5, 129.5),
+    ("Kyushu (Japan)",               0.60, 0.85, 15, 30.5, 34.0, 129.5, 132.0),
+    ("Honshu / Tokyo-Osaka (Japan)", 1.00, 0.70, 20, 33.0, 37.0, 134.5, 141.5),
+    ("South Korea (Busan/Seoul)",    0.70, 0.80, 18, 34.3, 38.0, 125.5, 129.6),
+    ("Taiwan",                       0.70, 1.10, 12, 21.8, 25.4, 119.8, 122.1),
+    ("Luzon / Manila (PH)",          0.55, 1.40, 15, 12.5, 18.7, 119.8, 122.6),
+    ("Visayas / Leyte (PH)",         0.35, 1.45, 18,  8.5, 12.4, 122.0, 126.5),
+    ("Pearl River Delta / HK",       0.95, 0.95, 30, 21.5, 23.8, 112.0, 115.5),
+    ("Hainan / Leizhou (China)",     0.35, 1.05, 25, 18.0, 21.5, 108.5, 111.8),
+    ("Shanghai / Yangtze Delta",     0.90, 0.90, 35, 28.5, 32.5, 120.0, 122.8),
+    ("Vietnam (N/Central)",          0.40, 1.25, 20, 15.5, 21.3, 105.5, 108.4),
 ]
 
 

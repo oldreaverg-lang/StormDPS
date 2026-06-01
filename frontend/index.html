@@ -1981,6 +1981,19 @@ const ECON_ZONES = [
     { name:'US Virgin Islands',           exposure:0.30, vuln:1.35, depth_nm:10, test:(lat,lon)=> lat>=17.5 && lat<=18.5 && lon>=-65.5 && lon<=-64.5 },
     { name:'Nassau / Bahamas',            exposure:0.35, vuln:1.30, depth_nm:15, test:(lat,lon)=> lat>=24.5 && lat<=25.5 && lon>=-78.0 && lon<=-77.0 },
     { name:'Cancun / Riviera Maya',       exposure:0.50, vuln:1.10, depth_nm:15, test:(lat,lon)=> lat>=20.0 && lat<=21.5 && lon>=-87.5 && lon<=-86.5 },
+
+    // ── WEST PACIFIC / ASIA (hand-tuned — FEMA NRI is US-only) ──
+    { name:'Okinawa / Ryukyu (Japan)',    exposure:0.40, vuln:1.05, depth_nm:12, test:(lat,lon)=> lat>=24.0 && lat<=27.0 && lon>=122.5 && lon<=129.5 },
+    { name:'Kyushu (Japan)',              exposure:0.60, vuln:0.85, depth_nm:15, test:(lat,lon)=> lat>=30.5 && lat<=34.0 && lon>=129.5 && lon<=132.0 },
+    { name:'Honshu / Tokyo-Osaka (Japan)',exposure:1.00, vuln:0.70, depth_nm:20, test:(lat,lon)=> lat>=33.0 && lat<=37.0 && lon>=134.5 && lon<=141.5 },
+    { name:'South Korea (Busan/Seoul)',   exposure:0.70, vuln:0.80, depth_nm:18, test:(lat,lon)=> lat>=34.3 && lat<=38.0 && lon>=125.5 && lon<=129.6 },
+    { name:'Taiwan',                      exposure:0.70, vuln:1.10, depth_nm:12, test:(lat,lon)=> lat>=21.8 && lat<=25.4 && lon>=119.8 && lon<=122.1 },
+    { name:'Luzon / Manila (PH)',         exposure:0.55, vuln:1.40, depth_nm:15, test:(lat,lon)=> lat>=12.5 && lat<=18.7 && lon>=119.8 && lon<=122.6 },
+    { name:'Visayas / Leyte (PH)',        exposure:0.35, vuln:1.45, depth_nm:18, test:(lat,lon)=> lat>=8.5 && lat<=12.4 && lon>=122.0 && lon<=126.5 },
+    { name:'Pearl River Delta / HK',      exposure:0.95, vuln:0.95, depth_nm:30, test:(lat,lon)=> lat>=21.5 && lat<=23.8 && lon>=112.0 && lon<=115.5 },
+    { name:'Hainan / Leizhou (China)',    exposure:0.35, vuln:1.05, depth_nm:25, test:(lat,lon)=> lat>=18.0 && lat<=21.5 && lon>=108.5 && lon<=111.8 },
+    { name:'Shanghai / Yangtze Delta',    exposure:0.90, vuln:0.90, depth_nm:35, test:(lat,lon)=> lat>=28.5 && lat<=32.5 && lon>=120.0 && lon<=122.8 },
+    { name:'Vietnam (N/Central)',         exposure:0.40, vuln:1.25, depth_nm:20, test:(lat,lon)=> lat>=15.5 && lat<=21.3 && lon>=105.5 && lon<=108.4 },
 ];
 
 // ── NRI Zone Overrides (FEMA National Risk Index 2024) ──
