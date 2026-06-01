@@ -1,0 +1,474 @@
+[
+ {
+  "name": "Louisiana Coast",
+  "factor": 1.15,
+  "lat_min": 28.5,
+  "lat_max": 30.5,
+  "lon_min": -93.5,
+  "lon_max": -88.8
+ },
+ {
+  "name": "Mississippi/Alabama",
+  "factor": 1.1,
+  "lat_min": 29.5,
+  "lat_max": 31.0,
+  "lon_min": -88.8,
+  "lon_max": -87.5
+ },
+ {
+  "name": "Upper Texas Coast",
+  "factor": 1.1,
+  "lat_min": 29.0,
+  "lat_max": 30.5,
+  "lon_min": -95.5,
+  "lon_max": -93.5
+ },
+ {
+  "name": "South Texas Coast",
+  "factor": 1.0,
+  "lat_min": 25.5,
+  "lat_max": 29.0,
+  "lon_min": -98.0,
+  "lon_max": -96.0
+ },
+ {
+  "name": "Florida Big Bend",
+  "factor": 1.05,
+  "lat_min": 29.0,
+  "lat_max": 30.5,
+  "lon_min": -84.5,
+  "lon_max": -82.5
+ },
+ {
+  "name": "Florida Panhandle",
+  "factor": 0.9,
+  "lat_min": 29.5,
+  "lat_max": 31.0,
+  "lon_min": -87.5,
+  "lon_max": -84.5
+ },
+ {
+  "name": "West Florida",
+  "factor": 0.85,
+  "lat_min": 24.5,
+  "lat_max": 29.0,
+  "lon_min": -84.0,
+  "lon_max": -81.5
+ },
+ {
+  "name": "Gulf of Mexico",
+  "factor": 0.95,
+  "lat_min": 18.0,
+  "lat_max": 31.0,
+  "lon_min": -98.0,
+  "lon_max": -81.0
+ },
+ {
+  "name": "SE Florida / Keys",
+  "factor": 0.5,
+  "lat_min": 24.5,
+  "lat_max": 27.0,
+  "lon_min": -81.5,
+  "lon_max": -79.5
+ },
+ {
+  "name": "Central FL Atlantic",
+  "factor": 0.6,
+  "lat_min": 26.5,
+  "lat_max": 29.0,
+  "lon_min": -81.0,
+  "lon_max": -79.5
+ },
+ {
+  "name": "Georgia/SC Coast",
+  "factor": 0.75,
+  "lat_min": 30.0,
+  "lat_max": 33.5,
+  "lon_min": -82.0,
+  "lon_max": -79.0
+ },
+ {
+  "name": "North Carolina",
+  "factor": 0.7,
+  "lat_min": 33.5,
+  "lat_max": 36.5,
+  "lon_min": -78.5,
+  "lon_max": -75.0
+ },
+ {
+  "name": "Virginia/Chesapeake",
+  "factor": 0.8,
+  "lat_min": 36.5,
+  "lat_max": 38.0,
+  "lon_min": -77.0,
+  "lon_max": -75.0
+ },
+ {
+  "name": "NJ / NY Bight",
+  "factor": 0.85,
+  "lat_min": 38.0,
+  "lat_max": 41.0,
+  "lon_min": -75.0,
+  "lon_max": -72.0
+ },
+ {
+  "name": "New England",
+  "factor": 0.7,
+  "lat_min": 41.0,
+  "lat_max": 44.0,
+  "lon_min": -72.0,
+  "lon_max": -69.0
+ },
+ {
+  "name": "US SE Atlantic",
+  "factor": 0.65,
+  "lat_min": 25.0,
+  "lat_max": 37.0,
+  "lon_min": -82.0,
+  "lon_max": -74.0
+ },
+ {
+  "name": "US Mid-Atlantic",
+  "factor": 0.75,
+  "lat_min": 37.0,
+  "lat_max": 44.0,
+  "lon_min": -76.0,
+  "lon_max": -69.0
+ },
+ {
+  "name": "Bahamas",
+  "factor": 0.6,
+  "lat_min": 21.0,
+  "lat_max": 27.5,
+  "lon_min": -80.0,
+  "lon_max": -73.0
+ },
+ {
+  "name": "Greater Antilles",
+  "factor": 0.5,
+  "lat_min": 17.0,
+  "lat_max": 24.0,
+  "lon_min": -86.0,
+  "lon_max": -64.0
+ },
+ {
+  "name": "Lesser Antilles",
+  "factor": 0.4,
+  "lat_min": 10.0,
+  "lat_max": 18.0,
+  "lon_min": -64.0,
+  "lon_max": -59.0
+ },
+ {
+  "name": "Caribbean Basin",
+  "factor": 0.45,
+  "lat_min": 10.0,
+  "lat_max": 24.0,
+  "lon_min": -86.0,
+  "lon_max": -59.0
+ },
+ {
+  "name": "Mexico Pacific",
+  "factor": 0.35,
+  "lat_min": 14.0,
+  "lat_max": 24.0,
+  "lon_min": -110.0,
+  "lon_max": -96.0
+ },
+ {
+  "name": "Mexico Gulf",
+  "factor": 0.85,
+  "lat_min": 18.0,
+  "lat_max": 24.0,
+  "lon_min": -98.0,
+  "lon_max": -90.0
+ },
+ {
+  "name": "Yucatan",
+  "factor": 0.75,
+  "lat_min": 18.0,
+  "lat_max": 22.0,
+  "lon_min": -92.0,
+  "lon_max": -86.0
+ },
+ {
+  "name": "Central America Carib",
+  "factor": 0.55,
+  "lat_min": 8.0,
+  "lat_max": 18.0,
+  "lon_min": -88.0,
+  "lon_max": -77.0
+ },
+ {
+  "name": "Central America Pacific",
+  "factor": 0.4,
+  "lat_min": 8.0,
+  "lat_max": 16.0,
+  "lon_min": -92.0,
+  "lon_max": -77.0
+ },
+ {
+  "name": "Bangladesh / Meghna Estuary",
+  "factor": 1.2,
+  "lat_min": 21.0,
+  "lat_max": 23.5,
+  "lon_min": 88.5,
+  "lon_max": 92.5
+ },
+ {
+  "name": "Myanmar / Irrawaddy Delta",
+  "factor": 1.15,
+  "lat_min": 14.0,
+  "lat_max": 18.0,
+  "lon_min": 92.5,
+  "lon_max": 97.0
+ },
+ {
+  "name": "NE India (Odisha/Bengal)",
+  "factor": 1.1,
+  "lat_min": 17.5,
+  "lat_max": 22.0,
+  "lon_min": 84.0,
+  "lon_max": 88.5
+ },
+ {
+  "name": "E India / Sri Lanka",
+  "factor": 0.95,
+  "lat_min": 5.0,
+  "lat_max": 17.5,
+  "lon_min": 78.0,
+  "lon_max": 84.0
+ },
+ {
+  "name": "Arabian Sea (W India/Pak)",
+  "factor": 0.7,
+  "lat_min": 8.0,
+  "lat_max": 26.0,
+  "lon_min": 58.0,
+  "lon_max": 78.0
+ },
+ {
+  "name": "Gulf of Thailand",
+  "factor": 0.95,
+  "lat_min": 6.0,
+  "lat_max": 14.0,
+  "lon_min": 99.0,
+  "lon_max": 105.0
+ },
+ {
+  "name": "Mekong Delta (S Vietnam)",
+  "factor": 1.0,
+  "lat_min": 8.5,
+  "lat_max": 11.0,
+  "lon_min": 104.5,
+  "lon_max": 107.5
+ },
+ {
+  "name": "Gulf of Tonkin / N Vietnam",
+  "factor": 1.05,
+  "lat_min": 18.5,
+  "lat_max": 21.8,
+  "lon_min": 105.8,
+  "lon_max": 108.5
+ },
+ {
+  "name": "Central Vietnam",
+  "factor": 0.55,
+  "lat_min": 11.0,
+  "lat_max": 18.5,
+  "lon_min": 107.5,
+  "lon_max": 110.0
+ },
+ {
+  "name": "Hangzhou Bay",
+  "factor": 1.15,
+  "lat_min": 29.8,
+  "lat_max": 30.7,
+  "lon_min": 120.3,
+  "lon_max": 122.1
+ },
+ {
+  "name": "Pearl River Delta / HK",
+  "factor": 0.95,
+  "lat_min": 21.3,
+  "lat_max": 23.6,
+  "lon_min": 112.3,
+  "lon_max": 115.2
+ },
+ {
+  "name": "Hainan / Leizhou",
+  "factor": 0.95,
+  "lat_min": 17.5,
+  "lat_max": 21.5,
+  "lon_min": 108.5,
+  "lon_max": 111.8
+ },
+ {
+  "name": "SE China (Fujian/Strait)",
+  "factor": 0.85,
+  "lat_min": 23.0,
+  "lat_max": 28.5,
+  "lon_min": 116.5,
+  "lon_max": 121.0
+ },
+ {
+  "name": "Yangtze Mouth / Jiangsu",
+  "factor": 1.05,
+  "lat_min": 30.5,
+  "lat_max": 34.0,
+  "lon_min": 119.5,
+  "lon_max": 123.0
+ },
+ {
+  "name": "Yellow Sea / Bohai (N China)",
+  "factor": 1.1,
+  "lat_min": 34.0,
+  "lat_max": 41.0,
+  "lon_min": 117.5,
+  "lon_max": 123.5
+ },
+ {
+  "name": "Korea West Coast",
+  "factor": 1.0,
+  "lat_min": 34.5,
+  "lat_max": 37.9,
+  "lon_min": 125.2,
+  "lon_max": 127.2
+ },
+ {
+  "name": "Korea South Coast",
+  "factor": 0.65,
+  "lat_min": 33.8,
+  "lat_max": 35.6,
+  "lon_min": 127.2,
+  "lon_max": 129.6
+ },
+ {
+  "name": "Ariake Sea (Kyushu)",
+  "factor": 1.05,
+  "lat_min": 32.5,
+  "lat_max": 33.3,
+  "lon_min": 130.0,
+  "lon_max": 130.7
+ },
+ {
+  "name": "Osaka Bay",
+  "factor": 0.85,
+  "lat_min": 34.2,
+  "lat_max": 34.8,
+  "lon_min": 134.9,
+  "lon_max": 135.55
+ },
+ {
+  "name": "Ise Bay (Nagoya)",
+  "factor": 0.95,
+  "lat_min": 34.5,
+  "lat_max": 35.2,
+  "lon_min": 136.5,
+  "lon_max": 137.2
+ },
+ {
+  "name": "Tokyo Bay / Sagami",
+  "factor": 0.9,
+  "lat_min": 34.9,
+  "lat_max": 35.75,
+  "lon_min": 139.5,
+  "lon_max": 140.35
+ },
+ {
+  "name": "Seto Inland Sea",
+  "factor": 0.7,
+  "lat_min": 33.6,
+  "lat_max": 34.8,
+  "lon_min": 131.0,
+  "lon_max": 135.4
+ },
+ {
+  "name": "Japan Pacific Coast",
+  "factor": 0.55,
+  "lat_min": 30.0,
+  "lat_max": 38.0,
+  "lon_min": 129.0,
+  "lon_max": 143.0
+ },
+ {
+  "name": "Okinawa / Ryukyu",
+  "factor": 0.5,
+  "lat_min": 24.0,
+  "lat_max": 28.0,
+  "lon_min": 122.3,
+  "lon_max": 129.5
+ },
+ {
+  "name": "Taiwan Strait (W Taiwan)",
+  "factor": 0.8,
+  "lat_min": 21.9,
+  "lat_max": 25.4,
+  "lon_min": 119.5,
+  "lon_max": 120.95
+ },
+ {
+  "name": "Taiwan East Coast",
+  "factor": 0.4,
+  "lat_min": 21.9,
+  "lat_max": 25.4,
+  "lon_min": 120.95,
+  "lon_max": 122.2
+ },
+ {
+  "name": "Manila Bay",
+  "factor": 0.85,
+  "lat_min": 14.3,
+  "lat_max": 14.9,
+  "lon_min": 120.5,
+  "lon_max": 121.05
+ },
+ {
+  "name": "Leyte Gulf / E Visayas",
+  "factor": 0.95,
+  "lat_min": 10.3,
+  "lat_max": 11.7,
+  "lon_min": 124.7,
+  "lon_max": 125.7
+ },
+ {
+  "name": "Philippines (archipelago)",
+  "factor": 0.55,
+  "lat_min": 5.0,
+  "lat_max": 19.5,
+  "lon_min": 119.0,
+  "lon_max": 127.0
+ },
+ {
+  "name": "Gulf of Carpentaria",
+  "factor": 1.0,
+  "lat_min": -18.0,
+  "lat_max": -10.0,
+  "lon_min": 135.0,
+  "lon_max": 142.0
+ },
+ {
+  "name": "NW Australia (Pilbara/Top End)",
+  "factor": 0.75,
+  "lat_min": -22.0,
+  "lat_max": -11.0,
+  "lon_min": 113.0,
+  "lon_max": 135.0
+ },
+ {
+  "name": "NE Australia (Coral Sea/GBR)",
+  "factor": 0.7,
+  "lat_min": -26.0,
+  "lat_max": -10.0,
+  "lon_min": 142.0,
+  "lon_max": 154.0
+ },
+ {
+  "name": "West Africa",
+  "factor": 0.5,
+  "lat_min": 5.0,
+  "lat_max": 20.0,
+  "lon_min": -20.0,
+  "lon_max": 0.0
+ }
+]

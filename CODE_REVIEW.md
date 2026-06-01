@@ -50,8 +50,8 @@ Old IKE band method behind `apply_size_corrections=False`; the FEMA-NRI overlay 
 ## Progress
 
 - [x] **Tier 1.1** — econ-zone single source of truth. Canonical `frontend/econ_zones.json`; server (`core/ike._load_econ_zones`) + frontend (`loadEconZones`) both read it. Verified output-identical (55 zones, server baseline + frontend bbox-logic match; inline script `node --check` clean). _Minor remaining dup: `build_nri_zones.ZONES` still has its own copy of the US bboxes — low-risk (NRI build tool, US-only); fold into the JSON later._
-- [ ] Tier 1.2 — externalize SHELF_REGIONS
-- [ ] Tier 1.3 — quarantine scripts
+- [x] **Tier 1.2** — externalized `SHELF_REGIONS` (59 regions) to `frontend/shelf_regions.json`; frontend fetches it via `loadShelfRegions`, `getShelfFactor` uses an inline bbox test. Verified identical + inline SPA `node --check` clean.
+- [~] Tier 1.3 — quarantine scripts _(deferred: those one-offs use `sys.path` tricks that assume repo-root, so moving them breaks re-runnability for purely cosmetic gain; `compile_cache.py` is runtime-imported and must stay at root. Revisit post-season.)_
 - [ ] Tier 1.4 — delete dead code
 - [x] (pre-work) Removed orphaned NRI overlay in `economic_vulnerability` — `bc17aa9`
 

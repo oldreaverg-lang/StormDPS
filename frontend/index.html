@@ -1761,123 +1761,12 @@ function calculateSurgeParametric(dataPoint) {
 // narrow shelves (Mexico Pacific, Caribbean) suppress it.
 // Regions tested in order; MOST SPECIFIC first, then broader fallbacks.
 // ============================================================
-const SHELF_REGIONS = [
-    // ── US GULF COAST (most granular — wide shelf, highest surge risk) ──
-    // Louisiana: widest US shelf (~120nm), Katrina territory, maximum amplification
-    { name:'Louisiana Coast',         factor:1.15, test:(lat,lon)=> lat>=28.5 && lat<=30.5 && lon>=-93.5 && lon<=-88.8 },
-    // Mississippi Sound / Alabama: wide shelf, funneling into bays
-    { name:'Mississippi/Alabama',     factor:1.10, test:(lat,lon)=> lat>=29.5 && lat<=31   && lon>=-88.8 && lon<=-87.5 },
-    // Upper Texas (Galveston-Sabine): very wide shelf, Ike territory
-    { name:'Upper Texas Coast',       factor:1.10, test:(lat,lon)=> lat>=29   && lat<=30.5 && lon>=-95.5 && lon<=-93.5 },
-    // Central/South Texas (Corpus Christi-Brownsville): wide shelf
-    { name:'South Texas Coast',       factor:1.00, test:(lat,lon)=> lat>=25.5 && lat<=29   && lon>=-98   && lon<=-96 },
-    // Florida Big Bend (Cedar Key-Apalachee Bay): very wide, shallow — huge surge risk
-    { name:'Florida Big Bend',        factor:1.05, test:(lat,lon)=> lat>=29   && lat<=30.5 && lon>=-84.5 && lon<=-82.5 },
-    // Florida Panhandle (Pensacola-Panama City): moderate-wide shelf, Michael territory
-    { name:'Florida Panhandle',       factor:0.90, test:(lat,lon)=> lat>=29.5 && lat<=31   && lon>=-87.5 && lon<=-84.5 },
-    // West Florida (Tampa Bay-Naples-Keys): moderate shelf, Ian/Milton territory
-    { name:'West Florida',            factor:0.85, test:(lat,lon)=> lat>=24.5 && lat<=29   && lon>=-84   && lon<=-81.5 },
-    // Gulf of Mexico general fallback (open Gulf waters, Mexico Gulf side)
-    { name:'Gulf of Mexico',          factor:0.95, test:(lat,lon)=> lat>=18 && lat<=31 && lon>=-98 && lon<=-81 },
-
-    // ── US ATLANTIC COAST ──
-    // South Florida / Keys: very narrow shelf, steep drop-off to Florida Straits
-    { name:'SE Florida / Keys',       factor:0.50, test:(lat,lon)=> lat>=24.5 && lat<=27   && lon>=-81.5 && lon<=-79.5 },
-    // Central Florida Atlantic (Brevard-Palm Beach): narrow-moderate shelf
-    { name:'Central FL Atlantic',     factor:0.60, test:(lat,lon)=> lat>=26.5 && lat<=29   && lon>=-81   && lon<=-79.5 },
-    // Georgia / SC Low Country: moderate-wide shelf, tidal amplification
-    { name:'Georgia/SC Coast',        factor:0.75, test:(lat,lon)=> lat>=30   && lat<=33.5 && lon>=-82   && lon<=-79 },
-    // North Carolina: moderate shelf, Outer Banks barrier geography
-    { name:'North Carolina',          factor:0.70, test:(lat,lon)=> lat>=33.5 && lat<=36.5 && lon>=-78.5 && lon<=-75 },
-    // Virginia/Chesapeake Bay: moderate-wide, bay funneling amplifies surge
-    { name:'Virginia/Chesapeake',     factor:0.80, test:(lat,lon)=> lat>=36.5 && lat<=38   && lon>=-77   && lon<=-75 },
-    // New Jersey / NY Bight: moderate-wide, Sandy territory (right-angle coastline traps surge)
-    { name:'NJ / NY Bight',          factor:0.85, test:(lat,lon)=> lat>=38   && lat<=41   && lon>=-75   && lon<=-72 },
-    // New England: variable, generally moderate
-    { name:'New England',             factor:0.70, test:(lat,lon)=> lat>=41   && lat<=44   && lon>=-72   && lon<=-69 },
-    // US SE Atlantic general fallback
-    { name:'US SE Atlantic',          factor:0.65, test:(lat,lon)=> lat>=25 && lat<=37 && lon>=-82 && lon<=-74 },
-    // US Mid-Atlantic/NE fallback
-    { name:'US Mid-Atlantic',         factor:0.75, test:(lat,lon)=> lat>=37 && lat<=44 && lon>=-76 && lon<=-69 },
-
-    // ── CARIBBEAN ──
-    // Bahamas: shallow banks but narrow shelf edges — unique hybrid
-    { name:'Bahamas',                 factor:0.60, test:(lat,lon)=> lat>=21 && lat<=27.5 && lon>=-80 && lon<=-73 },
-    // Greater Antilles (Cuba, Hispaniola, Puerto Rico, Jamaica): narrow-moderate shelves
-    { name:'Greater Antilles',        factor:0.50, test:(lat,lon)=> lat>=17 && lat<=24 && lon>=-86 && lon<=-64 },
-    // Lesser Antilles: very narrow volcanic island shelves, steep drop-offs
-    { name:'Lesser Antilles',         factor:0.40, test:(lat,lon)=> lat>=10 && lat<=18 && lon>=-64 && lon<=-59 },
-    // Caribbean general fallback
-    { name:'Caribbean Basin',         factor:0.45, test:(lat,lon)=> lat>=10 && lat<=24 && lon>=-86 && lon<=-59 },
-
-    // ── MEXICO & CENTRAL AMERICA ──
-    // Mexico Pacific: VERY narrow shelf — Patricia surge was minimal despite 200mph winds
-    { name:'Mexico Pacific',          factor:0.35, test:(lat,lon)=> lat>=14 && lat<=24 && lon>=-110 && lon<=-96 },
-    // Mexico Gulf (Tamaulipas-Veracruz-Tabasco): moderate-wide Campeche shelf
-    { name:'Mexico Gulf',             factor:0.85, test:(lat,lon)=> lat>=18 && lat<=24 && lon>=-98 && lon<=-90 },
-    // Yucatan Peninsula: moderate shelf
-    { name:'Yucatan',                 factor:0.75, test:(lat,lon)=> lat>=18 && lat<=22 && lon>=-92 && lon<=-86 },
-    // Central America Caribbean: narrow-moderate
-    { name:'Central America Carib',   factor:0.55, test:(lat,lon)=> lat>=8 && lat<=18 && lon>=-88 && lon<=-77 },
-    // Central America Pacific: narrow
-    { name:'Central America Pacific', factor:0.40, test:(lat,lon)=> lat>=8 && lat<=16 && lon>=-92 && lon<=-77 },
-
-    // ── NORTH INDIAN OCEAN (the world's deadliest surge shelves) ──
-    { name:'Bangladesh / Meghna Estuary', factor:1.20, test:(lat,lon)=> lat>=21 && lat<=23.5 && lon>=88.5 && lon<=92.5 },   // Bhola 1970, Sidr 2007 — wide shelf + funnel + low delta
-    { name:'Myanmar / Irrawaddy Delta',   factor:1.15, test:(lat,lon)=> lat>=14 && lat<=18 && lon>=92.5 && lon<=97 },        // Nargis 2008
-    { name:'NE India (Odisha/Bengal)',    factor:1.10, test:(lat,lon)=> lat>=17.5 && lat<=22 && lon>=84 && lon<=88.5 },      // super-cyclone coast, very wide shelf
-    { name:'E India / Sri Lanka',         factor:0.95, test:(lat,lon)=> lat>=5 && lat<=17.5 && lon>=78 && lon<=84 },
-    { name:'Arabian Sea (W India/Pak)',   factor:0.70, test:(lat,lon)=> lat>=8 && lat<=26 && lon>=58 && lon<=78 },           // narrower, steeper
-
-    // ── SOUTHEAST ASIA ──
-    { name:'Gulf of Thailand',            factor:0.95, test:(lat,lon)=> lat>=6 && lat<=14 && lon>=99 && lon<=105 },          // shallow, semi-enclosed
-    { name:'Mekong Delta (S Vietnam)',    factor:1.00, test:(lat,lon)=> lat>=8.5 && lat<=11 && lon>=104.5 && lon<=107.5 },
-    { name:'Gulf of Tonkin / N Vietnam',  factor:1.05, test:(lat,lon)=> lat>=18.5 && lat<=21.8 && lon>=105.8 && lon<=108.5 },// shallow, Red River delta
-    { name:'Central Vietnam',             factor:0.55, test:(lat,lon)=> lat>=11 && lat<=18.5 && lon>=107.5 && lon<=110 },    // narrow shelf
-
-    // ── CHINA (funnel bays first, then regional shelves) ──
-    { name:'Hangzhou Bay',                factor:1.15, test:(lat,lon)=> lat>=29.8 && lat<=30.7 && lon>=120.3 && lon<=122.1 },// extreme tidal funnel
-    { name:'Pearl River Delta / HK',      factor:0.95, test:(lat,lon)=> lat>=21.3 && lat<=23.6 && lon>=112.3 && lon<=115.2 },// Mangkhut, Hato — wide shelf + funnel
-    { name:'Hainan / Leizhou',            factor:0.95, test:(lat,lon)=> lat>=17.5 && lat<=21.5 && lon>=108.5 && lon<=111.8 },
-    { name:'SE China (Fujian/Strait)',    factor:0.85, test:(lat,lon)=> lat>=23 && lat<=28.5 && lon>=116.5 && lon<=121 },
-    { name:'Yangtze Mouth / Jiangsu',     factor:1.05, test:(lat,lon)=> lat>=30.5 && lat<=34 && lon>=119.5 && lon<=123 },    // Shanghai — wide, shallow
-    { name:'Yellow Sea / Bohai (N China)',factor:1.10, test:(lat,lon)=> lat>=34 && lat<=41 && lon>=117.5 && lon<=123.5 },    // very shallow, very wide
-
-    // ── KOREA ──
-    { name:'Korea West Coast',            factor:1.00, test:(lat,lon)=> lat>=34.5 && lat<=37.9 && lon>=125.2 && lon<=127.2 },// Yellow Sea side, huge tidal range
-    { name:'Korea South Coast',           factor:0.65, test:(lat,lon)=> lat>=33.8 && lat<=35.6 && lon>=127.2 && lon<=129.6 },// ria coast, moderate
-
-    // ── JAPAN (surge bays first, then the steep general Pacific coast) ──
-    { name:'Ariake Sea (Kyushu)',         factor:1.05, test:(lat,lon)=> lat>=32.5 && lat<=33.3 && lon>=130.0 && lon<=130.7 },// shallow, highest tidal range in Japan
-    { name:'Osaka Bay',                   factor:0.85, test:(lat,lon)=> lat>=34.2 && lat<=34.8 && lon>=134.9 && lon<=135.55 },
-    { name:'Ise Bay (Nagoya)',            factor:0.95, test:(lat,lon)=> lat>=34.5 && lat<=35.2 && lon>=136.5 && lon<=137.2 },// Isewan Typhoon 1959 — Japan's deadliest surge
-    { name:'Tokyo Bay / Sagami',          factor:0.90, test:(lat,lon)=> lat>=34.9 && lat<=35.75 && lon>=139.5 && lon<=140.35 },
-    { name:'Seto Inland Sea',             factor:0.70, test:(lat,lon)=> lat>=33.6 && lat<=34.8 && lon>=131 && lon<=135.4 },  // enclosed
-    { name:'Japan Pacific Coast',         factor:0.55, test:(lat,lon)=> lat>=30 && lat<=38 && lon>=129 && lon<=143 },        // narrow, steep shelf (general)
-
-    // ── RYUKYU / TAIWAN ──
-    { name:'Okinawa / Ryukyu',            factor:0.50, test:(lat,lon)=> lat>=24 && lat<=28 && lon>=122.3 && lon<=129.5 },    // small islands, deep water close in
-    { name:'Taiwan Strait (W Taiwan)',    factor:0.80, test:(lat,lon)=> lat>=21.9 && lat<=25.4 && lon>=119.5 && lon<=120.95 },
-    { name:'Taiwan East Coast',           factor:0.40, test:(lat,lon)=> lat>=21.9 && lat<=25.4 && lon>=120.95 && lon<=122.2 },// steep, deep trench offshore
-
-    // ── PHILIPPINES (funnels first, then the archipelago) ──
-    { name:'Manila Bay',                  factor:0.85, test:(lat,lon)=> lat>=14.3 && lat<=14.9 && lon>=120.5 && lon<=121.05 },
-    { name:'Leyte Gulf / E Visayas',      factor:0.95, test:(lat,lon)=> lat>=10.3 && lat<=11.7 && lon>=124.7 && lon<=125.7 },// Haiyan 2013 storm surge
-    { name:'Philippines (archipelago)',   factor:0.55, test:(lat,lon)=> lat>=5 && lat<=19.5 && lon>=119 && lon<=127 },
-
-    // ── AUSTRALIA ──
-    { name:'Gulf of Carpentaria',         factor:1.00, test:(lat,lon)=> lat>=-18 && lat<=-10 && lon>=135 && lon<=142 },      // very shallow, very wide
-    { name:'NW Australia (Pilbara/Top End)',factor:0.75, test:(lat,lon)=> lat>=-22 && lat<=-11 && lon>=113 && lon<=135 },    // wide NW shelf, severe TCs
-    { name:'NE Australia (Coral Sea/GBR)',factor:0.70, test:(lat,lon)=> lat>=-26 && lat<=-10 && lon>=142 && lon<=154 },      // reef dissipation
-
-    // ── OTHER BASINS ──
-    { name:'West Africa',                 factor:0.50, test:(lat,lon)=> lat>=5 && lat<=20 && lon>=-20 && lon<=0 },           // narrow shelf
-];
+let SHELF_REGIONS = []; // single source of truth: frontend/shelf_regions.json (fetched by loadShelfRegions below)
 
 function getShelfFactor(lat, lon) {
     if(lat == null || lon == null) return 0.5; // unknown location — conservative
     for(const r of SHELF_REGIONS) {
-        if(r.test(lat, lon)) return r.factor;
+        if(lat>=r.lat_min && lat<=r.lat_max && lon>=r.lon_min && lon<=r.lon_max) return r.factor;
     }
     // Open ocean / no matching region — surge threat minimal away from coast
     return 0.30;
@@ -1995,6 +1884,24 @@ function loadEconZones() {
         .catch(e => console.warn('Econ zones not available:', e));
 }
 loadEconZones();
+
+// Continental-shelf surge-amplification factors — single source of truth in
+// frontend/shelf_regions.json. Drives the IAS surge-geography component.
+function loadShelfRegions() {
+    const dir = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1);
+    const base = dir.includes('/frontend') ? dir : '/frontend/';
+    fetch(base + 'shelf_regions.json')
+        .then(r => r.ok ? r.json() : Promise.reject('shelf regions not found'))
+        .then(data => {
+            SHELF_REGIONS = data;
+            console.log('Shelf regions loaded:', data.length, 'regions');
+            if (window.stormData && window.stormData.length && window._currentStormId) {
+                try { renderAll(window._currentStormId, window.stormData); } catch (e) {}
+            }
+        })
+        .catch(e => console.warn('Shelf regions not available:', e));
+}
+loadShelfRegions();
 
 function getEconomicExposure(lat, lon, useNRI = false) {
     if(lat == null || lon == null) return { exposure: 0.10, vuln: 1.0, name: 'Unknown', depth_nm: 15 };
