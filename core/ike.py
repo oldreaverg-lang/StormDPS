@@ -1587,73 +1587,22 @@ def calculate_ias(
 #   - Infrastructure resilience (grid redundancy, road network, hospital capacity)
 #   - NFIP repetitive loss data (FEMA severe repetitive loss properties per mile)
 #   - Isolation factor (supply chain fragility, evacuation route constraints)
-_ECON_ZONES: list[tuple] = [
-    # (name, exposure, vuln, depth_nm, lat_min, lat_max, lon_min, lon_max)
-    # ── NORTHEAST CORRIDOR ──
-    ("NYC Metro / Long Island",      1.00, 0.85, 50, 40.2, 41.2, -74.3, -72.5),
-    ("Northern NJ / Newark",         0.92, 0.90, 40, 39.5, 40.8, -74.5, -73.8),
-    ("Connecticut Coast",            0.75, 0.80, 30, 40.8, 41.4, -73.7, -72.0),
-    ("Boston Metro",                 0.80, 0.80, 35, 42.0, 42.7, -71.3, -70.5),
-    ("Rhode Island / Cape Cod",      0.55, 0.95, 25, 41.2, 42.0, -71.8, -69.9),
-    # ── MID-ATLANTIC ──
-    ("Atlantic City / Shore",        0.50, 1.05, 20, 39.0, 39.8, -74.6, -74.0),
-    ("Delaware Bay / Philly",        0.65, 0.85, 35, 38.5, 40.0, -75.6, -74.6),
-    ("Chesapeake Bay / Norfolk",     0.70, 1.00, 40, 36.5, 38.5, -77.0, -75.5),
-    ("Outer Banks NC",               0.30, 1.25, 15, 34.5, 36.5, -76.5, -75.2),
-    # ── SOUTHEAST ATLANTIC ──
-    ("Wilmington NC Metro",          0.35, 1.05, 20, 33.7, 34.5, -78.2, -77.5),
-    ("Myrtle Beach SC",              0.40, 1.10, 15, 33.2, 33.9, -79.2, -78.5),
-    ("Charleston SC Metro",          0.55, 1.00, 25, 32.4, 33.2, -80.3, -79.5),
-    ("Savannah GA / Hilton Head",    0.45, 0.95, 20, 31.8, 32.4, -81.3, -80.5),
-    ("Jacksonville FL Metro",        0.55, 0.90, 25, 30.0, 30.8, -81.8, -81.0),
-    # ── FLORIDA ATLANTIC ──
-    ("Palm Beach / Treasure Coast",  0.70, 0.75, 20, 26.5, 27.5, -80.3, -79.8),
-    ("Fort Lauderdale / Broward",    0.85, 0.70, 25, 25.9, 26.5, -80.4, -79.9),
-    ("Miami-Dade Metro",             0.95, 0.65, 30, 25.3, 25.9, -80.5, -80.0),
-    ("Florida Keys",                 0.30, 1.15, 10, 24.3, 25.3, -82.0, -80.0),
-    # ── FLORIDA GULF COAST ──
-    ("Naples / Collier Co",          0.55, 0.80, 20, 25.8, 26.5, -82.0, -81.3),
-    ("Fort Myers / Lee Co",          0.60, 1.05, 25, 26.3, 26.8, -82.2, -81.7),
-    ("Sarasota / Manatee",           0.55, 0.90, 20, 26.8, 27.5, -82.8, -82.2),
-    ("Tampa Bay Metro",              0.85, 1.00, 35, 27.5, 28.3, -82.9, -82.2),
-    ("Clearwater / Pinellas",        0.65, 0.90, 15, 27.7, 28.2, -83.0, -82.5),
-    ("Nature Coast FL (rural)",      0.10, 1.20, 10, 28.3, 29.3, -83.5, -82.5),
-    ("Big Bend FL (rural)",          0.15, 1.25, 10, 29.3, 30.3, -84.5, -83.0),
-    ("Panama City FL",               0.40, 1.30, 20, 29.8, 30.5, -86.0, -85.0),
-    ("Destin / Fort Walton",         0.35, 1.00, 15, 30.2, 30.6, -87.0, -86.0),
-    ("Pensacola Metro",              0.45, 1.00, 25, 30.2, 30.7, -87.6, -86.8),
-    # ── CENTRAL GULF COAST ──
-    ("Mobile AL Metro",              0.50, 1.00, 30, 30.2, 31.0, -88.3, -87.5),
-    ("Biloxi / Gulfport MS",         0.40, 1.15, 20, 30.2, 30.7, -89.5, -88.3),
-    ("New Orleans Metro",            0.90, 1.40, 45, 29.5, 30.3, -90.5, -89.5),
-    ("Houma / Terrebonne LA",        0.50, 1.30, 25, 29.0, 29.6, -91.2, -90.3),
-    ("Lafayette / Vermilion LA",     0.40, 1.05, 20, 29.5, 30.5, -92.5, -91.2),
-    ("Lake Charles LA (refinery)",   0.55, 1.15, 30, 29.8, 30.5, -93.5, -92.5),
-    # ── TEXAS GULF COAST ──
-    ("Beaumont / Port Arthur TX",    0.55, 1.10, 30, 29.5, 30.3, -94.5, -93.5),
-    ("Houston / Galveston Metro",    0.95, 0.90, 50, 28.8, 30.0, -95.8, -94.3),
-    ("Freeport / Brazoria TX",       0.45, 1.05, 25, 28.5, 29.0, -95.8, -95.0),
-    ("Matagorda / Victoria TX",      0.25, 1.15, 15, 28.2, 28.9, -96.8, -95.8),
-    ("Corpus Christi TX",            0.45, 1.05, 25, 27.3, 28.2, -97.5, -96.8),
-    ("South Padre / Brownsville",    0.25, 1.15, 15, 25.8, 27.3, -97.8, -96.8),
-    # ── CARIBBEAN / INTERNATIONAL ──
-    ("San Juan PR Metro",            0.55, 1.45, 20, 17.8, 18.6, -66.5, -65.5),
-    ("US Virgin Islands",            0.30, 1.35, 10, 17.5, 18.5, -65.5, -64.5),
-    ("Cancun / Riviera Maya",        0.50, 1.10, 15, 20.0, 21.5, -87.5, -86.5),
-    ("Nassau / Bahamas",             0.35, 1.30, 15, 24.5, 25.5, -78.0, -77.0),
-    # ── WEST PACIFIC / ASIA (hand-tuned; FEMA NRI is US-only, so no nri_zones override) ──
-    ("Okinawa / Ryukyu (Japan)",     0.40, 1.05, 12, 24.0, 27.0, 122.5, 129.5),
-    ("Kyushu (Japan)",               0.60, 0.85, 15, 30.5, 34.0, 129.5, 132.0),
-    ("Honshu / Tokyo-Osaka (Japan)", 1.00, 0.70, 20, 33.0, 37.0, 134.5, 141.5),
-    ("South Korea (Busan/Seoul)",    0.70, 0.80, 18, 34.3, 38.0, 125.5, 129.6),
-    ("Taiwan",                       0.70, 1.10, 12, 21.8, 25.4, 119.8, 122.1),
-    ("Luzon / Manila (PH)",          0.55, 1.40, 15, 12.5, 18.7, 119.8, 122.6),
-    ("Visayas / Leyte (PH)",         0.35, 1.45, 18,  8.5, 12.4, 122.0, 126.5),
-    ("Pearl River Delta / HK",       0.95, 0.95, 30, 21.5, 23.8, 112.0, 115.5),
-    ("Hainan / Leizhou (China)",     0.35, 1.05, 25, 18.0, 21.5, 108.5, 111.8),
-    ("Shanghai / Yangtze Delta",     0.90, 0.90, 35, 28.5, 32.5, 120.0, 122.8),
-    ("Vietnam (N/Central)",          0.40, 1.25, 20, 15.5, 21.3, 105.5, 108.4),
-]
+def _load_econ_zones() -> list[tuple]:
+    """Coastal economic zones — loaded from the canonical frontend/econ_zones.json
+    (single source of truth; the frontend fetches the same file). Tuple shape:
+    (name, exposure, vuln, depth_nm, lat_min, lat_max, lon_min, lon_max).
+    Edit zones in frontend/econ_zones.json; do NOT re-introduce a hardcoded list."""
+    import os, json as _json
+    path = os.path.join(os.path.dirname(__file__), "..", "frontend", "econ_zones.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            return [(z["name"], z["exposure"], z["vuln"], z["depth_nm"],
+                     z["lat_min"], z["lat_max"], z["lon_min"], z["lon_max"])
+                    for z in _json.load(f)]
+    except Exception:
+        return []
+
+_ECON_ZONES: list[tuple] = _load_econ_zones()
 
 
 # ── NRI Zone Overrides (rebuilt from FEMA National Risk Index) ──
