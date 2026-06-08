@@ -1896,4 +1896,5 @@ def _latlon_to_local_meters(
     """
     cos_lat = math.cos(math.radians(center_lat))
     x_m = (lons - center_lon) * (math.pi / 180.0) * EARTH_RADIUS_M * cos_lat
-    y_m = (lats - 
+    y_m = (lats - center_lat) * (math.pi / 180.0) * EARTH_RADIUS_M
+    return x_m, y_m
