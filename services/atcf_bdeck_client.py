@@ -133,14 +133,12 @@ class ATCFBDeckClient:
         self, atcf_id: str
     ) -> list[HurricaneSnapshot]:
         """
-        Fetch the b-deck for an 8-char ATCF ID (e.g. WP042026, EP012026) and
-        return historical observations as HurricaneSnapshot instances, oldest first.
-
-        - JTWC storms (WP/IO/SH/SP/SI): fetched from UCAR RAL mirror
-        - NHC storms (EP/AL): fetched from NHC FTP
+        Fetch the b-deck for an 8-char ATCF ID (e.g. WP042026) and return
+        historical observations as HurricaneSnapshot instances, oldest first.
 
         Returns an empty list if the b-deck is unavailable or empty.
-        Never raises — falls back silently so the caller can try another source.
+        Never raises — falls back silently so the caller can try another
+        source.
         """
         aid = atcf_id.strip().upper()
         if len(aid) != 8:
@@ -435,4 +433,13 @@ def _infer_motion(snapshots: list[HurricaneSnapshot]) -> None:
             a, b = b, a
         dt_hours = (b.timestamp - a.timestamp).total_seconds() / 3600.0
         if dt_hours <= 0:
-            con
+            continue
+        # Great-circle-ish: small-angle approx is fine at TC scales (~hundreds km)
+        mean_lat = math.radians((a.lat + b.lat) / 2.0)
+        dx_km = (b.lon - a.lon) * 111.320 * math.cos(mean_lat)
+        dy_km = (b.lat - a.lat) * 110.574
+        dist_km = math.hypot(dx_km, dy_km)
+        speed_ms = (dist_km * 1000.0) / (dt_hours * 3600.0)
+        bearing = math.degrees(math.atan2(dx_km, dy_km)) % 360.0
+        snapshots[i].forward_speed_ms = speed_ms
+        snapshots[i].forward_direction_deg = bearing
