@@ -493,8 +493,8 @@ class NOAAClient:
                 "id": storm_id,
                 "name": feature.get("name", ""),
                 "classification": feature.get("classification", ""),
-                "lat": feature.get("lat"),
-                "lon": feature.get("lon"),
+                "lat": feature.get("latitudeNumeric") or feature.get("lat"),
+                "lon": feature.get("longitudeNumeric") or feature.get("lon"),
                 "intensity_knots": feature.get("intensity"),
                 "pressure_mb": feature.get("pressure"),
                 "movement": feature.get("movement", ""),
@@ -1896,5 +1896,4 @@ def _latlon_to_local_meters(
     """
     cos_lat = math.cos(math.radians(center_lat))
     x_m = (lons - center_lon) * (math.pi / 180.0) * EARTH_RADIUS_M * cos_lat
-    y_m = (lats - center_lat) * (math.pi / 180.0) * EARTH_RADIUS_M
-    return x_m, y_m
+    y_m = (lats - 
