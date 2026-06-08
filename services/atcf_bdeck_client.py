@@ -1,6 +1,13 @@
 """
 ATCF b-deck (best-track) client — fetches historical track data for in-season
-JTWC storms from UCAR RAL's public JTWC b-deck mirror.
+storms from two public sources:
+
+  * JTWC storms (WP/IO/SH/SP/SI) — UCAR RAL mirror:
+      https://hurricanes.ral.ucar.edu/realtime/plots/{region}/{year}/{basin}{NN}{YYYY}/b{basin}{NN}{YYYY}.dat
+    where region is one of {northwestpacific, northindian, southernhemisphere}
+
+  * NHC storms (EP/AL) — NHC FTP:
+      https://ftp.nhc.noaa.gov/atcf/btk/b{basin}{NN}{YYYY}.dat
 
 Why this exists
 ---------------
@@ -15,12 +22,6 @@ users want to see where the storm has been, not where it's forecast to go.
 
 The ATCF b-deck format is the synoptic-hour best-track record, carrying the
 full observation history from storm birth through the most recent analysis.
-UCAR RAL rebroadcasts JTWC b-decks at a predictable URL:
-
-  https://hurricanes.ral.ucar.edu/realtime/plots/{region}/{year}/{basin}{NN}{YY}/b{basin}{NN}{YY}.dat
-
-where region is one of {northwestpacific, northindian, southernhemisphere}
-and basin is the 2-letter ATCF code in lower case (wp, io, sh).
 
 ATCF b-deck format
 ------------------
@@ -73,7 +74,7 @@ NM_TO_METERS = 1852.0
 KT_TO_MS = 0.514444
 
 
-# Map ATCF basin prefix → UCAR region directory
+# Map ATCF basin prefix → UCAR RAL region directory (JTWC storms only)
 _BASIN_REGION = {
     "WP": "northwestpacific",
     "IO": "northindian",
@@ -81,6 +82,9 @@ _BASIN_REGION = {
     "SP": "southernhemisphere",
     "SI": "southernhemisphere",
 }
+
+# NHC FTP b-deck basins (EP = East Pacific, AL = Atlantic)
+_NHC_BASINS = {"EP", "AL"}
 
 
 class ATCFBDeckClientError(Exception):
@@ -129,21 +133,20 @@ class ATCFBDeckClient:
         self, atcf_id: str
     ) -> list[HurricaneSnapshot]:
         """
-        Fetch the b-deck for an 8-char ATCF ID (e.g. WP042026) and return
-        historical observations as HurricaneSnapshot instances, oldest first.
+        Fetch the b-deck for an 8-char ATCF ID (e.g. WP042026, EP012026) and
+        return historical observations as HurricaneSnapshot instances, oldest first.
+
+        - JTWC storms (WP/IO/SH/SP/SI): fetched from UCAR RAL mirror
+        - NHC storms (EP/AL): fetched from NHC FTP
 
         Returns an empty list if the b-deck is unavailable or empty.
-        Never raises — falls back silently so the caller can try another
-        source.
+        Never raises — falls back silently so the caller can try another source.
         """
         aid = atcf_id.strip().upper()
         if len(aid) != 8:
             return []
 
         prefix = aid[:2]
-        region = _BASIN_REGION.get(prefix)
-        if region is None:
-            return []
 
         try:
             nn = aid[2:4]
@@ -153,10 +156,18 @@ class ATCFBDeckClient:
 
         basin_l = prefix.lower()
 
-        url = (
-            f"https://hurricanes.ral.ucar.edu/realtime/plots/"
-            f"{region}/{yyyy}/{basin_l}{nn}{yyyy}/b{basin_l}{nn}{yyyy}.dat"
-        )
+        if prefix in _NHC_BASINS:
+            # NHC FTP b-deck for EP/AL storms
+            url = f"https://ftp.nhc.noaa.gov/atcf/btk/b{basin_l}{nn}{yyyy}.dat"
+        else:
+            region = _BASIN_REGION.get(prefix)
+            if region is None:
+                return []
+            # UCAR RAL mirror for JTWC storms (WP/IO/SH/SP/SI)
+            url = (
+                f"https://hurricanes.ral.ucar.edu/realtime/plots/"
+                f"{region}/{yyyy}/{basin_l}{nn}{yyyy}/b{basin_l}{nn}{yyyy}.dat"
+            )
 
         try:
             resp = await self.http.get(url)
@@ -424,13 +435,4 @@ def _infer_motion(snapshots: list[HurricaneSnapshot]) -> None:
             a, b = b, a
         dt_hours = (b.timestamp - a.timestamp).total_seconds() / 3600.0
         if dt_hours <= 0:
-            continue
-        # Great-circle-ish: small-angle approx is fine at TC scales (~hundreds km)
-        mean_lat = math.radians((a.lat + b.lat) / 2.0)
-        dx_km = (b.lon - a.lon) * 111.320 * math.cos(mean_lat)
-        dy_km = (b.lat - a.lat) * 110.574
-        dist_km = math.hypot(dx_km, dy_km)
-        speed_ms = (dist_km * 1000.0) / (dt_hours * 3600.0)
-        bearing = math.degrees(math.atan2(dx_km, dy_km)) % 360.0
-        snapshots[i].forward_speed_ms = speed_ms
-        snapshots[i].forward_direction_deg = bearing
+            con
