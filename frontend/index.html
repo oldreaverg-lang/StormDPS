@@ -6394,4 +6394,27 @@ window.updateStormCard = function(snap) {
 
 function _degToCardinal(deg) {
     if (deg == null) return '';
-    const dirs = ['N
+    const dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+    return dirs[Math.round(((deg % 360) / 22.5)) % 16];
+}
+
+function toggleMapLegend() {
+    const legend = document.getElementById('mapLegend');
+    const btn = document.getElementById('mapLegendToggle');
+    legend.classList.toggle('legend-collapsed');
+    btn.innerHTML = legend.classList.contains('legend-collapsed') ? 'Legend &#9650;' : 'Legend &#9660;';
+}
+
+// ---- PWA Service Worker Registration ----
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/frontend/sw.js').then(reg => {
+            console.log('[SW] Registered, scope:', reg.scope);
+        }).catch(err => {
+            console.log('[SW] Registration failed (non-fatal):', err.message);
+        });
+    });
+}
+</script>
+</body>
+</html>
