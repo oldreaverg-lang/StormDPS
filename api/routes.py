@@ -3405,4 +3405,6 @@ async def get_latest_radii_confidence(storm_id: str):
 @router.get("/audit/radii/summary")
 async def get_all_radii_audit_summaries():
     """Dashboard: audit summaries for all storms with active audits."""
-    from services.wind_radii
+    from services.wind_radii_audit import WindRadiiAuditor
+    auditor = WindRadiiAuditor.instance()
+    return auditor.get_all_summaries()
