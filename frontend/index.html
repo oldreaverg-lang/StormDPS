@@ -2374,7 +2374,7 @@ function generateStormContext(data) {
     const peakD = data[peakDpsIdx];
     if (peakD && peakD.lat != null) {
         const shelf = getShelfFactor(peakD.lat, peakD.lon);
-        const region = SHELF_REGIONS.find(r => r.test(peakD.lat, peakD.lon));
+        const region = SHELF_REGIONS.find(r => peakD.lat >= r.lat_min && peakD.lat <= r.lat_max && peakD.lon >= r.lon_min && peakD.lon <= r.lon_max);
         if (region) {
             const shelfDesc = shelf >= 0.9 ? 'Shallow shelf amplifies surge' :
                               shelf >= 0.7 ? 'Moderate shelf enhances surge' :
@@ -6391,5 +6391,4 @@ if ('serviceWorker' in navigator) {
     });
 }
 </script>
-</body>
-</html>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a08378b6ea7afdde',t:'MTc4MDg3NTMwOA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readySta
