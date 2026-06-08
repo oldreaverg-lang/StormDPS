@@ -281,6 +281,32 @@ Then hit the site once in a browser to warm the new cache.
 - Live: check https://stormdps.com after Railway shows green.
 - Mobile PageSpeed: https://pagespeed.web.dev/analysis?url=https%3A%2F%2Fstormdps.com — **warm Cloudflare with a real-browser hit first**, then run.
 
+### CRITICAL: NTFS mount truncation bug
+
+**Never read large files from the Linux sandbox's NTFS mount path (`/sessions/.../mnt/APPS/`) and push them to GitHub.** The mount silently truncates large files — no error, no warning, clean cut partway through. Bash `wc -c` and Python `open().read()` both return the truncated data. The file looks fine but is missing the tail end.
+
+This has caused multiple broken deploys (syntax errors, missing closing tags) and has hit `routes.py`, `noaa_client.py`, `atcf_bdeck_client.py`, `main.py`, and `frontend/index.html`.
+
+**Safe ways to read files before pushing:**
+
+1. **Read tool** (`C:\Users\Ryan\APPS\...` path) — reads from actual Windows filesystem, always complete.
+2. **GitHub API** (`/repos/.../contents/{path}?ref={sha}`) — fetch a previously-committed clean version and patch it in Python.
+
+**Unsafe:** reading from `/sessions/awesome-dreamy-pascal/mnt/APPS/...` in bash or Python for any file over ~50 KB.
+
+**Recovery pattern** (used successfully for routes.py, noaa_client.py, etc.):
+```python
+# 1. Fetch original from last known-good git commit
+info = gh('GET', f'/contents/{path}?ref={good_sha}')
+original = base64.b64decode(info['content']).decode()
+# 2. Apply patch as string replacement (in memory — never touch the mount)
+patched = original.replace(OLD, NEW)
+# 3. Verify syntax (Python files)
+py_compile.compile(tmp_path, doraise=True)
+# 4. Push
+gh('PUT', f'/contents/{path}', {'message': ..., 'content': b64encode(patched), 'sha': current_sha})
+```
+
 ### Common debug paths
 
 - **Storms not loading**: check browser DevTools console first. Real errors are usually at the top of the console output; subsequent errors are often cascades from the first one halting script execution.
@@ -300,27 +326,4 @@ Should show: `<title>Hurricane Katrina (2005) — DPS …`, `<h1>Hurricane Katri
 ## What NOT to do
 
 - Don't suggest stopping points or "good places to pause." Match user's pace.
-- Don't modify Cloudflare settings on the user's behalf — guide them through the dashboard.
-- Don't run interactive CLI commands that require auth (`eas init`, `gh auth login`, etc.) — give the user the command to run themselves.
-- Don't add backwards-compatibility shims — the user prefers clean breaking changes when justified.
-- Don't commit secrets or `.env` files. ADMIN_TOKEN and ALLOWED_ORIGINS live in Railway env vars only.
-- Don't add `defer`/`async` to external scripts without grepping inline JS for top-level references to that lib's globals first (see `feedback_defer_check_top_level_refs.md`).
-- Don't pass named functions directly to `addEventListener` if they have meaningful positional parameters (see `feedback_event_listener_arg_leak.md`).
-- Don't recommend Cloudflare Rocket Loader. It's been known to break complex inline JS.
-
----
-
-## Loose ends to potentially tackle
-
-In rough priority order, none are urgent:
-
-1. **PageSpeed verify** — re-test after `724571e` to confirm we hit ~91–93.
-2. **Catalog cold-start** — defer IBTrACS warm in lifespan (see "Open performance wins" #1 above).
-3. **Apple submission flow** — blocked on user running `eas init`.
-4. **Mobile in-app disclaimer audit** — verify the "not an official forecast" disclaimer is prominent in mobile UI before Apple submission.
-5. **WebP logo** — small perf win.
-6. **Push notifications (v1.1)** — full feature; requires APNs + server pipeline.
-
----
-
-End of handoff. Read the memory files first, then attack whatever the user brings up.
+- Don't modify Cloudflare set
