@@ -1587,28 +1587,30 @@ async def get_storm_track(
                     _monitor.record_failure("ibtracs", error="ATCF lookup failed", latency_ms=(time.time() - t0) * 1000)
                     snapshots = []
 
-            # 3a) ATCF b-deck (UCAR RAL JTWC mirror) — HISTORY from storm birth
-            #     to latest synoptic analysis. This is our primary source for
-            #     in-season WP/IO/SH storms: IBTrACS has a multi-month publication
-            #     lag and the JTWC warning bulletin only has T+0 + forecasts
-            #     (no history). The b-deck carries the full observed track so
-            #     users see "where the storm has been," not where it's going.
-            if not snapshots and prefix in ("WP", "IO", "SH") and len(storm_id) == 8:
+            # 3a) ATCF b-deck — HISTORY from storm birth to latest synoptic
+            #     analysis. Primary source for all in-season storms:
+            #     - JTWC (WP/IO/SH): UCAR RAL mirror
+            #     - NHC  (EP/AL):    NHC FTP (ftp.nhc.noaa.gov/atcf/btk/)
+            #     IBTrACS has a multi-month publication lag so current-year
+            #     storms fall through to here. The b-deck carries the full
+            #     observed track so users see "where the storm has been."
+            if not snapshots and prefix in ("WP", "IO", "SH", "EP", "AL") and len(storm_id) == 8:
                 t0 = time.time()
+                source_tag = "nhc_bdeck" if prefix in ("EP", "AL") else "jtwc_bdeck"
                 try:
                     from services.atcf_bdeck_client import ATCFBDeckClient
                     async with ATCFBDeckClient() as bdeck:
                         snapshots = await bdeck.get_storm_track(storm_id)
                     if snapshots:
-                        source = "jtwc_bdeck"
-                        _monitor.record_success("jtwc_bdeck", latency_ms=(time.time() - t0) * 1000)
+                        source = source_tag
+                        _monitor.record_success(source_tag, latency_ms=(time.time() - t0) * 1000)
                         logger.info(
                             f"[TRACK] b-deck matched {storm_id} → {len(snapshots)} observations"
                         )
                     else:
-                        _monitor.record_failure("jtwc_bdeck", error="b-deck empty or unavailable", latency_ms=(time.time() - t0) * 1000)
+                        _monitor.record_failure(source_tag, error="b-deck empty or unavailable", latency_ms=(time.time() - t0) * 1000)
                 except Exception as e:
-                    _monitor.record_failure("jtwc_bdeck", error=f"b-deck lookup failed: {e}", latency_ms=(time.time() - t0) * 1000)
+                    _monitor.record_failure(source_tag, error=f"b-deck lookup failed: {e}", latency_ms=(time.time() - t0) * 1000)
                     snapshots = []
 
             # 3b) JTWC warning-bulletin fallback for WP/IO/SH ATCF IDs.
@@ -3403,6 +3405,4 @@ async def get_latest_radii_confidence(storm_id: str):
 @router.get("/audit/radii/summary")
 async def get_all_radii_audit_summaries():
     """Dashboard: audit summaries for all storms with active audits."""
-    from services.wind_radii_audit import WindRadiiAuditor
-    auditor = WindRadiiAuditor.instance()
-    return auditor.get_all_summaries()
+    from services.wind_radii
