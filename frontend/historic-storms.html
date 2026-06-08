@@ -82,7 +82,7 @@
         .logo-icon { width: 32px; height: 32px; border-radius: 8px; overflow: hidden; }
         .logo-icon img { width: 100%; height: 100%; object-fit: cover; }
         .logo-text { font-size: 1.1rem; font-weight: 700; letter-spacing: -.03em; }
-        nav { display: flex; gap: 1.25rem; align-items: center; }
+        nav { display: flex; flex-wrap: wrap; gap: 1.25rem; row-gap: .5rem; align-items: center; }
         nav a { color: var(--text-muted); text-decoration: none; font-weight: 600; font-size: .95rem; transition: color .15s; }
         nav a:hover { color: var(--text-main); }
         nav a.cta { color: var(--primary); }
@@ -113,6 +113,9 @@
         .dps-notable { background: #047857; color: #fff; }
         a.storm-link { color: var(--primary); text-decoration: none; font-weight: 700; }
         a.storm-link:hover { text-decoration: underline; }
+        /* Reference-only storms (no interactive page yet) — styled as a term,
+           not a broken link, with a help cursor + tooltip. */
+        .storm-nolink { color: var(--text-muted); cursor: help; border-bottom: 1px dotted var(--text-dim); }
         .basin-grid { display: grid; grid-template-columns: 1fr; gap: 2rem; }
         .basin-section { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 1.4rem 1.6rem; }
         .basin-title { font-size: 1.25rem; font-weight: 700; margin-bottom: .35rem; }
@@ -139,13 +142,15 @@
             <a href="/methodology">Methodology</a>
             <a href="/historic-storms">Historic</a>
             <a href="/data">Data</a>
+            <a href="/faq">FAQ</a>
+            <a href="/about">About</a>
             <a href="/surgedps" class="cta">SurgeDPS</a>
         </nav>
     </header>
 
     <main>
         <h1 class="page-title">Most Destructive Hurricanes in History</h1>
-        <p class="lede">A modern ranking of history's most destructive tropical cyclones. Every storm below has a full <a href="/" class="inline">interactive analysis</a> — track, wind field, score components, and side-by-side comparisons. Scores are computed by the <a href="/methodology" class="inline">Destructive Power Score methodology</a>: a 0–100 composite that captures size, surge, duration, and geographic reach in addition to peak wind.</p>
+        <p class="lede">A modern ranking of history's most destructive tropical cyclones. Most storms below link to a full <a href="/" class="inline">interactive analysis</a> — track, wind field, score components, and side-by-side comparisons. Scores are computed by the <a href="/methodology" class="inline">Destructive Power Score methodology</a>: a 0–100 composite that captures size, surge, duration, and geographic reach in addition to peak wind.</p>
 
         <h2>Top 10 by Destructive Power Score</h2>
         <p>Hand-curated from ~200 named storms in the database. Ranked strictly by computed DPS; commentary explains the score driver.</p>
@@ -153,10 +158,10 @@
             <thead><tr><th>#</th><th>Storm</th><th>Year</th><th>DPS</th><th>Why it scored high</th></tr></thead>
             <tbody>
                 <tr><td class="num">1</td><td><a href="/storm/AL122005" class="storm-link">Katrina</a></td><td>2005</td><td><span class="dps-pill dps-historic">97</span></td><td>Maximum surge driver, levee failure, 1,800+ fatalities, $125B inflation-adjusted damage. Long-duration Cat 5 over the Loop Current.</td></tr>
-                <tr><td class="num">2</td><td>Haiyan (Yolanda)</td><td>2013</td><td><span class="dps-pill dps-historic">96</span></td><td>Strongest landfall ever recorded (195 kt). Catastrophic surge across the central Philippines, 6,300+ fatalities.</td></tr>
+                <tr><td class="num">2</td><td><span class="storm-nolink" title="Reference-only — scored from the dataset, not yet in the interactive tracker">Haiyan (Yolanda)</span></td><td>2013</td><td><span class="dps-pill dps-historic">96</span></td><td>Strongest landfall ever recorded (195 kt). Catastrophic surge across the central Philippines, 6,300+ fatalities.</td></tr>
                 <tr><td class="num">3</td><td><a href="/storm/AL152017" class="storm-link">Maria</a></td><td>2017</td><td><span class="dps-pill dps-historic">94</span></td><td>Direct Cat 5 strike on Puerto Rico. Compact but extreme intensity, complete grid collapse, long humanitarian aftermath.</td></tr>
                 <tr><td class="num">4</td><td><a href="/storm/AL092017" class="storm-link">Harvey</a></td><td>2017</td><td><span class="dps-pill dps-historic">93</span></td><td>Stalled over Houston for 4+ days. 60+ inches of rainfall, $125B damage. Duration drove the score, not peak wind.</td></tr>
-                <tr><td class="num">5</td><td>Mangkhut (Ompong)</td><td>2018</td><td><span class="dps-pill dps-historic">92</span></td><td>Massive West Pacific super-typhoon, wide wind field, devastating impacts across Luzon and South China.</td></tr>
+                <tr><td class="num">5</td><td><span class="storm-nolink" title="Reference-only — scored from the dataset, not yet in the interactive tracker">Mangkhut (Ompong)</span></td><td>2018</td><td><span class="dps-pill dps-historic">92</span></td><td>Massive West Pacific super-typhoon, wide wind field, devastating impacts across Luzon and South China.</td></tr>
                 <tr><td class="num">6</td><td><a href="/storm/AL092022" class="storm-link">Ian</a></td><td>2022</td><td><span class="dps-pill dps-historic">91</span></td><td>Rapid intensification, Cat 5 just before SW Florida landfall. Catastrophic surge in Fort Myers Beach, $112B damage.</td></tr>
                 <tr><td class="num">7</td><td><a href="/storm/AL092008" class="storm-link">Ike</a></td><td>2008</td><td><span class="dps-pill dps-catastrophic">84</span></td><td>The textbook example of why Saffir-Simpson misses size. "Only" a Cat 2 at Galveston landfall — but enormous wind field drove Cat 4–equivalent surge.</td></tr>
                 <tr><td class="num">8</td><td><a href="/storm/AL092024" class="storm-link">Helene</a></td><td>2024</td><td><span class="dps-pill dps-catastrophic">90</span></td><td>Long inland track, catastrophic flash flooding in western North Carolina, 230+ fatalities.</td></tr>
@@ -164,6 +169,7 @@
                 <tr><td class="num">10</td><td><a href="/storm/AL182012" class="storm-link">Sandy</a></td><td>2012</td><td><span class="dps-pill dps-catastrophic">82</span></td><td>Hybrid cyclone with a 1,000-mile wind field. Saffir-Simpson rated it a Cat 1; the destructive footprint was anything but.</td></tr>
             </tbody>
         </table>
+        <p style="font-size:.85rem;color:var(--text-dim);margin-top:-.4rem">Linked names open a full interactive analysis. Entries shown as plain text (e.g. Haiyan, Mangkhut, Patricia) are reference-only for now — scored from the dataset but not yet in the live tracker.</p>
 
         <h2>Why this list differs from the wind-only ranking</h2>
         <p>If you rank the same set of storms by peak wind alone — the Saffir-Simpson variable — the order changes substantially. Hurricane Patricia (2015) would top the list with 185 kt peak winds, but it weakened dramatically before landfall and caused comparatively little damage. Hurricane Ike (2008) would drop to the bottom half despite causing more economic damage than several Category 4 and 5 storms in the same era.</p>
@@ -197,19 +203,19 @@
         <div class="basin-section">
             <div class="basin-title">Notable West Pacific Typhoons</div>
             <div class="basin-meta">The world's most active tropical cyclone basin. Sub-basin coefficients account for higher baseline activity.</div>
-            <div class="storm-row"><span class="yr">2013</span><span class="nm">Haiyan (Yolanda)</span><span class="ctx">Cat 5+ Philippines landfall · 195 kt · 6,300+ fatalities</span><span class="sc">96</span></div>
-            <div class="storm-row"><span class="yr">2018</span><span class="nm">Mangkhut (Ompong)</span><span class="ctx">Cat 5 Luzon strike · massive wind field · Hong Kong impacts</span><span class="sc">92</span></div>
-            <div class="storm-row"><span class="yr">2024</span><span class="nm">Yagi (Enteng)</span><span class="ctx">Major Vietnam/Hainan landfall · second-strongest 2024 globally</span><span class="sc">86</span></div>
-            <div class="storm-row"><span class="yr">2023</span><span class="nm">Doksuri (Egay)</span><span class="ctx">Long-track damaging storm · Luzon, Taiwan, mainland China</span><span class="sc">81</span></div>
-            <div class="storm-row"><span class="yr">2019</span><span class="nm">Hagibis</span><span class="ctx">Cat 5 → Cat 2 Japan landfall · record Tokyo-area rainfall</span><span class="sc">83</span></div>
+            <div class="storm-row"><span class="yr">2013</span><span class="nm storm-nolink" title="Reference-only — scored from the dataset, not yet in the interactive tracker">Haiyan (Yolanda)</span><span class="ctx">Cat 5+ Philippines landfall · 195 kt · 6,300+ fatalities</span><span class="sc">96</span></div>
+            <div class="storm-row"><span class="yr">2018</span><span class="nm storm-nolink" title="Reference-only — scored from the dataset, not yet in the interactive tracker">Mangkhut (Ompong)</span><span class="ctx">Cat 5 Luzon strike · massive wind field · Hong Kong impacts</span><span class="sc">92</span></div>
+            <div class="storm-row"><span class="yr">2024</span><span class="nm storm-nolink" title="Reference-only — scored from the dataset, not yet in the interactive tracker">Yagi (Enteng)</span><span class="ctx">Major Vietnam/Hainan landfall · second-strongest 2024 globally</span><span class="sc">86</span></div>
+            <div class="storm-row"><span class="yr">2023</span><span class="nm storm-nolink" title="Reference-only — scored from the dataset, not yet in the interactive tracker">Doksuri (Egay)</span><span class="ctx">Long-track damaging storm · Luzon, Taiwan, mainland China</span><span class="sc">81</span></div>
+            <div class="storm-row"><span class="yr">2019</span><span class="nm storm-nolink" title="Reference-only — scored from the dataset, not yet in the interactive tracker">Hagibis</span><span class="ctx">Cat 5 → Cat 2 Japan landfall · record Tokyo-area rainfall</span><span class="sc">83</span></div>
         </div>
 
         <div class="basin-section" style="margin-top: 1.5rem;">
             <div class="basin-title">Notable East Pacific Hurricanes</div>
             <div class="basin-meta">Often comparable peak winds to Atlantic storms, but typically much shorter coastal-exposure windows.</div>
-            <div class="storm-row"><span class="yr">2015</span><span class="nm">Patricia</span><span class="ctx">Strongest hurricane ever in the Western Hemisphere (185 kt) · weakened rapidly before landfall</span><span class="sc">71</span></div>
-            <div class="storm-row"><span class="yr">2023</span><span class="nm">Otis</span><span class="ctx">Explosive intensification · Cat 5 direct hit on Acapulco · catastrophic</span><span class="sc">82</span></div>
-            <div class="storm-row"><span class="yr">2018</span><span class="nm">Willa</span><span class="ctx">Cat 5 peak · weakened before Sinaloa landfall</span><span class="sc">62</span></div>
+            <div class="storm-row"><span class="yr">2015</span><span class="nm storm-nolink" title="Reference-only — scored from the dataset, not yet in the interactive tracker">Patricia</span><span class="ctx">Strongest hurricane ever in the Western Hemisphere (185 kt) · weakened rapidly before landfall</span><span class="sc">71</span></div>
+            <div class="storm-row"><span class="yr">2023</span><span class="nm storm-nolink" title="Reference-only — scored from the dataset, not yet in the interactive tracker">Otis</span><span class="ctx">Explosive intensification · Cat 5 direct hit on Acapulco · catastrophic</span><span class="sc">82</span></div>
+            <div class="storm-row"><span class="yr">2018</span><span class="nm storm-nolink" title="Reference-only — scored from the dataset, not yet in the interactive tracker">Willa</span><span class="ctx">Cat 5 peak · weakened before Sinaloa landfall</span><span class="sc">62</span></div>
         </div>
 
         <h2>Open data</h2>
@@ -227,7 +233,7 @@
         <a href="/privacy">Privacy</a> ·
         <a href="/surgedps">SurgeDPS</a>
         <p style="margin-top:.6rem;color:var(--text-dim)">StormDPS — open-data hurricane destructive-power scoring</p>
-        <p style="margin-top:.4rem;color:var(--text-dim);font-size:.8rem">Media inquiries, partnerships, or data licensing: <a href="mailto:reavesrg@gmail.com" style="color:var(--text-muted)">reavesrg@gmail.com</a></p>
+        <p style="margin-top:.4rem;color:var(--text-dim);font-size:.8rem">Media inquiries, partnerships, or data licensing: <a href="mailto:&#114;&#101;&#97;&#118;&#101;&#115;&#114;&#103;&#64;&#103;&#109;&#97;&#105;&#108;&#46;&#99;&#111;&#109;" style="color:var(--text-muted)">&#114;&#101;&#97;&#118;&#101;&#115;&#114;&#103;&#64;&#103;&#109;&#97;&#105;&#108;&#46;&#99;&#111;&#109;</a></p>
     </footer>
 <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a083794de9c80779',t:'MTc4MDg3NTMzMg=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
