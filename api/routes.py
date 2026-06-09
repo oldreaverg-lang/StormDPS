@@ -226,6 +226,7 @@ from storage import (
     IBTRACS_CACHE_FILE as _GLOBAL_IBTRACS_CACHE_FILE_PATH,
     IBTRACS_INDEX_FILE as _IBTRACS_INDEX_FILE,
     ACTIVE_STORMS_FILE as _ACTIVE_STORMS_FILE,
+    CURRENT_SEASON_FILE as _CURRENT_SEASON_FILE,
     atomic_write_json as _atomic_write_json,
     evict_ike_cache,
 )
@@ -600,6 +601,21 @@ def _load_custom_storms(min_year: int = 2015, max_year: int = 2099) -> list[dict
         return []
     
     return custom_storms
+
+
+def _load_current_season_storms() -> list[dict]:
+    """Load the auto-ingested current-season NHC storms from the persistent
+    volume (written by the background ingest loop). Same dict shape as
+    ``_load_custom_storms``. Fail-open -> []."""
+    try:
+        if not _CURRENT_SEASON_FILE.exists():
+            return []
+        with open(_CURRENT_SEASON_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except Exception:
+        logger.debug("[SEASON] current-season file read failed", exc_info=True)
+        return []
 
 
 def _load_custom_track(storm_id: str) -> list[HurricaneSnapshot]:
@@ -1459,6 +1475,16 @@ def _lookup_storm_name_from_catalog(storm_id: str) -> Optional[str]:
         pass
     try:
         for entry in _load_custom_storms(1851, 2099):
+            if entry.get("id") == storm_id:
+                name = (entry.get("name") or "").strip()
+                if name:
+                    return name
+    except Exception:
+        pass
+    # Auto-ingested current-season NHC storms (read straight off the volume so a
+    # just-formed storm resolves its name even before the 6h catalog refresh).
+    try:
+        for entry in _load_current_season_storms():
             if entry.get("id") == storm_id:
                 name = (entry.get("name") or "").strip()
                 if name:
@@ -2663,6 +2689,24 @@ async def _refresh_global_catalog_async() -> list[dict]:
 
         catalog = list(noaa_catalog)
 
+        # Merge auto-ingested current-season NHC storms (AL/EP) BEFORE the manual
+        # custom storms, so fresh NHC data wins on id collisions and the manual
+        # custom_storms.csv rows act only as a fallback (e.g. if the ingest loop
+        # hasn't run yet, or NHC was unreachable). IBTrACS still wins over both —
+        # this only appends ids not already present.
+        try:
+            season = _load_current_season_storms()
+            if season:
+                logger.info(f"[IBTRACS] Merging {len(season)} current-season NHC storms")
+                existing_ids = {s.get("id", "") for s in catalog if s}
+                for storm in season:
+                    sid = storm.get("id", "")
+                    if sid and sid not in existing_ids:
+                        catalog.append(storm)
+                        existing_ids.add(sid)
+        except Exception:
+            logger.exception("[IBTRACS] Current-season merge failed")
+
         # Merge custom storms (future years, etc.)
         try:
             custom = _load_custom_storms(1851, 2099)
@@ -2718,6 +2762,83 @@ async def _refresh_global_catalog_async() -> list[dict]:
         return catalog
 
 
+def _republish_catalog_with_current_season() -> dict:
+    """Splice the latest current-season file into the live in-memory catalog and
+    regenerate the pre-baked default-view + metadata-index files that the
+    frontend's catalog endpoints serve off disk — WITHOUT a full IBTrACS
+    refetch — so newly-ingested storms appear within the ingest interval rather
+    than waiting the 6h catalog TTL. Fail-open; returns a small summary.
+
+    Precedence matches _refresh_global_catalog_async (IBTrACS > current-season >
+    manual custom): drop any prior 'nhc-current' rows and any custom rows a fresh
+    current-season entry supersedes, then re-add the fresh set.
+    """
+    global _GLOBAL_IBTRACS_CATALOG_CACHE
+    try:
+        base_catalog = _GLOBAL_IBTRACS_CATALOG_CACHE
+        # Sanity guard: never republish off a tiny/degraded catalog (e.g. the
+        # custom-only fail-open stub) — that would shrink the served default view
+        # and hide real storms. The healthy catalog is ~1000 storms.
+        if not base_catalog or len(base_catalog) < 50:
+            return {"added": 0, "reason": "no_healthy_base_catalog"}
+
+        season = _load_current_season_storms()
+        season_ids = {s.get("id", "") for s in season if s.get("id")}
+
+        rebuilt = [
+            s for s in base_catalog
+            if s
+            and s.get("source") != "nhc-current"
+            and not (s.get("source") == "custom" and s.get("id") in season_ids)
+        ]
+        existing_ids = {s.get("id", "") for s in rebuilt}
+        added = 0
+        for storm in season:
+            sid = storm.get("id", "")
+            if sid and sid not in existing_ids:
+                rebuilt.append(storm)
+                existing_ids.add(sid)
+                added += 1
+
+        _GLOBAL_IBTRACS_CATALOG_CACHE = rebuilt
+        # Regenerate the disk artifacts the catalog endpoints stream from.
+        _write_catalog_default_view(rebuilt)
+        _write_ibtracs_index(rebuilt)
+        # Persist the merged catalog so the storms survive a restart (base already
+        # held real IBTrACS data, so this is never a custom-only stub).
+        try:
+            _atomic_write_json(_GLOBAL_IBTRACS_CACHE_FILE, rebuilt)
+        except Exception:
+            logger.debug("[SEASON] catalog persist after republish failed", exc_info=True)
+        return {"catalog_total": len(rebuilt), "current_season_added": added}
+    except Exception:
+        logger.exception("[SEASON] republish failed")
+        return {"added": 0, "error": True}
+
+
+async def refresh_current_season(http_client=None) -> dict:
+    """Fetch the current NHC season, persist it to the volume, and republish the
+    catalog so the new storms are immediately browsable / searchable / named.
+    Fully fail-open — never raises, never degrades the existing catalog.
+    """
+    try:
+        from services.current_season_ingest import fetch_current_season_storms
+        entries = await fetch_current_season_storms(http_client)
+        # Only overwrite the season file when we actually got storms — an empty
+        # result (NHC unreachable, or a genuinely quiet pre-season) must not wipe
+        # a previously-good file.
+        if entries:
+            try:
+                _atomic_write_json(_CURRENT_SEASON_FILE, entries)
+            except Exception:
+                logger.exception("[SEASON] could not write current-season file")
+        summary = _republish_catalog_with_current_season()
+        return {"fetched": len(entries), **summary}
+    except Exception:
+        logger.exception("[SEASON] refresh_current_season failed")
+        return {"fetched": 0, "error": True}
+
+
 async def warm_ibtracs_catalog() -> dict:
     """Startup task: ensure the IBTrACS catalog is loaded into memory.
 
@@ -2742,6 +2863,19 @@ async def warm_ibtracs_catalog() -> dict:
     except Exception as e:
         logger.warning(f"[IBTRACS WARM] failed: {e}")
         return {"storms": 0, "error": str(e)}
+
+
+@router.post("/admin/ingest-current-season", dependencies=[Depends(require_admin)])
+async def admin_ingest_current_season():
+    """Force an immediate current-season NHC ingest (AL/EP), bypassing the
+    hourly background loop: fetch the btk index, derive a catalog row per named
+    in-season storm, persist to the volume, and republish the catalog so the
+    storms are browsable / searchable / named right away.
+
+    Auth: requires the X-Admin-Token header to match the ADMIN_TOKEN env var.
+    """
+    result = await refresh_current_season()
+    return {"ok": True, **result}
 
 
 @router.post("/admin/warm-ibtracs", dependencies=[Depends(require_admin)])

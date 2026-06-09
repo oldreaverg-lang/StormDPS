@@ -40,6 +40,7 @@ from api.routes import (
     load_active_storms_from_disk,
     warm_ibtracs_catalog,
     warm_track_cache,
+    refresh_current_season,
 )
 from api.weather_routes import router as weather_router
 from api.satellite_routes import (
@@ -201,9 +202,31 @@ async def lifespan(app: FastAPI):
 
     app.state.overlay_evict_task = asyncio.create_task(evict_overlays_loop())
 
+    # --- STARTUP: current-season NHC auto-ingest (Atlantic + East Pacific) ---
+    # IBTrACS lags in-season NA/EP storms by months and the active feed only
+    # carries currently-active systems, so a dissipated current-season storm
+    # (e.g. an early EPac storm) has no catalog entry — no name, not browsable
+    # or searchable. This loop lists NHC's btk directory, derives a catalog row
+    # per named in-season storm, writes them to the persistent volume, and
+    # republishes the catalog. Hourly by default; env-overridable. Fail-open.
+    season_ingest_h = max(1, int(os.getenv("CURRENT_SEASON_INGEST_HOURS", "1")))
+
+    async def ingest_current_season_loop():
+        # Delay past cold-start so it doesn't compete with the warm tasks.
+        await asyncio.sleep(45)
+        while True:
+            try:
+                result = await refresh_current_season(app.state.http_client)
+                logger.info(f"[SEASON] current-season ingest: {result}")
+            except Exception as e:
+                logger.warning(f"[SEASON] ingest loop iteration failed (non-fatal): {e}")
+            await asyncio.sleep(season_ingest_h * 3600)
+
+    app.state.season_ingest_task = asyncio.create_task(ingest_current_season_loop())
+
     yield
     # --- SHUTDOWN: cancel background loops ---
-    for attr in ("dps_refresh_task", "overlay_evict_task"):
+    for attr in ("dps_refresh_task", "overlay_evict_task", "season_ingest_task"):
         task = getattr(app.state, attr, None)
         if task is not None:
             task.cancel()

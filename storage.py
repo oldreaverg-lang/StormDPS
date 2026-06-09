@@ -55,6 +55,11 @@ PRELOAD_BUNDLE_FILE = CACHE_DIR / "preload_bundle.json"
 # directory copy so redeploys don't drop the latest compiled scores until
 # compile_cache runs again.
 COMPILED_BUNDLE_FILE = CACHE_DIR / "compiled_bundle.json"
+# Auto-ingested current-season NHC storms (Atlantic + East Pacific) that
+# IBTrACS hasn't picked up yet. Written by the background ingest loop and
+# merged into the catalog so in-season storms are named + browsable without
+# waiting months for IBTrACS or hand-editing custom_storms.csv.
+CURRENT_SEASON_FILE = CACHE_DIR / "current_season_nhc.json"
 
 VALIDATION_DIR = PERSISTENT_DATA_DIR / "validation"
 VALIDATION_DB = VALIDATION_DIR / "validation.db"
