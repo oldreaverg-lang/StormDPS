@@ -33,6 +33,19 @@ try:
 except Exception:
     _VOLUME_BUNDLE_PATH = None  # storage import failure shouldn't break SSR
 
+# Catalog fallbacks for storms the compiled bundle doesn't know about —
+# the bundle is baked from ~200 historical storms, so current-season storms
+# (auto-ingested from NHC) and the wider IBTrACS catalog would otherwise SSR
+# with a generic "Storm EP012026" title even though the catalog knows their
+# names. Both files live on the persistent volume and are rewritten by the
+# ingest/republish cycle.
+try:
+    from storage import CURRENT_SEASON_FILE as _CURRENT_SEASON_PATH  # type: ignore
+    from storage import IBTRACS_INDEX_FILE as _IBTRACS_INDEX_PATH  # type: ignore
+except Exception:
+    _CURRENT_SEASON_PATH = None
+    _IBTRACS_INDEX_PATH = None
+
 # Module-scoped caches. The index.html template + bundle rarely change at
 # runtime (only on redeploy or compile_cache.py run), so we read them once
 # and patch per request. _BUNDLE_KEY tracks (path, mtime) so a volume↔baked
@@ -91,6 +104,72 @@ def _read_compiled_bundle() -> dict:
     return _BUNDLE_CACHE
 
 
+_BASIN_NAMES = {
+    "NA": "North Atlantic",
+    "EP": "East Pacific",
+    "WP": "West Pacific",
+    "NI": "North Indian",
+    "SI": "South Indian",
+    "SP": "South Pacific",
+    "SA": "South Atlantic",
+}
+
+# Mtime-keyed caches for the fallback files (same pattern as the bundle).
+_FALLBACK_CACHE: dict = {}
+
+
+def _read_json_list(path) -> list:
+    """Mtime-cached read of a JSON list file; [] on any failure."""
+    if path is None:
+        return []
+    try:
+        key = (str(path), path.stat().st_mtime)
+    except OSError:
+        return []
+    cached = _FALLBACK_CACHE.get(str(path))
+    if cached and cached[0] == key:
+        return cached[1]
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(data, list):
+        data = []
+    _FALLBACK_CACHE[str(path)] = (key, data)
+    return data
+
+
+def _lookup_catalog_fallback(storm_id: str) -> Optional[dict]:
+    """Resolve a storm the compiled bundle doesn't carry, from the
+    auto-ingested current-season file (freshest) or the catalog metadata
+    index. Returns a bundle-shaped dict (no dps — the renderer has a
+    no-score variant for that) or None."""
+    sid = storm_id.upper()
+    for entries in (_read_json_list(_CURRENT_SEASON_PATH),
+                    _read_json_list(_IBTRACS_INDEX_PATH)):
+        for e in entries:
+            if not isinstance(e, dict):
+                continue
+            if str(e.get("id", "")).upper() != sid:
+                continue
+            name = (e.get("name") or "").strip()
+            if not name or name.upper() == sid:
+                continue
+            basin = (e.get("basin") or "").strip().upper()
+            out = {
+                "name": name.title() if name.isupper() else name,
+                "year": e.get("year"),
+                "category": e.get("category"),
+                "basin_name": _BASIN_NAMES.get(basin, ""),
+            }
+            if e.get("peak_wind_kt"):
+                out["peak_wind_kt"] = e["peak_wind_kt"]
+            if e.get("min_pressure_hpa"):
+                out["min_pressure_hpa"] = e["min_pressure_hpa"]
+            return out
+    return None
+
+
 def lookup_storm(storm_id: str) -> Optional[dict]:
     """Look up a storm by ATCF ID (e.g. AL122005) or IBTrACS SID."""
     if not storm_id:
@@ -101,7 +180,9 @@ def lookup_storm(storm_id: str) -> Optional[dict]:
     for key in (storm_id, storm_id.upper(), storm_id.lower()):
         if key in storms and isinstance(storms[key], dict):
             return storms[key]
-    return None
+    # Not in the baked bundle — try the live-catalog fallbacks (current-season
+    # NHC ingest, then the IBTrACS metadata index).
+    return _lookup_catalog_fallback(storm_id)
 
 
 # ---------------------------------------------------------------------------
@@ -336,12 +417,22 @@ def _build_storm_summary_html(storm_id: str, storm: dict, canonical: str) -> str
 
     # Prose paragraph — a real explanation, not just stats. This is the SEO meat.
     prose_parts = []
-    prose_parts.append(
-        f"{headline} scored <strong>{dps_str}/100</strong> on the "
-        f'<a href="/methodology">Destructive Power Score</a> scale'
-        + (f" — a <strong>{rating}</strong> event" if rating else "")
-        + "."
-    )
+    if isinstance(dps, (int, float)):
+        prose_parts.append(
+            f"{headline} scored <strong>{dps_str}/100</strong> on the "
+            f'<a href="/methodology">Destructive Power Score</a> scale'
+            + (f" — a <strong>{rating}</strong> event" if rating else "")
+            + "."
+        )
+    else:
+        prose_parts.append(
+            f"{headline} is rated on the "
+            f'<a href="/methodology">Destructive Power Score</a> scale — '
+            "a 0–100 rating that combines peak intensity, storm size, "
+            "surge potential, duration of coastal exposure, and geographic "
+            "reach. The full interactive analysis below computes the score "
+            "from the storm's live track data."
+        )
     # Saffir-Simpson contrast hook
     if isinstance(cat, int) and cat >= 1 and isinstance(dps, (int, float)):
         if dps >= 75 and cat <= 2:
@@ -414,18 +505,25 @@ def _build_storm_summary_html(storm_id: str, storm: dict, canonical: str) -> str
         '<a href="/methodology">How DPS works</a>.</div>'
     )
 
+    has_score = isinstance(dps, (int, float))
+    h1_suffix = f" — DPS {dps_str}/100" if has_score else " — Destructive Power Score"
+    score_block = ""
+    if has_score:
+        score_block = (
+            '<div class="ssr-score-block">'
+            + f'<div><span class="ssr-score-value">{dps_str}</span>'
+            + '<span class="ssr-score-of">/100</span></div>'
+            + '<div class="ssr-score-label">Destructive Power Score</div>'
+            + (f'<div class="ssr-score-rating">{rating}</div>' if rating else "")
+            + "</div>"
+        )
     return (
         _SSR_STYLES
         + '<section class="ssr-storm-summary" id="ssrStormSummary" aria-label="Storm summary">'
-        + f"<h1>{headline} — DPS {dps_str}/100</h1>"
+        + f"<h1>{headline}{h1_suffix}</h1>"
         + (f'<div class="ssr-subhead">{subhead}</div>' if subhead else "")
         + '<div class="ssr-card">'
-        + '<div class="ssr-score-block">'
-        + f'<div><span class="ssr-score-value">{dps_str}</span>'
-        + '<span class="ssr-score-of">/100</span></div>'
-        + '<div class="ssr-score-label">Destructive Power Score</div>'
-        + (f'<div class="ssr-score-rating">{rating}</div>' if rating else "")
-        + "</div>"
+        + score_block
         + f'<div class="ssr-body">{prose_html}{stats_html}{cta_html}</div>'
         + "</div>"
         + "</section>"
@@ -539,18 +637,35 @@ def render_storm_page(storm_id: str) -> str:
         dps_str = f"{dps:.0f}" if isinstance(dps, (int, float)) else "—"
         year_str = f" ({year})" if year else ""
         cat_str = _category_word(cat) if cat else ""
-        title = (
-            f"Hurricane {name}{year_str} — DPS {dps_str}/100 "
-            f"{('· ' + cat_str) if cat_str else ''}| StormDPS"
-        ).strip()
-        description = (
-            f"Hurricane {name}{year_str} scored {dps_str}/100 on the "
-            f"Destructive Power Score scale"
-            + (f" ({label})" if label else "")
-            + ". A modern alternative to Saffir-Simpson that accounts for "
-            "storm size, surge potential, duration, and geographic reach."
-        )
-        og_title = f"Hurricane {name}{year_str} — DPS {dps_str}/100"
+        if isinstance(dps, (int, float)):
+            title = (
+                f"Hurricane {name}{year_str} — DPS {dps_str}/100 "
+                f"{('· ' + cat_str) if cat_str else ''}| StormDPS"
+            ).strip()
+            description = (
+                f"Hurricane {name}{year_str} scored {dps_str}/100 on the "
+                f"Destructive Power Score scale"
+                + (f" ({label})" if label else "")
+                + ". A modern alternative to Saffir-Simpson that accounts for "
+                "storm size, surge potential, duration, and geographic reach."
+            )
+            og_title = f"Hurricane {name}{year_str} — DPS {dps_str}/100"
+        else:
+            # Catalog-fallback storm (e.g. current-season, no compiled score
+            # yet): render an honest no-score title rather than "DPS —/100".
+            basin_name = storm.get("basin_name") or ""
+            head = "Hurricane" if (isinstance(cat, int) and cat >= 1) else "Tropical Storm"
+            if basin_name == "West Pacific" and isinstance(cat, int) and cat >= 1:
+                head = "Typhoon"
+            title = f"{head} {name}{year_str} — Destructive Power Score & Track | StormDPS"
+            description = (
+                f"Track, intensity, and Destructive Power Score analysis for "
+                f"{head} {name}{year_str}"
+                + (f" in the {basin_name}" if basin_name else "")
+                + ". A modern alternative to Saffir-Simpson that accounts for "
+                "storm size, surge potential, duration, and geographic reach."
+            )
+            og_title = f"{head} {name}{year_str} — StormDPS"
         article_jsonld = _storm_article_jsonld(safe_id, storm, canonical) + _storm_breadcrumb_jsonld(safe_id, storm, canonical)
     else:
         title = f"Storm {safe_id} — StormDPS Destructive Power Score"

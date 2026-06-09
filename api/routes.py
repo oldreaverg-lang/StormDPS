@@ -2832,7 +2832,10 @@ async def refresh_current_season(http_client=None) -> dict:
                 _atomic_write_json(_CURRENT_SEASON_FILE, entries)
             except Exception:
                 logger.exception("[SEASON] could not write current-season file")
-        summary = _republish_catalog_with_current_season()
+        # Republish under the catalog lock so the in-memory swap + disk-artifact
+        # rewrites can't interleave with a concurrent 6h IBTrACS refresh.
+        async with _catalog_lock:
+            summary = _republish_catalog_with_current_season()
         return {"fetched": len(entries), **summary}
     except Exception:
         logger.exception("[SEASON] refresh_current_season failed")
