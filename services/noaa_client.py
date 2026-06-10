@@ -469,12 +469,16 @@ class NOAAClient:
         if jtwc_task is not None:
             try:
                 jtwc_storms = await jtwc_task
-                # De-dupe by storm id (shouldn't collide across agencies, but be safe)
-                seen = {s["id"] for s in storms if s.get("id")}
+                # De-dupe by storm id, case-insensitively: NHC ids are lowercase
+                # ("ep032026") while JTWC's are uppercase ("EP032026"), and JTWC
+                # sometimes carries NHC-basin storms — a raw-string compare let
+                # the same storm through twice (seen live: Cristina duplicated).
+                seen = {s["id"].upper() for s in storms if s.get("id")}
                 for s in jtwc_storms:
-                    if s.get("id") and s["id"] not in seen:
+                    sid = (s.get("id") or "").upper()
+                    if sid and sid not in seen:
                         storms.append(s)
-                        seen.add(s["id"])
+                        seen.add(sid)
             except Exception as e:
                 logger.warning(f"[ACTIVE_STORMS] JTWC fetch failed: {e}")
 
