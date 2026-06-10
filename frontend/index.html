@@ -2943,7 +2943,10 @@ function basinName(b){return BASIN_NAMES[b]||b}
         // Use the basin from the API response if provided; only default to NA/EP for ATCF-format IDs
         hurdat.forEach(s => {
             const basin = s.basin || (s.id.startsWith('EP') ? 'EP' : 'NA');
-            const storm = {...s, basin, source: 'hurdat2'};
+            // Keep the API's source tag when it has one — 'nhc-current' marks
+            // real auto-ingested current-season storms, which the chip renderer
+            // must not gray out as "not yet active".
+            const storm = {...s, basin, source: s.source || 'hurdat2'};
             allStorms.push(storm);
             existingIds.add(storm.id);
             const nyk = nameYearKey(storm);
@@ -3081,8 +3084,10 @@ function stormChipHtml(s){
     const dps=compiled?Math.round(compiled.dps):(s.peak_dps||0);
     const basinTag=(s.basin && s.basin!=='NA')?` <span style="color:var(--text-dim);font-size:.58rem">${s.basin}</span>`:'';
     const dotColor=dps>0?dpsChipColor(dps):catColor(cat);
-    // Storms with no DPS and no category haven't formed yet
-    const notActive = (dps===0 && (cat===0 || cat===undefined || cat===null));
+    // Storms with no DPS and no category haven't formed yet — except
+    // auto-ingested current-season storms (source 'nhc-current'), which are
+    // real named systems that simply don't have a compiled score yet.
+    const notActive = (dps===0 && (cat===0 || cat===undefined || cat===null) && s.source!=='nhc-current');
     const metaText=notActive?'not yet active':(dps>0?`DPS ${dps}`:catLabel(cat));
     const dimStyle=notActive?' style="opacity:.45"':'';
     return `<div class="preset-chip" data-storm-id="${s.id}" onclick="loadPreset('${s.id}')"${dimStyle}><div class="cat-dot" style="background:${dotColor}"></div><span class="chip-name">${s.name}${basinTag}</span><span class="chip-meta">${metaText}</span></div>`;
