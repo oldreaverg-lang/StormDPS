@@ -228,25 +228,25 @@ _RE_IBTRACS_SID = re.compile(r"^\d{7}[NS]\d{5}$")
 _SSR_STYLES = """
 <style>
 .ssr-storm-summary { padding: 1.5rem 1rem 1.2rem; max-width: 980px; margin: 0 auto; }
-.ssr-storm-summary h1 { font-size: clamp(1.5rem, 3vw, 2.1rem); font-weight: 800; letter-spacing: -.03em; line-height: 1.15; color: #f1f5f9; margin-bottom: .35rem; }
-.ssr-storm-summary .ssr-subhead { color: #94a3b8; font-size: .92rem; margin-bottom: 1rem; }
-.ssr-card { background: #111827; border: 1px solid #1e293b; border-radius: 14px; padding: 1.2rem 1.4rem; display: grid; grid-template-columns: minmax(140px, auto) 1fr; gap: 1.2rem 1.8rem; align-items: start; }
+.ssr-storm-summary h1 { font-size: clamp(1.5rem, 3vw, 2.1rem); font-weight: 800; letter-spacing: -.03em; line-height: 1.15; color: #1b1f24; margin-bottom: .35rem; }
+.ssr-storm-summary .ssr-subhead { color: #404b57; font-size: .92rem; margin-bottom: 1rem; }
+.ssr-card { background: #ffffff; border: 1px solid #d4d9de; border-radius: 5px; padding: 1.2rem 1.4rem; display: grid; grid-template-columns: minmax(140px, auto) 1fr; gap: 1.2rem 1.8rem; align-items: start; }
 @media (max-width: 640px) { .ssr-card { grid-template-columns: 1fr; } }
-.ssr-score-block { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: .5rem; background: #0d1221; border: 1px solid #1e293b; border-radius: 12px; min-width: 140px; }
-.ssr-score-value { font-size: 3rem; font-weight: 800; letter-spacing: -.04em; line-height: 1; color: #f1f5f9; font-variant-numeric: tabular-nums; }
-.ssr-score-of { font-size: 1rem; color: #64748b; font-weight: 600; margin-left: 2px; }
-.ssr-score-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; color: #94a3b8; font-weight: 700; margin-top: .35rem; }
-.ssr-score-rating { font-size: .85rem; font-weight: 700; margin-top: .25rem; color: #6366f1; }
-.ssr-body p { color: #cbd5e1; font-size: .98rem; line-height: 1.65; margin-bottom: .7rem; }
+.ssr-score-block { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: .5rem; background: #f7f8fa; border: 1px solid #d4d9de; border-radius: 4px; min-width: 140px; }
+.ssr-score-value { font-size: 3rem; font-weight: 800; letter-spacing: -.04em; line-height: 1; color: #1b1f24; font-variant-numeric: tabular-nums; }
+.ssr-score-of { font-size: 1rem; color: #5c6873; font-weight: 600; margin-left: 2px; }
+.ssr-score-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; color: #404b57; font-weight: 700; margin-top: .35rem; }
+.ssr-score-rating { font-size: .85rem; font-weight: 700; margin-top: .25rem; color: #205493; }
+.ssr-body p { color: #2c333a; font-size: .98rem; line-height: 1.65; margin-bottom: .7rem; }
 .ssr-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: .5rem .9rem; margin-top: .9rem; }
-.ssr-stat { background: #0d1221; border: 1px solid #1e293b; border-radius: 8px; padding: .5rem .65rem; }
-.ssr-stat-label { font-size: .68rem; text-transform: uppercase; letter-spacing: .05em; color: #64748b; font-weight: 600; }
-.ssr-stat-value { font-size: 1.05rem; font-weight: 700; color: #f1f5f9; font-variant-numeric: tabular-nums; margin-top: 1px; }
-.ssr-landfalls { margin-top: .9rem; font-size: .9rem; color: #94a3b8; }
-.ssr-landfalls strong { color: #cbd5e1; }
-.ssr-cta { margin-top: 1rem; font-size: .85rem; color: #64748b; }
-.ssr-cta a { color: #6366f1; text-decoration: underline; text-decoration-color: rgba(99,102,241,.4); }
-.ssr-cta a:hover { text-decoration-color: #6366f1; }
+.ssr-stat { background: #f7f8fa; border: 1px solid #d4d9de; border-radius: 3px; padding: .5rem .65rem; }
+.ssr-stat-label { font-size: .68rem; text-transform: uppercase; letter-spacing: .05em; color: #5c6873; font-weight: 600; }
+.ssr-stat-value { font-size: 1.05rem; font-weight: 700; color: #1b1f24; font-variant-numeric: tabular-nums; margin-top: 1px; }
+.ssr-landfalls { margin-top: .9rem; font-size: .9rem; color: #404b57; }
+.ssr-landfalls strong { color: #1b1f24; }
+.ssr-cta { margin-top: 1rem; font-size: .85rem; color: #5c6873; }
+.ssr-cta a { color: #205493; text-decoration: underline; text-decoration-color: rgba(32,84,147,.4); }
+.ssr-cta a:hover { text-decoration-color: #205493; }
 .ssr-storm-summary.ssr-hidden { display: none; }
 /* On /storm/{id} pages the SSR card is the page hero — the SPA's default
    "One number. Total threat." welcome panel below it would otherwise show

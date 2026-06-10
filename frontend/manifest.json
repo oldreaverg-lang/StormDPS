@@ -4,8 +4,8 @@
   "description": "See any hurricane's true destructive potential — beyond the Category scale.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0a0e1a",
-  "theme_color": "#0a0e1a",
+  "background_color": "#eceef0",
+  "theme_color": "#eceef0",
   "orientation": "any",
   "icons": [
     {
