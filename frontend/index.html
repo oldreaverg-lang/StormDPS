@@ -140,10 +140,10 @@
         .logo{display:flex;align-items:center;gap:.6rem}.logo-link{display:flex;align-items:center;gap:.6rem;text-decoration:none;color:inherit}.logo-icon{width:32px;height:32px;border-radius:8px;overflow:hidden;flex-shrink:0}.logo-icon img{width:100%;height:100%;object-fit:cover;border-radius:8px}.logo-text{font-size:1.1rem;font-weight:700;letter-spacing:-.03em;color:var(--text-main)}
         /* Only mobile shrinks the brand text — desktop uses .logo-text directly. */
         @media(max-width:900px){.logo-text{font-size:.95rem}}
-        .logo-divider{width:1px;height:16px;background:rgba(255,255,255,.15);margin:0 .1rem;flex-shrink:0}
+        .logo-divider{width:1px;height:16px;background:rgba(0,0,0,.14);margin:0 .1rem;flex-shrink:0}
         /* Secondary sister-tool link — visibly smaller/lighter than the StormDPS wordmark so it reads as a nav item, not a co-brand. */
-        .surge-nav-link{font-size:.82rem;font-weight:600;letter-spacing:-.01em;color:#22d3ee;text-decoration:none;opacity:.7;transition:opacity .15s,color .15s;white-space:nowrap}
-        .surge-nav-link:hover{opacity:1;color:#4dd0e1}
+        .surge-nav-link{font-size:.82rem;font-weight:600;letter-spacing:-.01em;color:var(--primary);text-decoration:none;opacity:.85;transition:opacity .15s,color .15s;white-space:nowrap}
+        .surge-nav-link:hover{opacity:1;color:var(--primary-hover)}
         .header-status{display:flex;align-items:center;gap:.4rem;font-size:.75rem;color:var(--text-muted)}.status-dot{width:6px;height:6px;border-radius:50%;background:var(--success);box-shadow:0 0 6px rgba(16,185,129,.5)}
         .app-layout{display:grid;grid-template-columns:260px 1fr;height:calc(100vh - 49px);overflow:hidden}
         .sidebar{background:var(--bg-card);border-right:1px solid var(--border);padding:1rem;display:flex;flex-direction:column;gap:1rem;overflow-y:auto;height:calc(100vh - 49px);scrollbar-width:thin;scrollbar-color:rgba(95,104,115,.45) transparent}.sidebar-section{display:flex;flex-direction:column;gap:.5rem;flex-shrink:0}
@@ -1518,6 +1518,11 @@ function ikeColor(ike){if(ike>200)return'#ef4444';if(ike>120)return'#f97316';if(
 function sdpFromIke(ikeTs){if(!ikeTs||ikeTs<=0)return 0;const r=Math.sqrt(ikeTs);return Math.max(0,Math.min(5.99,0.676+0.43*r-0.0176*Math.pow(r-6.5,2)))}
 function sdpLabel(s){if(s>=5)return'Extreme';if(s>=4)return'Very High';if(s>=3)return'High';if(s>=2)return'Moderate';if(s>=1)return'Low';return'Minimal'}
 function dpsColor(score){if(score>=80)return'#ef4444';if(score>=60)return'#f97316';if(score>=40)return'#fbbf24';if(score>=20)return'#34d399';if(score>=10)return'#60a5fa';return'#94a3b8'}
+// On-LIGHT severity ramp for score TEXT (hero DPS/IAS/ERS numbers) on the
+// white cards. dpsColor()'s bright values were tuned for dark panels and wash
+// out on white (amber #fbbf24 was ~1.5:1 — failed WCAG AA). These are the same
+// hue families darkened to clear AA on white; charts/map keep dpsColor().
+function dpsTextColor(score){if(score>=80)return'#b91c1c';if(score>=60)return'#c2410c';if(score>=40)return'#a16207';if(score>=20)return'#047857';if(score>=10)return'#1d4ed8';return'#475569'}
 
 // Update preset chip DPS from preloaded per-snapshot data (correct method).
 // The catalog only computes DPS at the peak-wind snapshot, but the TRUE peak
@@ -2259,7 +2264,7 @@ function applyStallRiskToIAS(data, stallRisk) {
     const peakIasObj = data[peakIasIdx].ias;
 
     document.getElementById('statPeakIAS').textContent = peakIasObj.score;
-    document.getElementById('statPeakIAS').style.color = peakIasObj.color;
+    document.getElementById('statPeakIAS').style.color = dpsTextColor(peakIasObj.score);
     document.getElementById('statIASLabel').textContent = peakIasObj.label + ' Impact' + (peakIasObj._stallBoosted ? ' (Stall \u26a0)' : '');
     const iasCtx = document.getElementById('iasContext');
     if (iasCtx) iasCtx.textContent = getIASContext(peakIasObj.score);
@@ -2791,9 +2796,9 @@ function renderActiveStorms(storms){
             <div class="active-dot" style="background:${color}"></div>
             <div class="chip-detail">
                 <span class="chip-name">${s.name||'Unnamed'}${stallHint}</span>
-                <span class="chip-stats">${cls} &middot; ${wind}${pres?' &middot; '+pres:''}${loc?' &middot; '+loc:''}</span>
+                <span class="chip-stats">${wind}${pres?' &middot; '+pres:''}${loc?' &middot; '+loc:''}</span>
             </div>
-            <span class="chip-intensity" style="color:${color}">${label}</span>
+            <span class="chip-intensity" style="color:${color}">${kt>=64?label:cls}</span>
         </div>`;
     }).join('');
 }
@@ -3686,13 +3691,13 @@ function renderAll(stormId,data){
     setupSnapshotTabs(data, peakDpsObj, peakDpsIdx, compiled_pre, isActive);
 
     document.getElementById('statPeakIAS').textContent=peakIasObj.score;
-    document.getElementById('statPeakIAS').style.color=peakIasObj.color;
+    document.getElementById('statPeakIAS').style.color=dpsTextColor(peakIasObj.score);
     document.getElementById('statIASLabel').textContent=peakIasObj.label + ' Impact';
 
     window._observedPeakErs = peakErsObj.score;
     var _ersFcLine = document.getElementById('ersForecastLine'); if (_ersFcLine) _ersFcLine.style.display = 'none';
     document.getElementById('statPeakERS').textContent=peakErsObj.score;
-    document.getElementById('statPeakERS').style.color=peakErsObj.color;
+    document.getElementById('statPeakERS').style.color=dpsTextColor(peakErsObj.score);
     const nriTag = peakErsObj.nriActive ? ' (NRI)' : '';
     document.getElementById('statERSLabel').textContent=peakErsObj.label + ' Risk' + nriTag + (peakErsObj.zone ? ' · '+peakErsObj.zone : '');
 
@@ -3714,7 +3719,7 @@ function renderAll(stormId,data){
         heroDPS = peakDpsObj.score;
         heroDPSLabel = peakDpsObj.label;
     }
-    const heroColor = heroDPS >= 80 ? '#ef4444' : heroDPS >= 60 ? '#f97316' : heroDPS >= 40 ? '#fbbf24' : heroDPS >= 20 ? '#34d399' : heroDPS >= 10 ? '#60a5fa' : '#94a3b8';
+    const heroColor = dpsTextColor(heroDPS);
     const heroCard = document.getElementById('dpsHeroCard');
     const heroEl = document.getElementById('statHeroDPS');
     // Apply severity class for glow/pulse effects
