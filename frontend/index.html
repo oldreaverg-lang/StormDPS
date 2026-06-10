@@ -692,25 +692,25 @@
                      map view on demand. -->
                 <div id="stormCard" style="display:none;position:absolute;top:8px;left:8px;z-index:501;background:rgba(255,255,255,.95);backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:var(--radius);padding:.5rem .65rem;min-width:190px;max-width:230px;font-size:.7rem;color:var(--text-muted);box-shadow:0 4px 18px rgba(0,0,0,.35)">
                     <div style="display:flex;justify-content:space-between;align-items:center;gap:.5rem;margin-bottom:.35rem">
-                        <div id="stormCardName" style="font-weight:700;color:#f1f5f9;font-size:.78rem;letter-spacing:.02em;text-transform:uppercase;line-height:1.1">--</div>
+                        <div id="stormCardName" style="font-weight:700;color:#1b1f24;font-size:.78rem;letter-spacing:.02em;text-transform:uppercase;line-height:1.1">--</div>
                         <button id="stormCardCollapse" onclick="toggleStormCard()" title="Collapse" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:.85rem;line-height:1;padding:0 .15rem;font-family:inherit">&#9660;</button>
                     </div>
                     <div id="stormCardBody">
                         <div style="display:flex;align-items:center;gap:.4rem;margin-bottom:.3rem">
                             <span id="stormCardCatBadge" style="background:#475569;color:#fff;padding:.1rem .4rem;border-radius:3px;font-weight:700;font-size:.6rem;letter-spacing:.03em">--</span>
-                            <span id="stormCardWind" style="color:#cbd5e1;font-variant-numeric:tabular-nums">--</span>
+                            <span id="stormCardWind" style="color:#2c333a;font-variant-numeric:tabular-nums">--</span>
                         </div>
                         <div style="display:grid;grid-template-columns:auto 1fr;gap:.15rem .6rem;font-size:.62rem;line-height:1.4">
                             <span style="color:#94a3b8">DPS</span>
-                            <span><b id="stormCardDps" style="color:#f1f5f9;font-variant-numeric:tabular-nums">--</b> <span id="stormCardDpsBand" style="color:#94a3b8;font-size:.55rem;margin-left:.2rem">--</span></span>
+                            <span><b id="stormCardDps" style="color:#1b1f24;font-variant-numeric:tabular-nums">--</b> <span id="stormCardDpsBand" style="color:#94a3b8;font-size:.55rem;margin-left:.2rem">--</span></span>
                             <span style="color:#94a3b8">Pressure</span>
-                            <span id="stormCardPres" style="color:#cbd5e1;font-variant-numeric:tabular-nums">--</span>
+                            <span id="stormCardPres" style="color:#2c333a;font-variant-numeric:tabular-nums">--</span>
                             <span style="color:#94a3b8">Move</span>
-                            <span id="stormCardMove" style="color:#cbd5e1;font-variant-numeric:tabular-nums">--</span>
+                            <span id="stormCardMove" style="color:#2c333a;font-variant-numeric:tabular-nums">--</span>
                             <span id="stormCardStallLbl" style="color:#94a3b8;display:none">Stall</span>
                             <span id="stormCardStall" style="color:#fbbf24;display:none">--</span>
                             <span id="stormCardLandfallLbl" style="color:#94a3b8;display:none">Landfall</span>
-                            <span id="stormCardLandfall" style="color:#cbd5e1;display:none">--</span>
+                            <span id="stormCardLandfall" style="color:#2c333a;display:none">--</span>
                         </div>
                     </div>
                 </div>
@@ -722,17 +722,17 @@
                      always on for every storm; see renderMap auto-enable. -->
                 <div id="satelliteSlider" style="display:none"></div>
                 <div class="map-legend" id="mapLegend" style="display:none;">
-                    <div style="font-weight:600;margin-bottom:2px;color:#e2e8f0;">Wind Speed</div>
+                    <div style="font-weight:600;margin-bottom:2px;color:#22272d;">Wind Speed</div>
                     <div class="legend-item"><div class="legend-swatch" style="background:#ff4da6"></div>Cat 5 (&ge;157 mph)</div>
                     <div class="legend-item"><div class="legend-swatch" style="background:#ef4444"></div>Cat 3-4 (111-156 mph)</div>
                     <div class="legend-item"><div class="legend-swatch" style="background:#f97316"></div>Cat 1-2 (74-110 mph)</div>
                     <div class="legend-item"><div class="legend-swatch" style="background:#fbbf24"></div>Tropical Storm (39-73 mph)</div>
-                    <div style="margin-top:3px;font-weight:600;color:#e2e8f0;">Track Energy</div>
+                    <div style="margin-top:3px;font-weight:600;color:#22272d;">Track Energy</div>
                     <div class="legend-item"><div class="legend-swatch" style="background:#ef4444;width:12px;height:3px;border-radius:1px"></div>Extreme (&gt;200 TJ)</div>
                     <div class="legend-item"><div class="legend-swatch" style="background:#f97316;width:12px;height:3px;border-radius:1px"></div>High (&gt;120 TJ)</div>
                     <div class="legend-item"><div class="legend-swatch" style="background:#fbbf24;width:12px;height:3px;border-radius:1px"></div>Moderate (&gt;60 TJ)</div>
                     <div class="legend-item"><div class="legend-swatch" style="background:#60a5fa;width:12px;height:3px;border-radius:1px"></div>Low (&le;60 TJ)</div>
-                    <div style="margin-top:3px;font-weight:600;color:#e2e8f0;">Score Bands</div>
+                    <div style="margin-top:3px;font-weight:600;color:#22272d;">Score Bands</div>
                     <div class="legend-item"><div class="legend-swatch" style="background:var(--cat5);border-radius:50%;width:10px;height:10px"></div>Catastrophic (80-100)</div>
                     <div class="legend-item"><div class="legend-swatch" style="background:var(--cat4);border-radius:50%;width:10px;height:10px"></div>Extreme (60-79)</div>
                     <div class="legend-item"><div class="legend-swatch" style="background:var(--cat3);border-radius:50%;width:10px;height:10px"></div>Severe (40-59)</div>
@@ -5965,7 +5965,7 @@ function renderMap(data){
         const sstTxt=(d.sst_c!=null)?d.sst_c.toFixed(1)+' °C':(window._sstReady?'—':'…');
         const dpsScore=d.dps?d.dps.score:0;
         const dpsColorHex=d.dps?d.dps.color:'#5c6873';
-        const row=(label,value,color)=>`<div style="display:flex;justify-content:space-between;gap:8px;padding:1px 0"><span style="color:${color}">${label}</span><b style="color:#f1f5f9">${value}</b></div>`;
+        const row=(label,value,color)=>`<div style="display:flex;justify-content:space-between;gap:8px;padding:1px 0"><span style="color:${color}">${label}</span><b style="color:#1b1f24">${value}</b></div>`;
         return `<div style="font-family:Public Sans,sans-serif;font-size:11px;line-height:1.5;width:200px">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;border-bottom:1px solid #334155;padding-bottom:3px">
                 <div style="font-weight:700;font-size:12px;">${tStr}</div>
