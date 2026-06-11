@@ -30,8 +30,13 @@ preferring live data over the hardcoded values.
 
 from __future__ import annotations
 
+import json
+import logging
 from dataclasses import dataclass, field, asdict
+from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -374,6 +379,67 @@ def get_by_name_year(name: str, year: int) -> Optional[GroundTruth]:
 
 def all_records() -> dict[str, GroundTruth]:
     return dict(_REGISTRY)
+
+
+_IMERG_SIDECAR = Path(__file__).resolve().parent.parent / "data" / "imerg_rainfall.json"
+
+
+def _merge_imerg_sidecar(path: Path = _IMERG_SIDECAR) -> int:
+    """Merge IMERG-derived observed rainfall (``data/imerg_rainfall.json``, built
+    by ``scripts/imerg_storm_rainfall.py --catalog``) into the registry so that
+    EVERY satellite-era storm gets a measured ``peak_rainfall_in`` — not just the
+    handful of hand-curated US gauges above.
+
+    This is the across-the-board switch: once the sidecar exists, the engine's
+    rainfall override (core/dps_engine.py) fires for the whole IMERG-era catalog
+    (2000-present) with no other code change.
+
+    Precedence: a curated station gauge always wins over a 0.1° IMERG grid cell,
+    so we only *fill* records that lack a rainfall value and *add* records for
+    storms not curated at all. Fully fail-open — a missing or malformed sidecar
+    leaves the curated registry untouched.
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            db = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return 0
+
+    merged = 0
+    for sid, rec in (db or {}).items():
+        rin = rec.get("peak_rainfall_in")
+        if rin is None:
+            continue
+        loc = rec.get("peak_rainfall_location")
+        loc_str = (
+            f"IMERG grid peak @ {loc[0]}, {loc[1]}"
+            if isinstance(loc, (list, tuple)) and len(loc) == 2
+            else "IMERG grid peak"
+        )
+        src = rec.get("source", "NASA GPM IMERG")
+        existing = _REGISTRY.get(sid)
+        if existing is None:
+            _REGISTRY[sid] = GroundTruth(
+                storm_id=sid,
+                name=rec.get("name") or sid,
+                year=int(rec.get("year") or 0),
+                peak_rainfall_in=float(rin),
+                peak_rainfall_location=loc_str,
+                sources=[src],
+            )
+            merged += 1
+        elif existing.peak_rainfall_in is None:
+            existing.peak_rainfall_in = float(rin)
+            existing.peak_rainfall_location = loc_str
+            existing.sources = list(existing.sources) + [src]
+            merged += 1
+    if merged:
+        logger.info("[GROUND_TRUTH] merged %d IMERG rainfall record(s)", merged)
+    return merged
+
+
+# Populate the registry from the IMERG sidecar at import (fail-open).
+_IMERG_MERGED = _merge_imerg_sidecar()
 
 
 def merge_live(storm_id: str, live: dict) -> Optional[GroundTruth]:
