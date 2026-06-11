@@ -2836,10 +2836,85 @@ async def refresh_current_season(http_client=None) -> dict:
         # rewrites can't interleave with a concurrent 6h IBTrACS refresh.
         async with _catalog_lock:
             summary = _republish_catalog_with_current_season()
+        # Best-effort: enrich live storms with observed IMERG rainfall (OFF by
+        # default; never blocks or degrades the catalog refresh).
+        try:
+            rain = await refresh_current_season_rainfall(http_client)
+            summary = {**summary, **rain}
+        except Exception:
+            logger.exception("[SEASON] rainfall enrichment step failed")
         return {"fetched": len(entries), **summary}
     except Exception:
         logger.exception("[SEASON] refresh_current_season failed")
         return {"fetched": 0, "error": True}
+
+
+async def refresh_current_season_rainfall(http_client=None) -> dict:
+    """Enrich current-season storms with observed GPM IMERG Late-Run rainfall and
+    record it in the ground-truth registry, so the DPS rainfall override fires
+    for live storms instead of the kinematic estimate.
+
+    OFF by default — requires ``IMERG_LIVE_INGEST=1`` AND the fetch deps
+    (earthaccess/xarray) AND Earthdata creds in the environment. Anything missing
+    makes this a clean no-op. Never raises; per-storm failures are skipped.
+    """
+    if os.getenv("IMERG_LIVE_INGEST") != "1":
+        return {"rainfall_recorded": 0, "rainfall_status": "disabled"}
+    try:
+        from services.imerg_rainfall import (
+            observed_rainfall_for_track, imerg_available, LATE_SHORT_NAME,
+        )
+        from services.atcf_bdeck_client import ATCFBDeckClient
+        from core import ground_truth
+    except Exception:
+        logger.exception("[SEASON] rainfall imports failed")
+        return {"rainfall_recorded": 0, "rainfall_status": "import_error"}
+    if not imerg_available():
+        return {"rainfall_recorded": 0, "rainfall_status": "deps_missing"}
+
+    storms = _load_current_season_storms()
+    if not storms:
+        return {"rainfall_recorded": 0, "rainfall_status": "no_storms"}
+
+    own_client = http_client is None
+    http = http_client or httpx.AsyncClient(
+        headers={"User-Agent": "StormDPS/1.0 (research)"},
+        follow_redirects=True, timeout=30.0,
+    )
+    recorded = 0
+    try:
+        async with ATCFBDeckClient(http_client=http) as bdeck:
+            for s in storms:
+                sid = s.get("id")
+                if not sid:
+                    continue
+                try:
+                    snaps = await bdeck.get_storm_track(sid)
+                    track = [
+                        {"time": sn.timestamp, "lat": sn.lat, "lon": sn.lon}
+                        for sn in (snaps or [])
+                        if sn.lat is not None and sn.lon is not None
+                    ]
+                    if len(track) < 2:
+                        continue
+                    # IMERG fetch is blocking (network + xarray) — run off-loop.
+                    res = await asyncio.to_thread(
+                        observed_rainfall_for_track, track, short_name=LATE_SHORT_NAME
+                    )
+                    if res and res.get("peak_cell_in") and ground_truth.record_observed_rainfall(
+                        sid, s.get("name"), s.get("year"), res["peak_cell_in"],
+                        (res["peak_cell_lat"], res["peak_cell_lon"]),
+                        "NASA GPM IMERG Late daily", peak_rainfall_mm=res["peak_cell_mm"],
+                    ):
+                        recorded += 1
+                except Exception:
+                    logger.info("[SEASON] rainfall enrich failed for %s", sid, exc_info=True)
+                    continue
+    finally:
+        if own_client:
+            await http.aclose()
+    logger.info("[SEASON] recorded IMERG rainfall for %d current-season storm(s)", recorded)
+    return {"rainfall_recorded": recorded, "rainfall_status": "ok"}
 
 
 async def warm_ibtracs_catalog() -> dict:

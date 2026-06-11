@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Optional
@@ -381,65 +382,125 @@ def all_records() -> dict[str, GroundTruth]:
     return dict(_REGISTRY)
 
 
+# --- Observed-rainfall layer (curated gauges + IMERG, tier-aware) -----------
+# A measured peak rainfall can come from three places. We keep the best:
+#   gauge (curated NHC/NWS station total) > IMERG Final grid > IMERG Late grid.
+# A value is overwritten only by one of equal-or-higher tier, so the live
+# Late-Run ingest loop can never clobber a Final backfill or a curated gauge.
+_TIER_GAUGE = 3
+_TIER_FINAL = 2
+_TIER_LATE = 1
+_RAIN_TIER: dict[str, int] = {}
+
+# Committed Final-run backfill shipped in the repo.
 _IMERG_SIDECAR = Path(__file__).resolve().parent.parent / "data" / "imerg_rainfall.json"
+# Live Late-run updates persisted to the Railway volume so they survive
+# restarts; falls back to the repo data dir when no volume is mounted.
+_PERSIST_DIR = Path(os.getenv("PERSISTENT_DATA_DIR",
+                              str(Path(__file__).resolve().parent.parent / "data")))
+_IMERG_LIVE_SIDECAR = _PERSIST_DIR / "imerg_rainfall_live.json"
 
 
-def _merge_imerg_sidecar(path: Path = _IMERG_SIDECAR) -> int:
-    """Merge IMERG-derived observed rainfall (``data/imerg_rainfall.json``, built
-    by ``scripts/imerg_storm_rainfall.py --catalog``) into the registry so that
-    EVERY satellite-era storm gets a measured ``peak_rainfall_in`` — not just the
-    handful of hand-curated US gauges above.
+def _tier_of(source: Optional[str]) -> int:
+    s = (source or "").lower()
+    return _TIER_LATE if ("late" in s or "imergdl" in s) else _TIER_FINAL
 
-    This is the across-the-board switch: once the sidecar exists, the engine's
-    rainfall override (core/dps_engine.py) fires for the whole IMERG-era catalog
-    (2000-present) with no other code change.
 
-    Precedence: a curated station gauge always wins over a 0.1° IMERG grid cell,
-    so we only *fill* records that lack a rainfall value and *add* records for
-    storms not curated at all. Fully fail-open — a missing or malformed sidecar
-    leaves the curated registry untouched.
-    """
+def _loc_str(loc) -> str:
+    if isinstance(loc, (list, tuple)) and len(loc) == 2:
+        return f"IMERG grid peak @ {loc[0]}, {loc[1]}"
+    return str(loc) if loc else "IMERG grid peak"
+
+
+def _set_rainfall(sid, name, year, peak_in, loc, source, tier) -> bool:
+    """Upsert an observed peak rainfall, respecting provenance tiers. A curated
+    gauge is never overwritten; an IMERG value is applied only if ``tier`` >= the
+    storm's current tier. Returns True iff it changed the registry."""
+    if peak_in is None:
+        return False
+    existing = _REGISTRY.get(sid)
+    cur_tier = _RAIN_TIER.get(
+        sid, _TIER_GAUGE if (existing and existing.peak_rainfall_in is not None) else 0
+    )
+    if tier < cur_tier:
+        return False
+    if existing is None:
+        _REGISTRY[sid] = GroundTruth(
+            storm_id=sid, name=name or sid, year=int(year or 0),
+            peak_rainfall_in=float(peak_in), peak_rainfall_location=_loc_str(loc),
+            sources=[source],
+        )
+    else:
+        existing.peak_rainfall_in = float(peak_in)
+        existing.peak_rainfall_location = _loc_str(loc)
+        if source and source not in existing.sources:
+            existing.sources = list(existing.sources) + [source]
+    _RAIN_TIER[sid] = tier
+    return True
+
+
+def _merge_sidecar(path: Path) -> int:
+    """Merge an IMERG sidecar (``data/imerg_rainfall*.json``) into the registry,
+    tier-aware. Fully fail-open — a missing/malformed file is a no-op so the
+    curated registry is never degraded."""
     try:
         with open(path, "r", encoding="utf-8") as f:
             db = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return 0
-
     merged = 0
     for sid, rec in (db or {}).items():
-        rin = rec.get("peak_rainfall_in")
-        if rin is None:
-            continue
-        loc = rec.get("peak_rainfall_location")
-        loc_str = (
-            f"IMERG grid peak @ {loc[0]}, {loc[1]}"
-            if isinstance(loc, (list, tuple)) and len(loc) == 2
-            else "IMERG grid peak"
-        )
         src = rec.get("source", "NASA GPM IMERG")
-        existing = _REGISTRY.get(sid)
-        if existing is None:
-            _REGISTRY[sid] = GroundTruth(
-                storm_id=sid,
-                name=rec.get("name") or sid,
-                year=int(rec.get("year") or 0),
-                peak_rainfall_in=float(rin),
-                peak_rainfall_location=loc_str,
-                sources=[src],
-            )
+        if _set_rainfall(sid, rec.get("name"), rec.get("year"),
+                         rec.get("peak_rainfall_in"),
+                         rec.get("peak_rainfall_location"), src, _tier_of(src)):
             merged += 1
-        elif existing.peak_rainfall_in is None:
-            existing.peak_rainfall_in = float(rin)
-            existing.peak_rainfall_location = loc_str
-            existing.sources = list(existing.sources) + [src]
-            merged += 1
-    if merged:
-        logger.info("[GROUND_TRUTH] merged %d IMERG rainfall record(s)", merged)
     return merged
 
 
-# Populate the registry from the IMERG sidecar at import (fail-open).
-_IMERG_MERGED = _merge_imerg_sidecar()
+def record_observed_rainfall(storm_id, name, year, peak_rainfall_in,
+                             location=None, source="NASA GPM IMERG Late daily",
+                             peak_rainfall_mm=None) -> bool:
+    """Record a live observed peak rainfall (e.g. from the ingest loop) into the
+    in-memory registry AND persist it to the volume sidecar so it survives a
+    restart. Tier-aware — a Late value won't clobber a Final/gauge. Returns True
+    iff it changed the registry. Fail-open on disk I/O."""
+    if not _set_rainfall(storm_id, name, year, peak_rainfall_in, location,
+                         source, _tier_of(source)):
+        return False
+    try:
+        try:
+            with open(_IMERG_LIVE_SIDECAR, "r", encoding="utf-8") as f:
+                db = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            db = {}
+        db[storm_id] = {
+            "storm_id": storm_id, "name": name, "year": year,
+            "peak_rainfall_in": round(float(peak_rainfall_in), 2),
+            "peak_rainfall_mm": peak_rainfall_mm,
+            "peak_rainfall_location": (list(location)
+                                       if isinstance(location, (list, tuple)) else location),
+            "source": source,
+        }
+        _IMERG_LIVE_SIDECAR.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _IMERG_LIVE_SIDECAR.with_suffix(".json.tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(db, f, indent=2, sort_keys=True)
+        tmp.replace(_IMERG_LIVE_SIDECAR)
+    except Exception:
+        logger.warning("[GROUND_TRUTH] could not persist live rainfall for %s",
+                       storm_id, exc_info=True)
+    return True
+
+
+# At import: seed curated gauges as the top tier, then merge the Final backfill,
+# then the live Late updates (each respects tiers, so order can't downgrade).
+for _sid, _row in _REGISTRY.items():
+    if _row.peak_rainfall_in is not None:
+        _RAIN_TIER[_sid] = _TIER_GAUGE
+_IMERG_MERGED = _merge_sidecar(_IMERG_SIDECAR) + _merge_sidecar(_IMERG_LIVE_SIDECAR)
+if _IMERG_MERGED:
+    logger.info("[GROUND_TRUTH] merged %d IMERG rainfall record(s)", _IMERG_MERGED)
 
 
 def merge_live(storm_id: str, live: dict) -> Optional[GroundTruth]:
