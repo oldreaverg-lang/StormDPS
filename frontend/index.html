@@ -507,7 +507,8 @@
         .breakdown-bar:hover .breakdown-seg:hover{opacity:1!important;filter:brightness(1.2)!important}
         .breakdown-wrap{position:static}
         .breakdown-panel{position:absolute;inset:0;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;z-index:10;opacity:0;transition:opacity .15s;box-shadow:0 4px 16px rgba(0,0,0,.5);font-size:.72rem;pointer-events:none;display:flex;flex-direction:column;justify-content:center}
-        .breakdown-wrap:hover .breakdown-panel{opacity:1;pointer-events:auto}
+        .breakdown-wrap:hover .breakdown-panel,.breakdown-wrap.open .breakdown-panel{opacity:1;pointer-events:auto}
+        .breakdown-wrap{cursor:pointer}
         .dps-hero-card{overflow:visible!important}
         .breakdown-panel-row{display:flex;align-items:flex-start;gap:6px;padding:2px 0;white-space:nowrap}
         .breakdown-panel-swatch{width:8px;height:8px;border-radius:2px;flex-shrink:0}
@@ -657,12 +658,12 @@
                 <div class="dps-trend-wrap"><div class="stat-value" id="statHeroDPS" style="color:var(--text-main)">-</div><div class="dps-trend" id="dpsTrendIndicator"></div></div>
                 <div class="stat-sub" id="statHeroDPSLabel" style="font-size:.78rem;opacity:.8">-</div>
                 <div class="score-context" id="dpsContext"></div>
-                <div class="breakdown-wrap"><div class="breakdown-bar" id="breakdownDPS"></div><div class="breakdown-panel" id="panelDPS"></div></div><div class="breakdown-hint">Hover bar for details</div>
+                <div class="breakdown-wrap" onclick="this.classList.toggle('open')"><div class="breakdown-bar" id="breakdownDPS"></div><div class="breakdown-panel" id="panelDPS"></div></div><div class="breakdown-hint">Tap or hover for details</div>
             </div>
             <!-- Peak Snapshot card removed — redundant with DPS hero card -->
             <div id="snapshotCard" style="display:none"><span id="snapshotLabel"></span><span id="snapshotTip"></span><div id="snapshotTabs"></div><div id="statPeakDPS"></div><div id="statDPSLabel"></div><div id="breakdownSnap"></div><div id="panelSnap"></div></div>
-            <div class="stat-card" style="border-color:#f97316;background:rgba(249,115,22,.03)"><div class="stat-label">Impact Area<span class="tip" data-tip="IAS: A 0-100 score measuring how geography and rainfall amplify actual impact. Combines continental shelf surge amplification (55%) and rainfall/stall threat (45%).">?</span></div><div class="stat-value" id="statPeakIAS" style="color:var(--text-main);">-</div><div class="stat-sub" id="statIASLabel">-</div><div class="score-context" id="iasContext"></div><div class="breakdown-wrap"><div class="breakdown-bar" id="breakdownIAS"></div><div class="breakdown-panel" id="panelIAS"></div></div><div class="breakdown-hint">Hover bar for details</div></div>
-            <div class="stat-card" style="border-color:#10b981;background:rgba(16,185,129,.03)"><div class="stat-label">Economic Risk<span class="tip" data-tip="ERS: A 0-100 score measuring economic exposure along the storm's path. Combines coastal economic value with threat reach (storm size x intensity).">?</span></div><div class="stat-value" id="statPeakERS" style="color:var(--text-main);">-</div><div class="stat-sub" id="statERSLabel">-</div><div class="ers-forecast" id="ersForecastLine" style="display:none;font-size:.7rem;font-weight:600;color:#fbbf24;line-height:1.35;margin-top:.1rem"></div><div class="score-context" id="ersContext"></div><div class="breakdown-wrap"><div class="breakdown-bar" id="breakdownERS"></div><div class="breakdown-panel" id="panelERS"></div></div><div class="breakdown-hint">Hover bar for details</div></div>
+            <div class="stat-card" style="border-color:#f97316;background:rgba(249,115,22,.03)"><div class="stat-label">Impact Area<span class="tip" data-tip="IAS: A 0-100 score measuring how geography and rainfall amplify actual impact. Combines continental shelf surge amplification (55%) and rainfall/stall threat (45%).">?</span></div><div class="stat-value" id="statPeakIAS" style="color:var(--text-main);">-</div><div class="stat-sub" id="statIASLabel">-</div><div class="score-context" id="iasContext"></div><div class="breakdown-wrap" onclick="this.classList.toggle('open')"><div class="breakdown-bar" id="breakdownIAS"></div><div class="breakdown-panel" id="panelIAS"></div></div><div class="breakdown-hint">Tap or hover for details</div></div>
+            <div class="stat-card" style="border-color:#10b981;background:rgba(16,185,129,.03)"><div class="stat-label">Economic Risk<span class="tip" data-tip="ERS: A 0-100 score measuring economic exposure along the storm's path. Combines coastal economic value with threat reach (storm size x intensity).">?</span></div><div class="stat-value" id="statPeakERS" style="color:var(--text-main);">-</div><div class="stat-sub" id="statERSLabel">-</div><div class="ers-forecast" id="ersForecastLine" style="display:none;font-size:.7rem;font-weight:600;color:#fbbf24;line-height:1.35;margin-top:.1rem"></div><div class="score-context" id="ersContext"></div><div class="breakdown-wrap" onclick="this.classList.toggle('open')"><div class="breakdown-bar" id="breakdownERS"></div><div class="breakdown-panel" id="panelERS"></div></div><div class="breakdown-hint">Tap or hover for details</div></div>
         </div>
         <div id="rainfallBar" class="stall-bar" style="display:none;border-color:rgba(239,68,68,.3);background:rgba(239,68,68,.06)">
             <span class="stall-bar-icon" style="font-size:1.1rem">&#127783;&#65039;</span>
@@ -1376,7 +1377,7 @@ function updateBreakdownBars(heroDPS, peakDpsObj, _unused, peakIasObj, peakErsOb
               detail: `Wind-field breadth (r34/r64 radius accumulation)` },
             { label: 'Duration Bonus',  value: durationVal,  color: BREAKDOWN_COLORS.duration,
               display: Math.round(durationVal),  pct: Math.round(durationVal/heroDPS*100)+'%',
-              detail: `${compiledBundle.coastal_hours || '?'}h near-coast persistence` },
+              detail: `${Math.round(compiledBundle.coastal_hours || 0)}h near-coast persistence` },
             { label: 'Regional Boost',  value: regionalVal,  color: BREAKDOWN_COLORS.windSpeed,
               display: Math.round(regionalVal),  pct: Math.round(regionalVal/heroDPS*100)+'%',
               detail: regionalDetail },
@@ -1464,6 +1465,17 @@ function getDPSContext(score) {
     if (score >= 20) return 'Moderate concern. Prepare if within the forecast cone.';
     if (score >= 10) return 'Low but real threat. Stay informed and monitor updates.';
     return 'Minimal impact expected at this time.';
+}
+// Band word for the hero DPS card. Uses the SAME thresholds as getDPSContext so
+// the label and the guidance sentence can never disagree — previously the server
+// dps_label called an 18 "Moderate" while the sentence below said "Low".
+function getDPSBand(score) {
+    if (score >= 80) return 'Devastating';
+    if (score >= 60) return 'Extreme';
+    if (score >= 40) return 'Severe';
+    if (score >= 20) return 'Moderate';
+    if (score >= 10) return 'Low';
+    return 'Minimal';
 }
 function getIASContext(score) {
     if (score >= 70) return 'Geography amplifies damage dramatically (shallow coast, heavy rainfall).';
@@ -3708,14 +3720,14 @@ function renderAll(stormId,data){
         heroDPS = Math.round(compiled.dps);
         // Only show "Peak X" when peak snapshot ≥ cumulative (avoids confusing
         // users when the single-snapshot peak is lower than the running total).
-        heroDPSLabel = compiled.dps_label;
+        heroDPSLabel = getDPSBand(heroDPS);
         if (Math.round(compiled.peak_dps) >= heroDPS) {
             heroDPSLabel += ' · Peak ' + Math.round(compiled.peak_dps);
         }
     } else {
         // Fallback: use peak single-snapshot DPS as hero (no cumulative data)
         heroDPS = peakDpsObj.score;
-        heroDPSLabel = peakDpsObj.label;
+        heroDPSLabel = getDPSBand(heroDPS);
     }
     const heroColor = dpsTextColor(heroDPS);
     const heroCard = document.getElementById('dpsHeroCard');
