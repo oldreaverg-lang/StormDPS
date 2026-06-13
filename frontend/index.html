@@ -670,7 +670,7 @@
             <div class="rainfall-text-scroll">
                 <span class="stall-bar-text" id="rainfallBarText" style="color:#b3261e;font-size:.78rem;line-height:1.4"></span>
             </div>
-            <span class="stall-bar-score" id="rainfallBarScore" style="color:#ef4444"></span>
+            <span class="stall-bar-score" id="rainfallBarScore" style="color:#b3261e"></span>
         </div>
         <div id="stallRiskBar" class="stall-bar">
             <span class="stall-bar-icon" id="stallBarIcon"></span>
@@ -1194,6 +1194,15 @@ const BREAKDOWN_COLORS = {
     vuln: '#f87171',      // Red
     reach: '#38bdf8'      // Sky
 };
+// AA-safe (>=4.5:1 on white) text equivalents of the bright bar-fill colors,
+// used only for the numeric values rendered on the white tooltip panel. The bar
+// fills and swatches keep the bright colors; only on-white text is darkened.
+const BREAKDOWN_TEXT_COLORS = {
+    '#3b82f6': '#1d4ed8', '#a78bfa': '#6d28d9', '#f97316': '#c2410c',
+    '#34d399': '#047857', '#60a5fa': '#0369a1', '#fbbf24': '#a16207',
+    '#f87171': '#b91c1c', '#38bdf8': '#0369a1'
+};
+const aaTextColor = c => BREAKDOWN_TEXT_COLORS[(c || '').toLowerCase()] || c;
 
 function renderBreakdownBar(barId, panelId, segments, score) {
     const bar = document.getElementById(barId);
@@ -1210,7 +1219,7 @@ function renderBreakdownBar(barId, panelId, segments, score) {
         `<div class="breakdown-panel-row">` +
         `<div class="breakdown-panel-swatch" style="background:${seg.color}"></div>` +
         `<div class="breakdown-panel-label">${seg.label}${seg.detail ? `<span class="breakdown-panel-detail">${seg.detail}</span>` : ''}</div>` +
-        `<div class="breakdown-panel-val" style="color:${seg.color}">${seg.display}</div>` +
+        `<div class="breakdown-panel-val" style="color:${aaTextColor(seg.color)}">${seg.display}</div>` +
         `<div class="breakdown-panel-pct">${seg.pct}</div>` +
         `</div>`
     ).join('');
