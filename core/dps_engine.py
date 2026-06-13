@@ -118,14 +118,14 @@ def compute_storm_dps(
         rain_result.estimated_total_mm = _observed_rain_mm
         _rain_score_from_obs = min(100.0, (_observed_rain_mm / 500.0) * 100.0)
         rain_result.warning_score = max(rain_result.warning_score, _rain_score_from_obs)
-        if rain_result.warning_score >= 80:
-            rain_result.warning_level = "HISTORIC"
-        elif rain_result.warning_score >= 60:
-            rain_result.warning_level = "EXTREME"
-        elif rain_result.warning_score >= 40:
-            rain_result.warning_level = "HIGH"
-        elif rain_result.warning_score >= 20:
-            rain_result.warning_level = "ELEVATED"
+        # Re-derive level AND text together from the boosted score via the single
+        # source of truth, so they can never disagree. (Previously only the level
+        # was bumped, leaving e.g. "Historic" paired with the old "Normal" text —
+        # the contradictory marquee.)
+        from core.rainfall_warning import classify_warning
+        rain_result.warning_level, rain_result.warning_text = classify_warning(
+            rain_result.warning_score
+        )
         rain_result.is_anomalous = rain_result.warning_score >= 25
 
     # 7. Rainfall stall bonus (R7 + F2 + F11) — scaled by economic weight of stall location

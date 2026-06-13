@@ -1825,6 +1825,24 @@ def _load_dps_cache(storm_id: str) -> Optional[dict]:
         return None
 
 
+def _invalidate_dps_cache(storm_id: str) -> None:
+    """Mark a storm's cached DPS bundle stale so the next /dps call recomputes
+    (e.g. after recording observed rainfall). On the Railway volume the app user
+    can overwrite existing files but cannot unlink them (no dir-write; see
+    _save_dps_cache), so fall back to overwriting with invalid JSON — which
+    _load_dps_cache treats as a miss. Fully fail-open."""
+    fp = _dps_cache_path(storm_id)
+    try:
+        fp.unlink()
+    except FileNotFoundError:
+        return  # nothing cached → next view computes fresh anyway
+    except OSError:
+        try:
+            fp.write_text("stale")  # invalid JSON → _load_dps_cache returns None
+        except OSError:
+            logger.debug("[DPS CACHE] could not invalidate %s", storm_id)
+
+
 def _save_dps_cache(storm_id: str, bundle: dict) -> None:
     """Persist a storm's computed DPS bundle to the volume.
 
@@ -2913,6 +2931,9 @@ async def refresh_current_season_rainfall(http_client=None) -> dict:
                         "NASA GPM IMERG Late daily", peak_rainfall_mm=res["peak_cell_mm"],
                     ):
                         recorded += 1
+                        # Drop the stale pre-rainfall DPS bundle so the next /dps
+                        # (and the marquee) recomputes with the override.
+                        _invalidate_dps_cache(sid)
                 except Exception:
                     logger.info("[SEASON] rainfall enrich failed for %s", sid, exc_info=True)
                     continue
