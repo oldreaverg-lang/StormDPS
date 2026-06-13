@@ -2858,8 +2858,14 @@ async def refresh_current_season_rainfall(http_client=None) -> dict:
     (earthaccess/xarray) AND Earthdata creds in the environment. Anything missing
     makes this a clean no-op. Never raises; per-storm failures are skipped.
     """
-    if os.getenv("IMERG_LIVE_INGEST") != "1":
-        return {"rainfall_recorded": 0, "rainfall_status": "disabled"}
+    # Accept any common truthy form (tolerate quotes/whitespace/case that sneak
+    # into env-var values), and echo what we actually saw so a still-"disabled"
+    # result is diagnosable instead of opaque.
+    _raw_flag = os.getenv("IMERG_LIVE_INGEST")
+    _flag = (_raw_flag or "").strip().strip('"').strip("'").lower()
+    if _flag not in ("1", "true", "yes", "on"):
+        return {"rainfall_recorded": 0, "rainfall_status": "disabled",
+                "imerg_flag_seen": _raw_flag}
     try:
         from services.imerg_rainfall import (
             observed_rainfall_for_track, imerg_available, LATE_SHORT_NAME,
