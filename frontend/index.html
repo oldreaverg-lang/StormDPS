@@ -795,7 +795,7 @@
 
         <p style="font-weight:600;color:var(--text-main);margin-top:.8rem;margin-bottom:.3rem">Destructive Power Score (DPS)</p>
         <div class="score-scale">
-            <div class="score-scale-row"><span class="scale-badge" style="background:#ef4444">80-100</span><span style="color:#b91c1c"><b>Catastrophic</b> &mdash; Evacuate if in path</span></div>
+            <div class="score-scale-row"><span class="scale-badge" style="background:#ef4444">80-100</span><span style="color:#b91c1c"><b>Catastrophic</b> &mdash; follow local evacuation orders</span></div>
             <div class="score-scale-row"><span class="scale-badge" style="background:#f97316">60-79</span><span style="color:#c2410c"><b>Extreme</b> &mdash; Major damage likely</span></div>
             <div class="score-scale-row"><span class="scale-badge" style="background:#fbbf24">40-59</span><span style="color:#a16207"><b>Severe</b> &mdash; Significant threat</span></div>
             <div class="score-scale-row"><span class="scale-badge" style="background:#34d399">20-39</span><span style="color:#047857"><b>Moderate</b> &mdash; Prepare if in forecast cone</span></div>
@@ -1468,7 +1468,7 @@ function animateCountUp(el, target, color) {
 
 // ---- Score Context Helpers (plain-language guidance for new users) ----
 function getDPSContext(score) {
-    if (score >= 80) return 'Equivalent to a worst-case hurricane. Evacuate if in path.';
+    if (score >= 80) return 'Equivalent to a worst-case hurricane. Follow evacuation orders and guidance from your local authorities.';
     if (score >= 60) return 'Extremely dangerous. Major damage likely across a wide area.';
     if (score >= 40) return 'Significant threat. Comparable to a large Cat 2-3 hurricane.';
     if (score >= 20) return 'Moderate concern. Prepare if within the forecast cone.';
@@ -1485,6 +1485,17 @@ function getDPSBand(score) {
     if (score >= 20) return 'Moderate';
     if (score >= 10) return 'Low';
     return 'Minimal';
+}
+// Safety net: StormDPS is not an emergency authority and must never render a
+// protective-action directive — even from a stale cached/compiled bundle written
+// before the wording was fixed. Rewrite any legacy "Evacuate ..." marquee text to
+// deferral language. (Fresh computes already use the deferral wording at source.)
+function deAuthorize(t) {
+    return (t || '')
+        .replace(/Evacuate immediately\.?/gi,
+                 'Follow all evacuation orders and instructions from your local emergency-management and weather authorities without delay.')
+        .replace(/Evacuate flood-prone areas\.?/gi,
+                 'Follow evacuation orders and guidance from your local emergency-management authorities.');
 }
 function getIASContext(score) {
     if (score >= 70) return 'Geography amplifies damage dramatically (shallow coast, heavy rainfall).';
@@ -3784,7 +3795,7 @@ function renderAll(stormId,data){
     // Rainfall Red Bar Warning
     const rainBar = document.getElementById('rainfallBar');
     if (compiled && compiled.rainfall_anomalous) {
-        document.getElementById('rainfallBarText').textContent = compiled.rainfall_level + ': ' + compiled.rainfall_text;
+        document.getElementById('rainfallBarText').textContent = deAuthorize(compiled.rainfall_level + ': ' + compiled.rainfall_text);
         document.getElementById('rainfallBarScore').textContent = Math.round(compiled.rainfall_warning) + '/100';
         rainBar.style.display = 'flex';
         rainBar.classList.toggle('rain-extreme', compiled.rainfall_warning >= 60);

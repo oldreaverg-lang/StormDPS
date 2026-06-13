@@ -178,12 +178,15 @@ def classify_warning(score: float) -> Tuple[str, str]:
         return ("Extreme",
                 "Catastrophic rainfall event. Major river flooding, widespread "
                 "freshwater inundation expected. This storm's rainfall threat "
-                "exceeds its wind/surge threat. Evacuate flood-prone areas.")
+                "exceeds its wind/surge threat. Follow evacuation orders and "
+                "guidance from your local emergency-management authorities.")
     else:
         return ("Historic",
                 "Generational rainfall disaster. Multi-day flooding comparable "
                 "to Harvey (2017). Extreme danger in all low-lying areas. "
-                "Catastrophic river crests expected. Evacuate immediately.")
+                "Catastrophic river crests expected. Follow all evacuation orders "
+                "and instructions from your local emergency-management and weather "
+                "authorities without delay.")
 
 
 # ============================================================================
