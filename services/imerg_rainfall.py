@@ -34,6 +34,7 @@ def imerg_available() -> bool:
             import numpy  # noqa: F401
             import earthaccess  # noqa: F401
             import xarray  # noqa: F401
+            import h5py  # noqa: F401  # h5netcdf read backend (not auto-installed)
             _AVAILABLE = True
         except Exception:
             _AVAILABLE = False
