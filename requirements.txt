@@ -44,6 +44,15 @@ networkx>=3,<4
 duckdb>=1.1
 boto3>=1.34               # Cloudflare R2 storage (S3-compatible); no-op if env vars absent
 
+# --- IMERG observed-rainfall layer (services/imerg_rainfall.py) ---
+# Only exercised when IMERG_LIVE_INGEST=1 and EARTHDATA_USERNAME/PASSWORD are set;
+# imported lazily so they don't load otherwise. earthaccess handles NASA Earthdata
+# auth + granule search; xarray + h5netcdf read the IMERG daily netCDF/HDF5 files.
+# (numpy is already pinned above.)
+earthaccess>=0.10,<1.0
+xarray>=2024.1
+h5netcdf>=1.3,<2.0
+
 # --- Optional: Enhanced data processing ---
 # scipy==1.15.2
 
