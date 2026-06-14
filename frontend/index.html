@@ -727,6 +727,7 @@
                      charts. Windfield (Holland B colored gradient) is now
                      always on for every storm; see renderMap auto-enable. -->
                 <div id="satelliteSlider" style="display:none"></div>
+                <button class="map-legend-toggle" id="windDirToggleBtn" style="bottom:38px;left:8px;display:flex" onclick="toggleWindDirLayer()" title="Animated wind-flow direction (storm-parametric)">Wind flow: Off</button>
                 <div class="map-legend" id="mapLegend" style="display:none;">
                     <div style="font-weight:600;margin-bottom:2px;color:#22272d;">Wind Speed</div>
                     <div class="legend-item"><div class="legend-swatch" style="background:#ff4da6"></div>Cat 5 (&ge;157 mph)</div>
@@ -4267,6 +4268,7 @@ function setSatelliteFrame(idx) {
                 && typeof window.setWindfieldFrameByIdx === 'function') {
                 window.setWindfieldFrameByIdx(bestSi);
             }
+            if (typeof window.setWindDirFrameByIdx === 'function') window.setWindDirFrameByIdx(bestSi);
             // Snap the storm-timeline marker to the frame's storm index so
             // the "current" track icon lines up with the satellite frame.
             const curSi = Math.floor(window.currentAnimIndex || 0);
@@ -4936,6 +4938,140 @@ function toggleWindfieldLayer() {
     // Warm the per-index image cache so the whole animation is ready to play
     // through immediately — every frame stored up front, no first-play hitch.
     _windfieldPrewarmAll();
+}
+
+// ── Parametric wind-FLOW particle layer (Windy-style direction) ───────────
+// Animated leaflet-velocity particles built from the storm's OWN parameters
+// (Holland-B speed + cyclonic geometry + inflow + forward motion) — works for
+// every storm with no external API, unlike the retired Open-Meteo/ERA5 overlay.
+// Mirrors the windfield (speed) layer's per-frame, cache-by-index model.
+// Default OFF (opt-in toggle).
+window._windDirState = { layer: null, cache: null, enabled: false, currentIdx: -1 };
+
+// Build a leaflet-velocity [U,V] payload from one track fix, or null if too weak.
+function _computeWindUVPayload(dp) {
+    if (!dp) return null;
+    const vmax = dp.max_wind_ms;
+    if (!vmax || vmax < 10 || dp.lat == null || dp.lon == null) return null;
+    const lat0 = dp.lat, lon0 = dp.lon;
+    const rmw_nm = dp.rmw_nm || estimateRmwNm(vmax, lat0);
+    const r34_nm = dp.r34_nm || estimateR34Nm(vmax, rmw_nm);
+    const rmw_m = rmw_nm * NM_TO_M, r34_m = r34_nm * NM_TO_M;
+    const b = Math.min(2.5, Math.max(1.0, 1.0 + 0.5 * (vmax / 70.0)));
+
+    const extent_m = r34_m * 1.5;          // box ~1.5×R34 around the center
+    const N = 52;                          // 52×52 grid: smooth yet cheap
+    const mLat = 110540, mLon = (111320 * Math.cos(lat0 * Math.PI / 180)) || 1;
+    const dLat = extent_m / mLat, dLon = extent_m / mLon;
+    const latN = lat0 + dLat, latS = lat0 - dLat, lonW = lon0 - dLon, lonE = lon0 + dLon;
+
+    const q = dp.r34_quadrants;
+    const hasQ = q && (q.NE || q.SE || q.SW || q.NW);
+    let qNE, qSE, qSW, qNW, meanR34;
+    if (hasQ) {
+        qNE = (q.NE || r34_nm) * NM_TO_M; qSE = (q.SE || r34_nm) * NM_TO_M;
+        qSW = (q.SW || r34_nm) * NM_TO_M; qNW = (q.NW || r34_nm) * NM_TO_M;
+        meanR34 = (qNE + qSE + qSW + qNW) / 4;
+    }
+    const cyc = lat0 >= 0 ? 1 : -1;                  // NH cyclonic (CCW); SH (CW)
+    const inflow = 22 * Math.PI / 180;               // ~22° inflow toward center
+    const fwd = dp.forward_speed_knots ? dp.forward_speed_knots * 0.514444 : 0;
+    const fdir = (dp.forward_direction_deg || 0) * Math.PI / 180;
+    const fU = fwd * Math.sin(fdir), fV = fwd * Math.cos(fdir);
+
+    const U = [], V = [];
+    for (let j = 0; j < N; j++) {
+        const lat = latN - j * (latN - latS) / (N - 1);
+        for (let i = 0; i < N; i++) {
+            const lon = lonW + i * (lonE - lonW) / (N - 1);
+            const dx = (lon - lon0) * mLon, dy = (lat - lat0) * mLat;
+            let r = Math.sqrt(dx * dx + dy * dy); if (r < 1) r = 1;
+            let spd;
+            if (hasQ) {
+                const thetaDeg = ((Math.atan2(dx, dy) * 180 / Math.PI) + 360) % 360;
+                const r34t = interpQuadrantRadius(thetaDeg, qNE, qSE, qSW, qNW);
+                spd = hollandWindSpeed(r / (r34t / meanR34), vmax, rmw_m, b);
+                if (r > r34t * 0.9) { const tf = Math.min(1, (r - r34t * 0.9) / (r34t * 0.3)); spd *= 0.5 * (1 + Math.cos(Math.PI * tf)); }
+                if (r > r34t * 1.2) spd = 0;
+            } else {
+                spd = hollandWindSpeed(r, vmax, rmw_m, b);
+                if (r > r34_m * 0.9) { const tf = Math.min(1, (r - r34_m * 0.9) / (r34_m * 0.3)); spd *= 0.5 * (1 + Math.cos(Math.PI * tf)); }
+                if (r > r34_m * 1.2) spd = 0;
+            }
+            if (spd <= 0.5) { U.push(0); V.push(0); continue; }
+            const rx = dx / r, ry = dy / r;
+            const tx = -cyc * ry, ty = cyc * rx;        // tangential (cyclonic)
+            const dirX = Math.cos(inflow) * tx - Math.sin(inflow) * rx;   // + inflow toward center
+            const dirY = Math.cos(inflow) * ty - Math.sin(inflow) * ry;
+            const w = Math.min(1, spd / vmax);           // taper translation → calm far-field
+            U.push(Math.round((spd * dirX + fU * w) * 100) / 100);
+            V.push(Math.round((spd * dirY + fV * w) * 100) / 100);
+        }
+    }
+    const hdr = {
+        parameterCategory: 2, parameterUnit: 'm s-1',
+        nx: N, ny: N, la1: latN, lo1: lonW, la2: latS, lo2: lonE,
+        dx: (lonE - lonW) / (N - 1), dy: (latN - latS) / (N - 1),
+    };
+    return [
+        { header: { ...hdr, parameterNumber: 2, parameterNumberName: 'U-component_of_wind' }, data: U },
+        { header: { ...hdr, parameterNumber: 3, parameterNumberName: 'V-component_of_wind' }, data: V },
+    ];
+}
+
+function _windUVPayloadFor(idx) {
+    const st = window._windDirState;
+    if (!st.cache) st.cache = new Map();
+    if (st.cache.has(idx)) return st.cache.get(idx);
+    const sd = window.stormData;
+    const p = (sd && idx >= 0 && idx < sd.length) ? _computeWindUVPayload(sd[idx]) : null;
+    st.cache.set(idx, p);
+    return p;
+}
+
+async function _windDirDraw(idx) {
+    const st = window._windDirState;
+    if (!st.enabled || !currentMap) return;
+    const clamped = Math.max(0, Math.min(idx, (window.stormData || []).length - 1));
+    const payload = _windUVPayloadFor(clamped);
+    st.currentIdx = clamped;
+    if (!payload) {
+        if (st.layer) { try { currentMap.removeLayer(st.layer); } catch (e) {} st.layer = null; }
+        return;
+    }
+    if (st.layer) { try { st.layer.setData(payload); } catch (e) {} return; }
+    try { await loadLeafletVelocity(); } catch (e) { console.warn('[WINDFLOW] velocity load failed', e); return; }
+    if (!st.enabled) return;                              // toggled off while loading
+    st.layer = L.velocityLayer({
+        displayValues: false, data: payload,
+        maxVelocity: 70, velocityScale: 0.011, particleAge: 60,
+        lineWidth: 1.1, particleMultiplier: 0.0012,
+        colorScale: ['#3b82f6', '#22d3ee', '#a3e635', '#facc15', '#f97316', '#ef4444', '#ec4899'],
+    }).addTo(currentMap);
+    try { st.layer.setZIndex && st.layer.setZIndex(240); } catch (e) {}
+    try { const c = st.layer._canvasLayer && st.layer._canvasLayer._canvas; if (c) c.style.opacity = '0.6'; } catch (e) {}
+}
+
+window.setWindDirFrameByIdx = function (stormIdx) {
+    const st = window._windDirState;
+    if (st && st.enabled) _windDirDraw(stormIdx);
+};
+
+async function toggleWindDirLayer() {
+    const st = window._windDirState;
+    const btn = document.getElementById('windDirToggleBtn');
+    if (st.enabled) {
+        st.enabled = false;
+        if (st.layer && currentMap) { try { currentMap.removeLayer(st.layer); } catch (e) {} }
+        st.layer = null;
+        if (btn) { btn.textContent = 'Wind flow: Off'; btn.style.background = 'rgba(255,255,255,.93)'; btn.style.color = 'var(--text-muted)'; btn.style.borderColor = 'var(--border)'; }
+        return;
+    }
+    if (!currentMap) return;
+    st.enabled = true;
+    if (btn) { btn.textContent = 'Wind flow: On'; btn.style.background = 'rgba(34,211,238,.85)'; btn.style.color = '#06343a'; btn.style.borderColor = 'rgba(8,145,178,.6)'; }
+    const idx = (window.currentAnimIndex != null) ? Math.floor(window.currentAnimIndex) : ((window.stormData || []).length - 1);
+    _windDirDraw(idx);
 }
 
 // ── Wind layer state (mutable across calls) ───────────────────────────────
@@ -6073,6 +6209,14 @@ function renderMap(data){
         wf.enabled = false;
         wf.currentIdx = -1;
     }
+    // Wind-flow particles are opt-in; reset to off when the storm changes.
+    if (window._windDirState) {
+        const wd = window._windDirState;
+        if (wd.layer && currentMap) { try { currentMap.removeLayer(wd.layer); } catch(e) {} }
+        wd.layer = null; wd.cache = null; wd.enabled = false; wd.currentIdx = -1;
+        const wdb = document.getElementById('windDirToggleBtn');
+        if (wdb) { wdb.textContent = 'Wind flow: Off'; wdb.style.background = 'rgba(255,255,255,.93)'; wdb.style.color = 'var(--text-muted)'; wdb.style.borderColor = 'var(--border)'; }
+    }
     // Delay so the map container's ResizeObserver has a chance to reflow
     // before the Holland B image overlay computes its geographic bounds.
     setTimeout(() => { try { toggleWindfieldLayer(); } catch(e) {} }, 250);
@@ -6264,6 +6408,7 @@ function syncVisualization(fi,snap){
             && typeof window.setWindfieldFrameByIdx === 'function') {
             window.setWindfieldFrameByIdx(bi);
         }
+        if (typeof window.setWindDirFrameByIdx === 'function') window.setWindDirFrameByIdx(bi);
         // Drive the remaining timeline-synced overlays. Active storms snap to
         // the nearest satellite frame via syncOverlaysToTimestampMs (currently
         // a no-op — satellite layer removed — but kept so it revives cleanly if
