@@ -1,5 +1,6 @@
 # StormDPS — Claude context
 
+**Last updated:** June 16, 2026  
 **Live site:** https://stormdps.com · **GitHub:** https://github.com/oldreaverg-lang/StormDPS · **Railway** auto-deploys on push to `main`.
 
 ---
@@ -108,9 +109,8 @@ curl -s https://stormdps.com/storm/AL122005 | grep -E '<h1|<title|"datePublished
 3. **Apple submission** — blocked on user running `eas init`. See `docs/APPLE_SUBMISSION.md`.
 4. **Push notifications (v1.1)** — deferred; requires APNs + server pipeline.
 
-## Extended docs
+## Current state (as of June 16, 2026)
 
-- `docs/APPLE_SUBMISSION.md` — full App Store submission state and next steps
-- `docs/SEO_STATE.md` — SEO implementation log and deferred outreach plan
-- `docs/NRI_CALIBRATION.md` — FEMA NRI zone rebuild procedure and known limitations
-- `HANDOFF.md` — legacy session handoff (superseded by this file)
+**Site is live and healthy.** All recent bug fixes are deployed:
+- Active storms (Boris EP022026, Three-E EP032026) show correct lat/lon — NHC field rename `lat`→`latitudeNumeric` patched in `noaa_client.py`
+- EP/AL storms (Amanda, Boris, Three-E) lo
