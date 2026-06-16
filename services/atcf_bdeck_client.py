@@ -133,12 +133,14 @@ class ATCFBDeckClient:
         self, atcf_id: str
     ) -> list[HurricaneSnapshot]:
         """
-        Fetch the b-deck for an 8-char ATCF ID (e.g. WP042026) and return
-        historical observations as HurricaneSnapshot instances, oldest first.
+        Fetch the b-deck for an 8-char ATCF ID (e.g. WP042026, EP012026) and
+        return historical observations as HurricaneSnapshot instances, oldest first.
+
+        - JTWC storms (WP/IO/SH/SP/SI): fetched from UCAR RAL mirror
+        - NHC storms (EP/AL): fetched from NHC FTP
 
         Returns an empty list if the b-deck is unavailable or empty.
-        Never raises — falls back silently so the caller can try another
-        source.
+        Never raises — falls back silently so the caller can try another source.
         """
         aid = atcf_id.strip().upper()
         if len(aid) != 8:

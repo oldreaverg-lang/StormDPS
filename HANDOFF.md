@@ -326,4 +326,27 @@ Should show: `<title>Hurricane Katrina (2005) — DPS …`, `<h1>Hurricane Katri
 ## What NOT to do
 
 - Don't suggest stopping points or "good places to pause." Match user's pace.
-- Don't modify Cloudflare set
+- Don't modify Cloudflare settings on the user's behalf — guide them through the dashboard.
+- Don't run interactive CLI commands that require auth (`eas init`, `gh auth login`, etc.) — give the user the command to run themselves.
+- Don't add backwards-compatibility shims — the user prefers clean breaking changes when justified.
+- Don't commit secrets or `.env` files. ADMIN_TOKEN and ALLOWED_ORIGINS live in Railway env vars only.
+- Don't add `defer`/`async` to external scripts without grepping inline JS for top-level references to that lib's globals first (see `feedback_defer_check_top_level_refs.md`).
+- Don't pass named functions directly to `addEventListener` if they have meaningful positional parameters (see `feedback_event_listener_arg_leak.md`).
+- Don't recommend Cloudflare Rocket Loader. It's been known to break complex inline JS.
+
+---
+
+## Loose ends to potentially tackle
+
+In rough priority order, none are urgent:
+
+1. **PageSpeed verify** — re-test after `724571e` to confirm we hit ~91–93.
+2. **Catalog cold-start** — defer IBTrACS warm in lifespan (see "Open performance wins" #1 above).
+3. **Apple submission flow** — blocked on user running `eas init`.
+4. **Mobile in-app disclaimer audit** — verify the "not an official forecast" disclaimer is prominent in mobile UI before Apple submission.
+5. **WebP logo** — small perf win.
+6. **Push notifications (v1.1)** — full feature; requires APNs + server pipeline.
+
+---
+
+End of handoff. Read the memory files first, then attack whatever the user brings up.
