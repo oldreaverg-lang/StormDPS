@@ -10,6 +10,7 @@ stay ignored.
 | `nri-zone-rebuild` | Regenerate `frontend/nri_zones.json` from FEMA NRI, then audit it |
 | `compile-cache-bake` | Rebake `frontend/compiled_bundle.json` after a scoring-formula change |
 | `basin-dps-audit` | Validate a basin's DPS formula against ground truth before changing coefficients |
+| `code-review` | Fresh-eyes sub-agent review of pending changes before pushing to main |
 | `github-safe-push` | Commit/push to `main` without the NTFS-mount truncation bug |
 | `deploy-verify` | Purge/warm Cloudflare and verify SSR + PageSpeed after a deploy |
 
