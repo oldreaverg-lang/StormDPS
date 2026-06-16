@@ -114,3 +114,21 @@ curl -s https://stormdps.com/storm/AL122005 | grep -E '<h1|<title|"datePublished
 **Site is live and healthy.** All recent bug fixes are deployed:
 - Active storms (Boris EP022026, Three-E EP032026) show correct lat/lon — NHC field rename `lat`→`latitudeNumeric` patched in `noaa_client.py`
 - EP/AL storms (Amanda, Boris, Three-E) lo
+
+---
+
+## Project skills (.claude/skills/)
+
+Repeatable workflows are captured as skills - use them instead of re-deriving:
+
+- `github-safe-push` - commit/push to `main` without the NTFS-truncation bug (ships `scripts/gh_push.py`, which refuses NUL-corrupted or non-compiling files). Prefer this over the inline recovery pattern above.
+- `compile-cache-bake` - rebake `frontend/compiled_bundle.json` after a scoring change.
+- `nri-zone-rebuild` - regenerate `frontend/nri_zones.json` from FEMA NRI + audit.
+- `basin-dps-audit` - validate a basin's DPS formula vs ground truth before changing coefficients.
+- `deploy-verify` - purge/warm Cloudflare + verify SSR/PageSpeed after a deploy.
+- `code-review` - fresh-eyes sub-agent review before pushing.
+
+## Testing & secret scanning
+
+- `pytest -q` runs the offline suite in `tests/` (compile-guard over every module, `compiled_bundle.json` invariants; validator scripts opt-in via `--run-integration`). Dev deps: `requirements-dev.txt`.
+- Secret scanning: `.pre-commit-config.yaml` (gitleaks) - activate once with `pip install pre-commit && pre-commit install`. CI workflows `.github/workflows/secret-scan.yml` and `tests.yml` must be landed from native git (the agent PAT cannot push workflow files).
