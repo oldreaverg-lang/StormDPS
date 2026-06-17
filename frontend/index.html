@@ -753,12 +753,14 @@
                         <button class="chart-tab active" data-scoretab="dps" onclick="switchScoreTab('dps')">DPS <span style="font-size:.85em;font-weight:400;opacity:.6;letter-spacing:0;text-transform:none">· Power</span> <span class="tip" data-tip="Destructive Power Score: Combines peak intensity, storm size, surge potential, duration, and geographic breadth. Shows what actually matters for damage—not just wind speed, but how big and how long the threat lasts.">?</span></button>
                         <button class="chart-tab" data-scoretab="ias" onclick="switchScoreTab('ias')">IAS <span style="font-size:.85em;font-weight:400;opacity:.6;letter-spacing:0;text-transform:none">· Impact Area</span> <span class="tip" data-tip="Impact Area Score: Measures geographic and rainfall amplification. Shows how local geography (continental shelf, terrain, river basins) and stalling storms can magnify actual damage beyond peak intensity alone.">?</span></button>
                         <button class="chart-tab" data-scoretab="ers" onclick="switchScoreTab('ers')">ERS <span style="font-size:.85em;font-weight:400;opacity:.6;letter-spacing:0;text-transform:none">· Economic Risk</span> <span class="tip" data-tip="Economic Risk Score: Combines coastal economic value with storm threat. Shows exposure—where the most valuable infrastructure lies along the projected path relative to storm intensity and size.">?</span></button>
+                        <button class="chart-tab" data-scoretab="val" onclick="switchScoreTab('val')">Validation <span style="font-size:.85em;font-weight:400;opacity:.6;letter-spacing:0;text-transform:none">· vs Reality</span> <span class="tip" data-tip="Validation: how DPS compares to what storms actually did. Each dot is a past storm plotted by its DPS (horizontal) against the number of U.S. counties that received a FEMA disaster declaration (vertical) — an independent, real-world measure of impact footprint. A rising trend means a higher DPS predicts wider real damage.">?</span></button>
                     </div>
                     <div style="font-size:.72rem;color:var(--text-dim);text-align:right;padding:.1rem .5rem 0;">Click a point to sync the map ↑</div>
                     <div class="chart-tab-body">
                         <div class="chart-tab-pane active" id="tabDPS"><canvas id="dpsCanvas"></canvas></div>
                         <div class="chart-tab-pane" id="tabIAS"><canvas id="iasCanvas"></canvas></div>
                         <div class="chart-tab-pane" id="tabERS"><canvas id="ersCanvas"></canvas></div>
+                        <div class="chart-tab-pane" id="tabVAL"><canvas id="valCanvas"></canvas></div>
                     </div>
                     <div id="dpsContextBox" class="dps-context-box" style="display:none;">
                         <div class="dps-context-bullets" id="dpsContextBullets"></div>
@@ -4005,16 +4007,17 @@ function updateStormContext(data){
     box.style.display='none'; // start hidden, user clicks to reveal
 }
 
-let currentIASChart=null, currentERSChart=null;
+let currentIASChart=null, currentERSChart=null, currentVALChart=null;
 
 function switchScoreTab(tabName){
     document.querySelectorAll('#scoreChartTabbed .chart-tab').forEach(t=>t.classList.remove('active'));
     document.querySelector(`#scoreChartTabbed .chart-tab[data-scoretab="${tabName}"]`).classList.add('active');
     document.querySelectorAll('#scoreChartTabbed .chart-tab-pane').forEach(p=>p.classList.remove('active'));
-    const paneMap={dps:'tabDPS',ias:'tabIAS',ers:'tabERS'};
+    const paneMap={dps:'tabDPS',ias:'tabIAS',ers:'tabERS',val:'tabVAL'};
     document.getElementById(paneMap[tabName]).classList.add('active');
-    // Resize active chart so it fills the pane
-    const charts={dps:currentDPSChart,ias:currentIASChart,ers:currentERSChart};
+    // Resize active chart so it fills the pane (charts in hidden panes render
+    // at 0px until shown; resize on activation gives them their real size).
+    const charts={dps:currentDPSChart,ias:currentIASChart,ers:currentERSChart,val:currentVALChart};
     if(charts[tabName]) charts[tabName].resize();
 }
 
@@ -4060,6 +4063,54 @@ function renderDPSChart(data){
         [[0,'rgba(16,185,129,0.16)'],[0.5,'rgba(16,185,129,0.06)'],[1,'rgba(32,84,147,0.02)']],
         c=>{const score=Math.round(c.parsed.y);const d=data[c.dataIndex];const lbl=d&&d.ers?d.ers.label:'—';const zone=d&&d.ers&&d.ers.zone?' ('+d.ers.zone+')':'';return`ERS: ${score} / 100  —  ${lbl} Risk${zone}`;}
     );
+
+    // Cross-storm validation scatter (DPS vs observed FEMA footprint).
+    renderValidationChart();
+}
+
+// Validation: plot every storm that has both a DPS and FEMA counties-declared
+// (from actual_impact baked into compiled_bundle.json) as DPS-x vs counties-y,
+// highlighting the current storm. Non-critical — wrapped so a failure here can
+// never break the score charts above.
+function renderValidationChart(){
+    try{
+        if(currentVALChart){currentVALChart.destroy();currentVALChart=null;}
+        const canvas=document.getElementById('valCanvas');
+        if(!canvas||typeof Chart==='undefined') return;
+        const curId=window._currentStormId;
+        const others=[]; let cur=null;
+        Object.keys(COMPILED_SCORES).forEach(sid=>{
+            const s=COMPILED_SCORES[sid];
+            const ai=s&&s.actual_impact;
+            if(!ai||!ai.counties_declared||typeof s.dps!=='number') return;
+            const p={x:Math.round(s.dps),y:ai.counties_declared,name:s.name||sid,year:s.year||''};
+            if(sid===curId) cur=p; else others.push(p);
+        });
+        if(!others.length&&!cur) return;
+        // Pearson r over all shown points — an honest, self-updating caption.
+        const allPts=cur?others.concat([cur]):others;
+        let rTxt='';
+        if(allPts.length>=3){
+            const n=allPts.length;
+            const mx=allPts.reduce((a,p)=>a+p.x,0)/n, my=allPts.reduce((a,p)=>a+p.y,0)/n;
+            let cov=0,vx=0,vy=0;
+            allPts.forEach(p=>{cov+=(p.x-mx)*(p.y-my);vx+=(p.x-mx)*(p.x-mx);vy+=(p.y-my)*(p.y-my);});
+            if(vx>0&&vy>0){rTxt='  ·  correlation r = '+(cov/Math.sqrt(vx*vy)).toFixed(2)+' (n='+n+')';}
+        }
+        const ctx=canvas.getContext('2d');
+        const datasets=[{label:'Past storms',data:others,backgroundColor:'rgba(32,84,147,.5)',pointRadius:4,pointHoverRadius:6}];
+        if(cur) datasets.push({label:'This storm',data:[cur],backgroundColor:'#f43f5e',borderColor:'#fff',borderWidth:1.5,pointRadius:7,pointHoverRadius:9});
+        currentVALChart=new Chart(ctx,{type:'scatter',data:{datasets},options:{responsive:true,maintainAspectRatio:false,
+            plugins:{
+                legend:{display:!!cur,labels:{font:{size:11},usePointStyle:true}},
+                subtitle:{display:true,text:'Each dot is a storm — higher DPS, wider federal disaster footprint'+rTxt,color:'#5c6873',font:{size:10,style:'italic'},padding:{bottom:6}},
+                tooltip:{backgroundColor:'rgba(10,14,26,.95)',titleColor:'#f1f5f9',bodyColor:'#94a3b8',borderColor:'#1e293b',borderWidth:1,padding:10,cornerRadius:8,callbacks:{label:c=>`${c.raw.name}${c.raw.year?' ('+c.raw.year+')':''}: DPS ${c.raw.x}, ${c.raw.y} counties`}}
+            },
+            scales:{
+                x:{min:0,max:100,title:{display:true,text:'Destructive Power Score (DPS)',color:'#5c6873',font:{size:10,weight:600}},grid:{color:'rgba(0,0,0,.07)'},ticks:{stepSize:20,font:{size:10}}},
+                y:{beginAtZero:true,title:{display:true,text:'FEMA counties declared',color:'#5c6873',font:{size:10,weight:600}},grid:{color:'rgba(0,0,0,.07)'},ticks:{font:{size:10}}}
+            }}});
+    }catch(e){/* validation chart is non-critical */}
 }
 
 function renderChart(data){
