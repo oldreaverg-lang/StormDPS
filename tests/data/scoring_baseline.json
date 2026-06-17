@@ -1,0 +1,1117 @@
+{
+"2015180N09160": {
+"category": 3,
+"dps": 69.5055334,
+"dps_label": "Extreme"
+},
+"2024201N12133": {
+"category": 4,
+"dps": 44.24516666666666,
+"dps_label": "Severe"
+},
+"2024244N09137": {
+"category": 5,
+"dps": 47.824799999999996,
+"dps_label": "Severe"
+},
+"2024270N24128": {
+"category": 4,
+"dps": 37.8564,
+"dps_label": "Severe"
+},
+"2024298N13150": {
+"category": 5,
+"dps": 47.71503333333333,
+"dps_label": "Severe"
+},
+"2025262N16133": {
+"category": 5,
+"dps": 50.708999999999996,
+"dps_label": "Extreme"
+},
+"2025278N15254": {
+"category": 3,
+"dps": 35.364000000000004,
+"dps_label": "Severe"
+},
+"2025305N10138": {
+"category": 0,
+"dps": 55.56713888888889,
+"dps_label": "Extreme"
+},
+"2025308N10143": {
+"category": 1,
+"dps": 69.6112975,
+"dps_label": "Extreme"
+},
+"2025322S10131": {
+"category": 3,
+"dps": 27.9,
+"dps_label": "Moderate"
+},
+"2026010S17148": {
+"category": 0,
+"dps": 16.5,
+"dps_label": "Moderate"
+},
+"2026011S14076": {
+"category": 4,
+"dps": 35.844,
+"dps_label": "Severe"
+},
+"2026051S15076": {
+"category": 5,
+"dps": 42.43600000000001,
+"dps_label": "Severe"
+},
+"2026076S12157": {
+"category": 0,
+"dps": 22.8,
+"dps_label": "Moderate"
+},
+"AL012015": {
+"category": 0,
+"dps": 30.85285,
+"dps_label": "Severe"
+},
+"AL012016": {
+"category": 0,
+"dps": 32.159462399999995,
+"dps_label": "Severe"
+},
+"AL012017": {
+"category": 0,
+"dps": 23.4,
+"dps_label": "Moderate"
+},
+"AL012018": {
+"category": 0,
+"dps": 14.4,
+"dps_label": "Minor"
+},
+"AL012019": {
+"category": 0,
+"dps": 9.1,
+"dps_label": "Minor"
+},
+"AL012020": {
+"category": 0,
+"dps": 36.455568799999995,
+"dps_label": "Severe"
+},
+"AL012021": {
+"category": 0,
+"dps": 28.7,
+"dps_label": "Moderate"
+},
+"AL012022": {
+"category": 0,
+"dps": 28.7,
+"dps_label": "Moderate"
+},
+"AL012023": {
+"category": 0,
+"dps": 33.4,
+"dps_label": "Severe"
+},
+"AL012024": {
+"category": 0,
+"dps": 44.3,
+"dps_label": "Severe"
+},
+"AL012025": {
+"category": 0,
+"dps": 6.6,
+"dps_label": "Minor"
+},
+"AL022015": {
+"category": 0,
+"dps": 29.203000000000003,
+"dps_label": "Moderate"
+},
+"AL022016": {
+"category": 0,
+"dps": 16.837888,
+"dps_label": "Moderate"
+},
+"AL022017": {
+"category": 0,
+"dps": 12.3,
+"dps_label": "Minor"
+},
+"AL022018": {
+"category": 0,
+"dps": 13.600999999999999,
+"dps_label": "Minor"
+},
+"AL022019": {
+"category": 0,
+"dps": 51.7785,
+"dps_label": "Extreme"
+},
+"AL022020": {
+"category": 0,
+"dps": 9.6565,
+"dps_label": "Minor"
+},
+"AL022021": {
+"category": 0,
+"dps": 11.0,
+"dps_label": "Minor"
+},
+"AL022022": {
+"category": 0,
+"dps": 24.752000000000002,
+"dps_label": "Moderate"
+},
+"AL022023": {
+"category": 0,
+"dps": 17.069,
+"dps_label": "Moderate"
+},
+"AL022024": {
+"category": 4,
+"dps": 80.83224423819959,
+"dps_label": "Devastating"
+},
+"AL022025": {
+"category": 0,
+"dps": 7.2,
+"dps_label": "Minor"
+},
+"AL032015": {
+"category": 0,
+"dps": 10.3,
+"dps_label": "Minor"
+},
+"AL032016": {
+"category": 0,
+"dps": 34.0829856,
+"dps_label": "Severe"
+},
+"AL032017": {
+"category": 0,
+"dps": 40.6123936,
+"dps_label": "Severe"
+},
+"AL032018": {
+"category": 2,
+"dps": 24.7374,
+"dps_label": "Moderate"
+},
+"AL032019": {
+"category": 0,
+"dps": 0.0,
+"dps_label": "Minor"
+},
+"AL032020": {
+"category": 0,
+"dps": 41.6363352,
+"dps_label": "Severe"
+},
+"AL032021": {
+"category": 0,
+"dps": 32.859199999999994,
+"dps_label": "Severe"
+},
+"AL032022": {
+"category": 0,
+"dps": 10.6,
+"dps_label": "Minor"
+},
+"AL032023": {
+"category": 0,
+"dps": 11.840399999999999,
+"dps_label": "Minor"
+},
+"AL032024": {
+"category": 0,
+"dps": 12.0,
+"dps_label": "Minor"
+},
+"AL032025": {
+"category": 0,
+"dps": 16.3898,
+"dps_label": "Moderate"
+},
+"AL042015": {
+"category": 0,
+"dps": 28.622999999999998,
+"dps_label": "Moderate"
+},
+"AL042016": {
+"category": 0,
+"dps": 14.0,
+"dps_label": "Minor"
+},
+"AL042017": {
+"category": 0,
+"dps": 0.0,
+"dps_label": "Minor"
+},
+"AL042018": {
+"category": 0,
+"dps": 11.1,
+"dps_label": "Minor"
+},
+"AL042019": {
+"category": 0,
+"dps": 5.4,
+"dps_label": "Minor"
+},
+"AL042020": {
+"category": 0,
+"dps": 14.746,
+"dps_label": "Minor"
+},
+"AL042021": {
+"category": 0,
+"dps": 8.9,
+"dps_label": "Minor"
+},
+"AL042022": {
+"category": 0,
+"dps": 6.9,
+"dps_label": "Minor"
+},
+"AL042023": {
+"category": 0,
+"dps": 7.3,
+"dps_label": "Minor"
+},
+"AL042024": {
+"category": 1,
+"dps": 44.484519999999996,
+"dps_label": "Severe"
+},
+"AL042025": {
+"category": 1,
+"dps": 17.1,
+"dps_label": "Moderate"
+},
+"AL052015": {
+"category": 0,
+"dps": 17.59419,
+"dps_label": "Moderate"
+},
+"AL052016": {
+"category": 1,
+"dps": 12.032279999999998,
+"dps_label": "Minor"
+},
+"AL052017": {
+"category": 0,
+"dps": 5.9,
+"dps_label": "Minor"
+},
+"AL052018": {
+"category": 0,
+"dps": 15.3,
+"dps_label": "Moderate"
+},
+"AL052019": {
+"category": 4,
+"dps": 86.87634796619511,
+"dps_label": "Catastrophic"
+},
+"AL052020": {
+"category": 0,
+"dps": 9.2,
+"dps_label": "Minor"
+},
+"AL052021": {
+"category": 1,
+"dps": 22.411037600000004,
+"dps_label": "Moderate"
+},
+"AL052022": {
+"category": 1,
+"dps": 17.2,
+"dps_label": "Moderate"
+},
+"AL052023": {
+"category": 1,
+"dps": 15.3,
+"dps_label": "Moderate"
+},
+"AL052024": {
+"category": 0,
+"dps": 43.120447999999996,
+"dps_label": "Severe"
+},
+"AL052025": {
+"category": 2,
+"dps": 71.72429955263853,
+"dps_label": "Devastating"
+},
+"AL062015": {
+"category": 1,
+"dps": 5.3,
+"dps_label": "Minor"
+},
+"AL062016": {
+"category": 0,
+"dps": 5.7,
+"dps_label": "Minor"
+},
+"AL062017": {
+"category": 0,
+"dps": 9.7455,
+"dps_label": "Minor"
+},
+"AL062018": {
+"category": 2,
+"dps": 75.37889462867862,
+"dps_label": "Devastating"
+},
+"AL062019": {
+"category": 0,
+"dps": 13.938,
+"dps_label": "Minor"
+},
+"AL062020": {
+"category": 0,
+"dps": 19.536000000000005,
+"dps_label": "Moderate"
+},
+"AL062021": {
+"category": 0,
+"dps": 15.052688,
+"dps_label": "Moderate"
+},
+"AL062022": {
+"category": 0,
+"dps": 49.798759999999994,
+"dps_label": "Severe"
+},
+"AL062023": {
+"category": 0,
+"dps": 13.6,
+"dps_label": "Minor"
+},
+"AL062024": {
+"category": 2,
+"dps": 46.965990399999995,
+"dps_label": "Severe"
+},
+"AL062025": {
+"category": 0,
+"dps": 9.9,
+"dps_label": "Minor"
+},
+"AL072015": {
+"category": 0,
+"dps": 0.0,
+"dps_label": "Minor"
+},
+"AL072016": {
+"category": 3,
+"dps": 43.9,
+"dps_label": "Severe"
+},
+"AL072017": {
+"category": 0,
+"dps": 15.096000000000002,
+"dps_label": "Moderate"
+},
+"AL072018": {
+"category": 0,
+"dps": 14.190000000000001,
+"dps_label": "Minor"
+},
+"AL072019": {
+"category": 0,
+"dps": 11.5,
+"dps_label": "Minor"
+},
+"AL072020": {
+"category": 0,
+"dps": 6.1,
+"dps_label": "Minor"
+},
+"AL072021": {
+"category": 3,
+"dps": 37.0,
+"dps_label": "Severe"
+},
+"AL072022": {
+"category": 0,
+"dps": 73.46319427179152,
+"dps_label": "Devastating"
+},
+"AL072023": {
+"category": 0,
+"dps": 12.2,
+"dps_label": "Minor"
+},
+"AL072024": {
+"category": 0,
+"dps": 7.9,
+"dps_label": "Minor"
+},
+"AL072025": {
+"category": 4,
+"dps": 45.2,
+"dps_label": "Severe"
+},
+"AL082015": {
+"category": 0,
+"dps": 25.1,
+"dps_label": "Moderate"
+},
+"AL082016": {
+"category": 0,
+"dps": 12.928,
+"dps_label": "Minor"
+},
+"AL082017": {
+"category": 2,
+"dps": 29.9,
+"dps_label": "Moderate"
+},
+"AL082018": {
+"category": 2,
+"dps": 17.9,
+"dps_label": "Moderate"
+},
+"AL082019": {
+"category": 0,
+"dps": 10.8,
+"dps_label": "Minor"
+},
+"AL082020": {
+"category": 0,
+"dps": 32.135608000000005,
+"dps_label": "Severe"
+},
+"AL082021": {
+"category": 0,
+"dps": 18.48,
+"dps_label": "Moderate"
+},
+"AL082022": {
+"category": 0,
+"dps": 8.3,
+"dps_label": "Minor"
+},
+"AL082023": {
+"category": 0,
+"dps": 65.63276131218073,
+"dps_label": "Extreme"
+},
+"AL082024": {
+"category": 0,
+"dps": 29.575736,
+"dps_label": "Moderate"
+},
+"AL082025": {
+"category": 5,
+"dps": 68.67179335547152,
+"dps_label": "Extreme"
+},
+"AL092008": {
+"category": 3,
+"dps": 85.64304131728528,
+"dps_label": "Catastrophic"
+},
+"AL092015": {
+"category": 0,
+"dps": 0.0,
+"dps_label": "Minor"
+},
+"AL092016": {
+"category": 1,
+"dps": 43.7305792,
+"dps_label": "Severe"
+},
+"AL092017": {
+"category": 1,
+"dps": 81.75749985637137,
+"dps_label": "Devastating"
+},
+"AL092018": {
+"category": 0,
+"dps": 14.209999999999999,
+"dps_label": "Minor"
+},
+"AL092019": {
+"category": 3,
+"dps": 50.267448,
+"dps_label": "Extreme"
+},
+"AL092020": {
+"category": 1,
+"dps": 31.790707200000003,
+"dps_label": "Severe"
+},
+"AL092021": {
+"category": 4,
+"dps": 82.9479550287166,
+"dps_label": "Devastating"
+},
+"AL092022": {
+"category": 4,
+"dps": 87.8998207879549,
+"dps_label": "Catastrophic"
+},
+"AL092023": {
+"category": 0,
+"dps": 12.426000000000002,
+"dps_label": "Minor"
+},
+"AL092024": {
+"category": 4,
+"dps": 81.42869104728518,
+"dps_label": "Devastating"
+},
+"AL092025": {
+"category": 1,
+"dps": 45.147000000000006,
+"dps_label": "Severe"
+},
+"AL102015": {
+"category": 0,
+"dps": 9.7,
+"dps_label": "Minor"
+},
+"AL102016": {
+"category": 0,
+"dps": 16.9,
+"dps_label": "Moderate"
+},
+"AL102017": {
+"category": 0,
+"dps": 17.346,
+"dps_label": "Moderate"
+},
+"AL102018": {
+"category": 0,
+"dps": 9.2,
+"dps_label": "Minor"
+},
+"AL102019": {
+"category": 1,
+"dps": 17.829499999999996,
+"dps_label": "Moderate"
+},
+"AL102020": {
+"category": 0,
+"dps": 0.0,
+"dps_label": "Minor"
+},
+"AL102021": {
+"category": 0,
+"dps": 0.0,
+"dps_label": "Minor"
+},
+"AL102022": {
+"category": 0,
+"dps": 0.0,
+"dps_label": "Minor"
+},
+"AL102023": {
+"category": 3,
+"dps": 59.954,
+"dps_label": "Extreme"
+},
+"AL102024": {
+"category": 2,
+"dps": 19.3,
+"dps_label": "Moderate"
+},
+"AL102025": {
+"category": 0,
+"dps": 19.284999999999997,
+"dps_label": "Moderate"
+},
+"AL112015": {
+"category": 4,
+"dps": 69.42031846595432,
+"dps_label": "Extreme"
+},
+"AL112016": {
+"category": 0,
+"dps": 15.5754,
+"dps_label": "Moderate"
+},
+"AL112017": {
+"category": 5,
+"dps": 88.24333124827876,
+"dps_label": "Catastrophic"
+},
+"AL112018": {
+"category": 0,
+"dps": 0.0,
+"dps_label": "Minor"
+},
+"AL112019": {
+"category": 0,
+"dps": 18.5,
+"dps_label": "Moderate"
+},
+"AL112020": {
+"category": 0,
+"dps": 11.0,
+"dps_label": "Minor"
+},
+"AL112021": {
+"category": 0,
+"dps": 13.7,
+"dps_label": "Minor"
+},
+"AL112022": {
+"category": 0,
+"dps": 0.0,
+"dps_label": "Minor"
+},
+"AL112023": {
+"category": 0,
+"dps": 5.3,
+"dps_label": "Minor"
+},
+"AL112024": {
+"category": 0,
+"dps": 5.9,
+"dps_label": "Minor"
+},
+"AL112025": {
+"category": 0,
+"dps": 5.3,
+"dps_label": "Minor"
+},
+"AL122005": {
+"category": 4,
+"dps": 92.9673778150462,
+"dps_label": "Catastrophic"
+},
+"AL122015": {
+"category": 1,
+"dps": 23.6,
+"dps_label": "Moderate"
+},
+"AL122016": {
+"category": 0,
+"dps": 17.4,
+"dps_label": "Moderate"
+},
+"AL122017": {
+"category": 4,
+"dps": 59.74879999999999,
+"dps_label": "Extreme"
+},
+"AL122018": {
+"category": 0,
+"dps": 13.4995,
+"dps_label": "Minor"
+},
+"AL122019": {
+"category": 0,
+"dps": 12.2,
+"dps_label": "Minor"
+},
+"AL122020": {
+"category": 0,
+"dps": 14.7,
+"dps_label": "Minor"
+},
+"AL122021": {
+"category": 3,
+"dps": 42.6,
+"dps_label": "Severe"
+},
+"AL122022": {
+"category": 0,
+"dps": 0.0,
+"dps_label": "Minor"
+},
+"AL122023": {
+"category": 0,
+"dps": 6.4,
+"dps_label": "Minor"
+},
+"AL122024": {
+"category": 4,
+"dps": 37.4,
+"dps_label": "Severe"
+},
+"AL122025": {
+"category": 0,
+"dps": 8.3,
+"dps_label": "Minor"
+},
+"AL132016": {
+"category": 0,
+"dps": 9.7,
+"dps_label": "Minor"
+},
+"AL132017": {
+"category": 2,
+"dps": 19.5,
+"dps_label": "Moderate"
+},
+"AL132018": {
+"category": 1,
+"dps": 37.3,
+"dps_label": "Severe"
+},
+"AL132019": {
+"category": 5,
+"dps": 37.1,
+"dps_label": "Severe"
+},
+"AL132020": {
+"category": 4,
+"dps": 85.93949883864374,
+"dps_label": "Catastrophic"
+},
+"AL132021": {
+"category": 0,
+"dps": 7.628499999999999,
+"dps_label": "Minor"
+},
+"AL132022": {
+"category": 1,
+"dps": 11.856000000000002,
+"dps_label": "Minor"
+},
+"AL132023": {
+"category": 5,
+"dps": 68.09938269252663,
+"dps_label": "Extreme"
+},
+"AL132024": {
+"category": 2,
+"dps": 10.4,
+"dps_label": "Minor"
+},
+"AL132025": {
+"category": 5,
+"dps": 75.1980057639152,
+"dps_label": "Devastating"
+},
+"AL142016": {
+"category": 4,
+"dps": 79.88729845906678,
+"dps_label": "Devastating"
+},
+"AL142017": {
+"category": 3,
+"dps": 34.6,
+"dps_label": "Severe"
+},
+"AL142018": {
+"category": 5,
+"dps": 80.61959874340914,
+"dps_label": "Devastating"
+},
+"AL142019": {
+"category": 0,
+"dps": 47.975,
+"dps_label": "Severe"
+},
+"AL142020": {
+"category": 0,
+"dps": 13.843,
+"dps_label": "Minor"
+},
+"AL142021": {
+"category": 0,
+"dps": 19.184000000000005,
+"dps_label": "Moderate"
+},
+"AL142022": {
+"category": 0,
+"dps": 13.2,
+"dps_label": "Minor"
+},
+"AL142023": {
+"category": 1,
+"dps": 25.5,
+"dps_label": "Moderate"
+},
+"AL142024": {
+"category": 3,
+"dps": 82.2003963928575,
+"dps_label": "Devastating"
+},
+"AL152016": {
+"category": 4,
+"dps": 48.782999999999994,
+"dps_label": "Severe"
+},
+"AL152017": {
+"category": 5,
+"dps": 85.60630234922645,
+"dps_label": "Catastrophic"
+},
+"AL152018": {
+"category": 0,
+"dps": 5.1,
+"dps_label": "Minor"
+},
+"AL152019": {
+"category": 0,
+"dps": 0.0,
+"dps_label": "Minor"
+},
+"AL152020": {
+"category": 0,
+"dps": 11.1,
+"dps_label": "Minor"
+},
+"AL152021": {
+"category": 0,
+"dps": 25.3,
+"dps_label": "Moderate"
+},
+"AL152022": {
+"category": 0,
+"dps": 14.688,
+"dps_label": "Minor"
+},
+"AL152023": {
+"category": 2,
+"dps": 32.2,
+"dps_label": "Severe"
+},
+"AL152024": {
+"category": 0,
+"dps": 31.6,
+"dps_label": "Severe"
+},
+"AL162016": {
+"category": 3,
+"dps": 33.800000000000004,
+"dps_label": "Severe"
+},
+"AL162017": {
+"category": 1,
+"dps": 41.80050000000001,
+"dps_label": "Severe"
+},
+"AL162018": {
+"category": 2,
+"dps": 23.8,
+"dps_label": "Moderate"
+},
+"AL162019": {
+"category": 0,
+"dps": 32.911856,
+"dps_label": "Severe"
+},
+"AL162020": {
+"category": 0,
+"dps": 8.976,
+"dps_label": "Minor"
+},
+"AL162021": {
+"category": 0,
+"dps": 19.5,
+"dps_label": "Moderate"
+},
+"AL162022": {
+"category": 1,
+"dps": 24.2,
+"dps_label": "Moderate"
+},
+"AL162023": {
+"category": 0,
+"dps": 28.225417999999998,
+"dps_label": "Moderate"
+},
+"AL162024": {
+"category": 1,
+"dps": 11.628,
+"dps_label": "Minor"
+},
+"AL172017": {
+"category": 3,
+"dps": 26.0,
+"dps_label": "Moderate"
+},
+"AL172019": {
+"category": 0,
+"dps": 13.8542544,
+"dps_label": "Minor"
+},
+"AL172020": {
+"category": 2,
+"dps": 38.1,
+"dps_label": "Severe"
+},
+"AL172021": {
+"category": 0,
+"dps": 6.8,
+"dps_label": "Minor"
+},
+"AL172022": {
+"category": 0,
+"dps": 40.1608512,
+"dps_label": "Severe"
+},
+"AL172023": {
+"category": 0,
+"dps": 24.3503856,
+"dps_label": "Moderate"
+},
+"AL172024": {
+"category": 0,
+"dps": 12.2,
+"dps_label": "Minor"
+},
+"AL182012": {
+"category": 1,
+"dps": 84.51931483545165,
+"dps_label": "Devastating"
+},
+"AL182017": {
+"category": 0,
+"dps": 11.3,
+"dps_label": "Minor"
+},
+"AL182019": {
+"category": 1,
+"dps": 12.2,
+"dps_label": "Minor"
+},
+"AL182020": {
+"category": 0,
+"dps": 5.3,
+"dps_label": "Minor"
+},
+"AL182021": {
+"category": 4,
+"dps": 54.6,
+"dps_label": "Extreme"
+},
+"AL182023": {
+"category": 0,
+"dps": 8.8,
+"dps_label": "Minor"
+},
+"AL182024": {
+"category": 0,
+"dps": 43.40633759999999,
+"dps_label": "Severe"
+},
+"AL192017": {
+"category": 0,
+"dps": 15.3,
+"dps_label": "Moderate"
+},
+"AL192019": {
+"category": 1,
+"dps": 23.8,
+"dps_label": "Moderate"
+},
+"AL192020": {
+"category": 2,
+"dps": 33.7558416,
+"dps_label": "Severe"
+},
+"AL192021": {
+"category": 0,
+"dps": 22.1,
+"dps_label": "Moderate"
+},
+"AL192023": {
+"category": 0,
+"dps": 6.2,
+"dps_label": "Minor"
+},
+"AL192024": {
+"category": 0,
+"dps": 24.2,
+"dps_label": "Moderate"
+},
+"AL202019": {
+"category": 0,
+"dps": 19.2,
+"dps_label": "Moderate"
+},
+"AL202020": {
+"category": 4,
+"dps": 72.71219886565656,
+"dps_label": "Devastating"
+},
+"AL202021": {
+"category": 0,
+"dps": 7.5,
+"dps_label": "Minor"
+},
+"AL202023": {
+"category": 1,
+"dps": 29.7395,
+"dps_label": "Moderate"
+},
+"AL212020": {
+"category": 0,
+"dps": 6.8,
+"dps_label": "Minor"
+},
+"AL212021": {
+"category": 0,
+"dps": 44.5,
+"dps_label": "Severe"
+},
+"AL212023": {
+"category": 0,
+"dps": 9.7,
+"dps_label": "Minor"
+},
+"AL222020": {
+"category": 0,
+"dps": 42.147152000000006,
+"dps_label": "Severe"
+},
+"AL222023": {
+"category": 0,
+"dps": 14.9,
+"dps_label": "Minor"
+},
+"AL232020": {
+"category": 0,
+"dps": 10.2,
+"dps_label": "Minor"
+},
+"AL242020": {
+"category": 0,
+"dps": 16.9,
+"dps_label": "Moderate"
+},
+"AL252020": {
+"category": 1,
+"dps": 26.5,
+"dps_label": "Moderate"
+},
+"AL262020": {
+"category": 3,
+"dps": 69.44728938902584,
+"dps_label": "Extreme"
+},
+"AL272020": {
+"category": 3,
+"dps": 54.7,
+"dps_label": "Extreme"
+},
+"AL282020": {
+"category": 3,
+"dps": 58.6033408,
+"dps_label": "Extreme"
+},
+"AL292020": {
+"category": 4,
+"dps": 66.31033184547375,
+"dps_label": "Extreme"
+},
+"AL302020": {
+"category": 0,
+"dps": 11.1,
+"dps_label": "Minor"
+},
+"AL312020": {
+"category": 4,
+"dps": 71.2313845985257,
+"dps_label": "Devastating"
+}
+}
