@@ -21,6 +21,7 @@ import sys
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
+from timeutil import utcnow
 from pathlib import Path
 
 # Add project root to path
@@ -330,7 +331,7 @@ def compute_storm_ike(storm_id: str, sid: str, rows: list) -> tuple:
         "_grid_res_km": GRID_RES_KM,
         "_skip_points": SKIP_POINTS,
         "_compute_ms": round(compute_ms, 1),
-        "_cached_at": datetime.utcnow().isoformat(),
+        "_cached_at": utcnow().isoformat(),
         "_obs_count": len(results),
         "results": results,
     }

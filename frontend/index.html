@@ -258,7 +258,7 @@
             .stat-label{font-size:.5rem!important;letter-spacing:.06em!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
             .stat-value{font-size:1.6rem!important;line-height:1.15}
             .stat-sub{font-size:.6rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-            .score-context{display:none}.dps-explainer{display:none}
+            .score-context{display:none}
             .breakdown-wrap{display:none}
             .breakdown-hint{display:none}
             .tip{display:none!important}
@@ -469,9 +469,9 @@
         .dps-trend-wrap{display:flex;align-items:center;justify-content:center;gap:.35rem}
         .dps-trend{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:0;line-height:1;font-size:1.4rem;font-weight:900;transition:opacity .3s,color .3s;opacity:0;min-width:22px}
         .dps-trend.visible{opacity:1}
-        .dps-trend.trend-up{color:#c2410c}
-        .dps-trend.trend-down{color:#047857}
-        .dps-trend.trend-ri{color:#b91c1c}
+        .dps-trend.trend-up{color:#f97316}
+        .dps-trend.trend-down{color:#34d399}
+        .dps-trend.trend-ri{color:#ef4444}
         .dps-trend .trend-arrow{display:block;line-height:.65;font-size:1.3rem}
         .dps-trend.trend-ri .trend-arrow{font-size:1rem;line-height:.55}
         @keyframes riPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.15)}}
@@ -660,7 +660,7 @@
         <div id="statsRow" class="stats-row">
             <div class="stat-card dps-hero-card" id="dpsHeroCard" style="border-color:var(--primary)">
                 <div class="stat-label dps-label" style="font-size:.75rem;letter-spacing:.1em"><span class="label-full">DESTRUCTIVE POWER SCORE</span><span class="label-short">DPS</span><span class="tip" data-tip="DPS: A 0-100 hurricane threat score combining storm intensity, wind field size, surge potential, duration of coastal exposure, and geographic breadth. A modern alternative to the Saffir-Simpson scale — it captures what peak wind alone misses.">?</span></div>
-                <div class="dps-explainer" style="font-size:.62rem;color:var(--text-dim);text-transform:none;letter-spacing:0;font-weight:400;line-height:1.25;margin:.1rem 0 .2rem">A 0–100 score of a storm's total destructive power.</div><div class="dps-trend-wrap"><div class="stat-value" id="statHeroDPS" style="color:var(--text-main);font-size:2.4rem">-</div><div class="dps-trend" id="dpsTrendIndicator"></div></div>
+                <div class="dps-trend-wrap"><div class="stat-value" id="statHeroDPS" style="color:var(--text-main)">-</div><div class="dps-trend" id="dpsTrendIndicator"></div></div>
                 <div class="stat-sub" id="statHeroDPSLabel" style="font-size:.78rem;opacity:.8">-</div>
                 <div class="score-context" id="dpsContext"></div>
                 <div class="breakdown-wrap" onclick="this.classList.toggle('open')"><div class="breakdown-bar" id="breakdownDPS"></div><div class="breakdown-panel" id="panelDPS"></div></div><div class="breakdown-hint">Tap or hover for details</div>
@@ -2787,6 +2787,20 @@ function classificationShort(cls){
     return map[cls]||cls.substring(0,3).toUpperCase();
 }
 
+// Escape feed-derived strings before interpolating into innerHTML. Active-storm
+// name/id/classification come from the live NHC/JTWC/IBTrACS feeds, so they're
+// not author-controlled like the baked preset bundle. Covers text and quoted-
+// attribute contexts. Reading the value back via getAttribute() un-escapes it,
+// so loadActiveStorm() still receives the original id.
+function escapeHtml(v){
+    return String(v==null?'':v)
+        .replace(/&/g,'&amp;')
+        .replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;')
+        .replace(/'/g,'&#39;');
+}
+
 let _lastActiveStormsJson='';
 function renderActiveStorms(storms){
     // Skip re-rendering if data hasn't changed (avoids unnecessary DOM rebuilds)
@@ -2828,13 +2842,13 @@ function renderActiveStorms(storms){
         } else if(mvSpd != null && mvSpd < 12) {
             stallHint = '<span class="stall-risk-badge stall-risk-moderate" style="margin-left:4px">SLOW</span>';
         }
-        return `<div class="active-chip" data-storm-id="${s.id}" onclick="loadActiveStorm('${s.id}')">
+        return `<div class="active-chip" data-storm-id="${escapeHtml(s.id)}" role="button" tabindex="0">
             <div class="active-dot" style="background:${color}"></div>
             <div class="chip-detail">
-                <span class="chip-name">${s.name||'Unnamed'}${stallHint}</span>
+                <span class="chip-name">${escapeHtml(s.name||'Unnamed')}${stallHint}</span>
                 <span class="chip-stats">${wind}${pres?' &middot; '+pres:''}${loc?' &middot; '+loc:''}</span>
             </div>
-            <span class="chip-intensity" style="color:${color}">${kt>=64?label:cls}</span>
+            <span class="chip-intensity" style="color:${color}">${kt>=64?label:escapeHtml(cls)}</span>
         </div>`;
     }).join('');
 }
@@ -3188,6 +3202,24 @@ document.addEventListener('click', function(e) {
     document.querySelectorAll('.tip.tip-active').forEach(t => { if (t !== e.target) t.classList.remove('tip-active'); });
     // Toggle clicked tooltip
     if (e.target.classList.contains('tip')) { e.target.classList.toggle('tip-active'); e.stopPropagation(); }
+});
+
+// Delegated activation for live active-storm chips. Replaces the per-chip
+// inline onclick so the storm id/name (live feed data) never lands in an inline
+// handler string. Click anywhere in the chip; Enter/Space work via the
+// role="button"/tabindex on the chip.
+function _activateActiveChip(target){
+    const chip = target && target.closest ? target.closest('.active-chip') : null;
+    if(!chip) return;
+    const id = chip.getAttribute('data-storm-id');
+    if(id) loadActiveStorm(id);
+}
+document.addEventListener('click', function(e){ _activateActiveChip(e.target); });
+document.addEventListener('keydown', function(e){
+    if((e.key==='Enter'||e.key===' ') && e.target && e.target.classList && e.target.classList.contains('active-chip')){
+        e.preventDefault();
+        _activateActiveChip(e.target);
+    }
 });
 
 // Enter key triggers search from either input

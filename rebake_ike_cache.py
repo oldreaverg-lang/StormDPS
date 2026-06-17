@@ -20,6 +20,7 @@ import os
 import sys
 from collections import Counter
 from datetime import datetime
+from timeutil import utcnow
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -165,7 +166,7 @@ def main():
             n_changed += 1
         else:
             n_same += 1
-        data["_rebaked_at"] = datetime.utcnow().isoformat()
+        data["_rebaked_at"] = utcnow().isoformat()
         json.dump(data, open(fp, "w", encoding="utf-8"), default=str)
         if atcf in PRESETS:
             preset_rows.append((atcf, PRESETS[atcf], new_all, new_trop))

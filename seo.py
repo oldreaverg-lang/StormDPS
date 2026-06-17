@@ -17,6 +17,7 @@ import html
 import json
 import re
 from datetime import datetime
+from timeutil import utcnow
 from pathlib import Path
 from typing import Optional
 
@@ -595,7 +596,7 @@ def _storm_article_jsonld(storm_id: str, storm: dict, canonical: str) -> str:
         "description": description,
         "url": canonical,
         "datePublished": "2026-01-01",
-        "dateModified": datetime.utcnow().strftime("%Y-%m-%d"),
+        "dateModified": utcnow().strftime("%Y-%m-%d"),
         "author": {"@type": "Organization", "name": "StormDPS"},
         "publisher": {
             "@type": "Organization",

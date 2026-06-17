@@ -38,6 +38,7 @@ from core.ike import compute_ike_from_snapshot, IKEResult
 from core.storm_surge import compute_surge_rainfall, SurgeRainfallResult
 from core.economic_vulnerability import compute_economic_impact, EconomicImpactResult
 from models.hurricane import HurricaneSnapshot
+from timeutil import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -496,12 +497,10 @@ def compute_dpi_simple(
         storm_approach_heading_deg: Storm heading for terrain windward/leeward calc
         apply_land_dampening: Whether to apply open-ocean score reduction
     """
-    from datetime import datetime
-
     snapshot = HurricaneSnapshot(
         storm_id=storm_id,
         name=name,
-        timestamp=datetime.utcnow(),
+        timestamp=utcnow(),
         lat=lat,
         lon=lon,
         max_wind_ms=vmax_ms,

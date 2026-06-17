@@ -24,6 +24,7 @@ which APIs contributed data.
 import logging
 import time as _time
 from datetime import datetime, timedelta
+from timeutil import utcnow
 from typing import Any, Dict, List, Optional
 
 from services.google_weather_client import GoogleWeatherClient, GoogleWeatherError
@@ -813,7 +814,7 @@ class WeatherDataService:
 
         comparison: Dict[str, Any] = {
             "storm_id": storm_id,
-            "comparison_time": datetime.utcnow().isoformat() + "Z",
+            "comparison_time": utcnow().isoformat() + "Z",
             "nhc_forecast": None,
             "weathernext_forecast": None,
             "nhc_source": None,

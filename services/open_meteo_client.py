@@ -22,6 +22,7 @@ Usage:
 import asyncio
 import logging
 from datetime import datetime, timedelta
+from timeutil import utcnow
 from typing import Optional, Dict, List, Any
 from functools import wraps
 import httpx
@@ -66,7 +67,7 @@ def cache_result(ttl_seconds: int, max_entries: int = 256):
             async with _lock:
                 # Check if cached result is still valid
                 if cache_key in cache_times:
-                    age = (datetime.utcnow() - cache_times[cache_key]).total_seconds()
+                    age = (utcnow() - cache_times[cache_key]).total_seconds()
                     if age < ttl_seconds:
                         logger.debug(f"Cache hit for {func.__name__} (age: {age:.0f}s)")
                         return cache[cache_key]
@@ -93,7 +94,7 @@ def cache_result(ttl_seconds: int, max_entries: int = 256):
                     )
 
                 cache[cache_key] = result
-                cache_times[cache_key] = datetime.utcnow()
+                cache_times[cache_key] = utcnow()
                 logger.debug(f"Cached {func.__name__} result (TTL: {ttl_seconds}s, entries: {len(cache)})")
 
             return result
@@ -309,7 +310,7 @@ class OpenMeteoClient:
         """
         try:
             # Calculate date range
-            end_date = datetime.utcnow().date()
+            end_date = utcnow().date()
             start_date = end_date - timedelta(days=days_back)
 
             params = {
@@ -454,7 +455,7 @@ class OpenMeteoClient:
             Returns empty dict on API failure.
         """
         try:
-            end_date = datetime.utcnow().date()
+            end_date = utcnow().date()
             start_date = end_date - timedelta(days=days_back)
 
             params = {

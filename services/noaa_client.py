@@ -18,6 +18,7 @@ import json
 import logging
 import math
 from datetime import datetime, timedelta
+from timeutil import utcnow
 from typing import Optional
 from pathlib import Path
 
@@ -145,12 +146,12 @@ class NOAAClient:
         """Check if NHC was recently unreachable (skip to avoid timeout)."""
         if cls._nhc_last_failure is None:
             return False
-        return (datetime.utcnow() - cls._nhc_last_failure) < cls._nhc_failure_ttl
+        return (utcnow() - cls._nhc_last_failure) < cls._nhc_failure_ttl
 
     @classmethod
     def mark_nhc_down(cls):
         """Record that NHC is unreachable."""
-        cls._nhc_last_failure = datetime.utcnow()
+        cls._nhc_last_failure = utcnow()
         logger.warning(f"[NHC] Marked as down — skipping for {cls._nhc_failure_ttl.total_seconds():.0f}s")
 
     @classmethod
@@ -321,7 +322,7 @@ class NOAAClient:
         # The probe is only checking "can the dataset respond?" — it doesn't
         # consume the response. Using today-minus-3-days guarantees a date
         # that's safely inside the published window for all three sources.
-        probe_dt = datetime.utcnow() - timedelta(days=3)
+        probe_dt = utcnow() - timedelta(days=3)
         sample_date = probe_dt.strftime("%Y-%m-%dT12:00:00Z")
 
         # Use a known-good probe location too — first track point's lat/lon
@@ -341,7 +342,7 @@ class NOAAClient:
 
         if working_idx is None:
             # All ERDDAP sources failed — try returning stale cached SST
-            now = datetime.utcnow()
+            now = utcnow()
             stale_results = []
             stale_hits = 0
             for pt in points:
@@ -405,7 +406,7 @@ class NOAAClient:
                         sst_rounded = round(sst_val, 2)
                         # Cache for stale fallback when ERDDAP goes down
                         cache_key = (round(lat, 1), round(lon, 1))
-                        NOAAClient._sst_cache[cache_key] = (sst_rounded, datetime.utcnow())
+                        NOAAClient._sst_cache[cache_key] = (sst_rounded, utcnow())
                         # Evict oldest if cache is full
                         if len(NOAAClient._sst_cache) > NOAAClient._SST_CACHE_MAX:
                             oldest = min(NOAAClient._sst_cache, key=lambda k: NOAAClient._sst_cache[k][1])
@@ -645,7 +646,7 @@ class NOAAClient:
         snap = HurricaneSnapshot(
             storm_id=storm["id"],
             name=storm.get("name", "UNKNOWN"),
-            timestamp=datetime.utcnow(),
+            timestamp=utcnow(),
             lat=float(storm.get("lat", 0)),
             lon=float(storm.get("lon", 0)),
             max_wind_ms=knots_to_ms(float(intensity_kt)),
@@ -691,7 +692,7 @@ class NOAAClient:
             storm_id=storm_id,
             name=props.get("name", "UNKNOWN"),
             timestamp=datetime.fromisoformat(
-                props.get("timestamp", datetime.utcnow().isoformat())
+                props.get("timestamp", utcnow().isoformat())
             ),
             lat=float(coords[1]) if len(coords) > 1 else 0.0,
             lon=float(coords[0]) if len(coords) > 0 else 0.0,
@@ -1225,7 +1226,7 @@ class NOAAClient:
         Returns list of dicts: {id, name, year, basin, peak_wind_kt, category}.
         Uses the last-3-years file for recent storms, full archive for older.
         """
-        current_year = datetime.utcnow().year
+        current_year = utcnow().year
 
         catalog = {}  # keyed by SID to track peak wind across rows
 
@@ -1349,7 +1350,7 @@ class NOAAClient:
             "toplat": str(lat + radius_deg),
             "bottomlat": str(lat - radius_deg),
             "dir": "/gfs.{}/00/atmos".format(
-                datetime.utcnow().strftime("%Y%m%d")
+                utcnow().strftime("%Y%m%d")
             ),
         }
 
@@ -1389,7 +1390,7 @@ class NOAAClient:
                 x=x_m,
                 y=y_m,
                 wind_speed=wind_speed,
-                timestamp=datetime.utcnow(),
+                timestamp=utcnow(),
             )
 
         except httpx.HTTPError as e:
@@ -1447,7 +1448,7 @@ class NOAAClient:
             year: season year
             basin: optional basin filter (NA, EP, WP, NI, SI, SP, SA)
         """
-        use_recent = year >= (datetime.utcnow().year - 3)
+        use_recent = year >= (utcnow().year - 3)
         csv_text = await self._fetch_ibtracs(use_recent=use_recent)
         if not csv_text and use_recent:
             csv_text = await self._fetch_ibtracs(use_recent=False)
@@ -1742,7 +1743,7 @@ class NOAAClient:
             storm_speed = _safe_float(row.get("STORM_SPEED"))  # knots
             storm_dir = _safe_float(row.get("STORM_DIR"))  # degrees
 
-            ts = datetime.fromisoformat(iso_time) if iso_time else datetime.utcnow()
+            ts = datetime.fromisoformat(iso_time) if iso_time else utcnow()
 
             return HurricaneSnapshot(
                 storm_id=sid,

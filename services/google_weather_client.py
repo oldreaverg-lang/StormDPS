@@ -19,6 +19,7 @@ This service caches responses in-memory with configurable TTL:
 import logging
 import os
 from datetime import datetime, timedelta
+from timeutil import utcnow
 from typing import Any, Optional
 from collections import defaultdict
 
@@ -44,12 +45,12 @@ class CacheEntry:
             ttl_seconds: Time-to-live in seconds
         """
         self.data = data
-        self.created_at = datetime.utcnow()
+        self.created_at = utcnow()
         self.ttl_seconds = ttl_seconds
 
     def is_expired(self) -> bool:
         """Check if this cache entry has expired."""
-        age = (datetime.utcnow() - self.created_at).total_seconds()
+        age = (utcnow() - self.created_at).total_seconds()
         return age > self.ttl_seconds
 
 

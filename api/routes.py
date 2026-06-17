@@ -41,6 +41,7 @@ import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
+from timeutil import utcnow
 from pathlib import Path
 from typing import Optional
 import hmac
@@ -400,7 +401,7 @@ def _save_ike_cache(storm_id: str, grid_res_km: float, skip: int,
         "_grid_res_km": grid_res_km,
         "_skip_points": skip,
         "_compute_ms": round(compute_ms, 1),
-        "_cached_at": datetime.utcnow().isoformat(),
+        "_cached_at": utcnow().isoformat(),
         "_obs_count": len(results),
         "results": results,
     }
@@ -709,15 +710,15 @@ def load_active_storms_from_disk() -> bool:
         try:
             # Trim trailing Z / fractional seconds safely
             ts_clean = ts_raw.rstrip("Z").split(".")[0]
-            ts = datetime.fromisoformat(ts_clean) if ts_clean else datetime.utcnow()
+            ts = datetime.fromisoformat(ts_clean) if ts_clean else utcnow()
         except ValueError:
-            ts = datetime.utcnow()
+            ts = utcnow()
         # Only install the disk snapshot if the in-memory cache is empty —
         # never clobber a live cache with stale data.
         if _active_storms_cache is None:
             _active_storms_cache = storms
             _active_storms_cache_time = ts
-            age_min = (datetime.utcnow() - ts).total_seconds() / 60.0
+            age_min = (utcnow() - ts).total_seconds() / 60.0
             logger.info(
                 f"[ACTIVE_STORMS] Restored {len(storms)} storms from disk "
                 f"(age {age_min:.1f} min)"
@@ -736,7 +737,7 @@ async def _refresh_active_storms(request: Request):
     global _active_storms_cache, _active_storms_cache_time
     async with _active_storms_lock:
         # Double-check: another task may have refreshed while we waited for the lock
-        now = datetime.utcnow()
+        now = utcnow()
         if (_active_storms_cache_time and
                 (now - _active_storms_cache_time) < _ACTIVE_STORMS_TTL):
             logger.debug("[ACTIVE_STORMS] Another task refreshed cache while we waited")
@@ -749,7 +750,7 @@ async def _refresh_active_storms(request: Request):
                     client.get_active_storms(), timeout=3.0
                 )
                 _active_storms_cache = storms
-                _active_storms_cache_time = datetime.utcnow()
+                _active_storms_cache_time = utcnow()
                 # Persist to disk so restarts don't cold-start from zero.
                 _persist_active_storms(storms, _active_storms_cache_time)
                 logger.info(f"[ACTIVE_STORMS] Background refresh complete: {len(storms)} storms")
@@ -776,7 +777,7 @@ async def list_active_storms(request: Request):
     """
     global _active_storms_cache, _active_storms_cache_time
 
-    now = datetime.utcnow()
+    now = utcnow()
 
     # Fast path: fresh cache exists
     if (_active_storms_cache is not None and _active_storms_cache_time
@@ -800,6 +801,7 @@ async def list_active_storms(request: Request):
 
 @router.get("/storms/search", response_model=list[StormSummary])
 async def search_storms(
+    request: Request,
     query: str = Query("", description="Storm name to search for"),
     basin: Optional[str] = Query(None, description="Basin code: NA, EP, WP, NI, SI, SP, SA"),
     year: Optional[int] = Query(None, description="Season year"),
@@ -814,7 +816,10 @@ async def search_storms(
     if not query or query.strip() == "":
         return []
 
-    async with NOAAClient() as client:
+    # Reuse the shared connection pool tuned in main.py's lifespan rather than
+    # spinning up (and tearing down) a fresh httpx client per request.
+    shared_client = getattr(request.app.state, "http_client", None)
+    async with NOAAClient(http_client=shared_client) as client:
         try:
             # Name+year -> exact lookup; name-only -> scan for matches via
             # get_ibtracs_by_name. (Calling get_ibtracs_by_name_year with year=None
@@ -841,32 +846,40 @@ async def search_storms(
     if not snapshots:
         return []
 
-    # Convert HurricaneSnapshot objects to StormSummary objects
-    # Use the last snapshot (most recent) for each storm as representative
+    # Convert HurricaneSnapshot objects to StormSummary objects.
+    # Deduplicate by storm, using each storm's most recent snapshot as the
+    # representative, and cap at `limit` DISTINCT storms. Iterating
+    # most-recent-first (reversed) is what makes `limit` count distinct storms:
+    # the old `snapshots[-limit:]` sliced raw track rows before deduping, so a
+    # single long-lived storm's track points could fill the window and the
+    # search would return far fewer storms than `limit` — or miss matches.
     results = []
     seen_ids = set()
-    for snap in snapshots[-limit:]:  # Get the most recent observations
-        if snap.storm_id not in seen_ids:
-            seen_ids.add(snap.storm_id)
-            # Convert wind speed from m/s to knots for display
-            intensity_kt = ms_to_knots(snap.max_wind_ms) if snap.max_wind_ms else None
-            # Derive movement direction/speed from forward motion parameters
-            movement_str = None
-            if snap.forward_direction_deg is not None and snap.forward_speed_ms is not None:
-                movement_str = f"{ms_to_knots(snap.forward_speed_ms):.1f} kt towards {snap.forward_direction_deg:.0f}°"
+    for snap in reversed(snapshots):  # newest observations first
+        if snap.storm_id in seen_ids:
+            continue
+        seen_ids.add(snap.storm_id)
+        # Convert wind speed from m/s to knots for display
+        intensity_kt = ms_to_knots(snap.max_wind_ms) if snap.max_wind_ms else None
+        # Derive movement direction/speed from forward motion parameters
+        movement_str = None
+        if snap.forward_direction_deg is not None and snap.forward_speed_ms is not None:
+            movement_str = f"{ms_to_knots(snap.forward_speed_ms):.1f} kt towards {snap.forward_direction_deg:.0f}°"
 
-            results.append(StormSummary(
-                id=snap.storm_id,
-                name=snap.name,
-                classification=snap.category.name.replace("_", " ").title(),
-                lat=snap.lat,
-                lon=snap.lon,
-                intensity_knots=intensity_kt,
-                pressure_mb=snap.min_pressure_hpa,
-                movement=movement_str,
-                movement_speed_knots=ms_to_knots(snap.forward_speed_ms) if snap.forward_speed_ms else None,
-                movement_direction_deg=snap.forward_direction_deg,
-            ))
+        results.append(StormSummary(
+            id=snap.storm_id,
+            name=snap.name,
+            classification=snap.category.name.replace("_", " ").title(),
+            lat=snap.lat,
+            lon=snap.lon,
+            intensity_knots=intensity_kt,
+            pressure_mb=snap.min_pressure_hpa,
+            movement=movement_str,
+            movement_speed_knots=ms_to_knots(snap.forward_speed_ms) if snap.forward_speed_ms else None,
+            movement_direction_deg=snap.forward_direction_deg,
+        ))
+        if len(results) >= limit:
+            break
 
     return results
 
@@ -951,7 +964,7 @@ async def _jtwc_forecast(storm_id: str) -> dict:
 
 
 @router.get("/storms/{storm_id}/forecast")
-async def get_storm_forecast(storm_id: str):
+async def get_storm_forecast(request: Request, storm_id: str):
     """
     Forecast track + uncertainty cone for an active storm.
 
@@ -961,7 +974,8 @@ async def get_storm_forecast(storm_id: str):
     climatological uncertainty cone. Stall risk is computed from the implied
     forward speeds between forecast positions.
     """
-    async with NOAAClient() as client:
+    shared_client = getattr(request.app.state, "http_client", None)
+    async with NOAAClient(http_client=shared_client) as client:
         try:
             forecast = await client.get_forecast_track(storm_id)
         except Exception as e:
@@ -1135,7 +1149,7 @@ def _compute_stall_risk(forecast_track: list[dict]) -> dict:
 # ------------------------------------------------------------------
 
 @router.post("/sst/track")
-async def get_sst_along_track(points: list[dict] = Body(...)):
+async def get_sst_along_track(request: Request, points: list[dict] = Body(...)):
     """
     Fetch sea surface temperature from ERDDAP for a list of track points.
 
@@ -1163,7 +1177,8 @@ async def get_sst_along_track(points: list[dict] = Body(...)):
         logger.debug(f"[SST] First point: {points[0]}")
         logger.debug(f"[SST] Last point:  {points[-1]}")
     t0 = time.time()
-    async with NOAAClient() as client:
+    shared_client = getattr(request.app.state, "http_client", None)
+    async with NOAAClient(http_client=shared_client) as client:
         try:
             sst_data = await client.get_sst_along_track(points)
             valid_count = sum(1 for s in sst_data if s.get("sst_c") is not None)
@@ -1266,7 +1281,7 @@ async def compute_custom_ike(input_data: SnapshotInput):
     snapshot = HurricaneSnapshot(
         storm_id=input_data.storm_id,
         name=input_data.name,
-        timestamp=datetime.utcnow(),
+        timestamp=utcnow(),
         lat=input_data.lat,
         lon=input_data.lon,
         max_wind_ms=knots_to_ms(input_data.max_wind_knots),
@@ -1307,7 +1322,7 @@ async def get_storm_valuation(
     global _valuation_cache, _valuation_cache_lock
 
     # Check cache (no lock needed for reads in asyncio single-threaded event loop)
-    now = datetime.utcnow()
+    now = utcnow()
     cache_key = storm_id
     cached = _valuation_cache.get(cache_key)
     if cached:
@@ -1377,7 +1392,7 @@ async def get_storm_valuation(
         )
 
         # Cache the result
-        _valuation_cache[cache_key] = (response, datetime.utcnow())
+        _valuation_cache[cache_key] = (response, utcnow())
         logger.info(f"[VALUATION] Cached result for {storm_id}")
         return response
 
@@ -1389,6 +1404,7 @@ async def get_storm_valuation(
 
 @router.get("/storms/{storm_id}/history", response_model=list[IKEResponse])
 async def get_historical_ike_track(
+    request: Request,
     storm_id: str,
     grid_resolution_km: float = Query(10.0, ge=1.0, le=50.0),
 ):
@@ -1398,7 +1414,8 @@ async def get_historical_ike_track(
     Uses HURDAT2 extended format with quadrant wind radii when available,
     enabling asymmetric IKE computation for storms after ~2004.
     """
-    async with NOAAClient() as client:
+    shared_client = getattr(request.app.state, "http_client", None)
+    async with NOAAClient(http_client=shared_client) as client:
         try:
             snapshots = await client.get_historical_track(storm_id)
         except httpx.PoolTimeout:
@@ -2089,7 +2106,7 @@ async def _collect_active_storm_ids(app_state) -> list[str]:
         return []
     if storms is not None:
         _active_storms_cache = storms
-        _active_storms_cache_time = datetime.utcnow()
+        _active_storms_cache_time = utcnow()
         _persist_active_storms(storms, _active_storms_cache_time)
     ids: list[str] = []
     for s in storms or []:
@@ -2454,7 +2471,7 @@ async def get_preload_bundle():
     Also includes any active storms that have cached data.
     """
     global _preload_cache, _preload_cache_time
-    now = datetime.utcnow()
+    now = utcnow()
 
     # Return cached if fresh
     if (_preload_cache is not None and _preload_cache_time
@@ -2465,7 +2482,7 @@ async def get_preload_bundle():
     async with _preload_lock:
         # Double-check after lock to prevent dogpile
         if (_preload_cache is not None and _preload_cache_time
-                and (datetime.utcnow() - _preload_cache_time) < _PRELOAD_CACHE_TTL):
+                and (utcnow() - _preload_cache_time) < _PRELOAD_CACHE_TTL):
             return JSONResponse(content=_preload_cache)
 
         # Move ALL file I/O to a thread pool
@@ -2473,7 +2490,7 @@ async def get_preload_bundle():
         bundle = await loop.run_in_executor(_IKE_EXECUTOR, _build_preload_bundle_sync)
 
         _preload_cache = bundle
-        _preload_cache_time = datetime.utcnow()
+        _preload_cache_time = utcnow()
         return JSONResponse(content=bundle)
 
 
@@ -2618,7 +2635,7 @@ async def _build_global_catalog() -> list[dict]:
 
     global _GLOBAL_IBTRACS_CATALOG_CACHE, _GLOBAL_IBTRACS_CATALOG_TIMESTAMP
 
-    now = datetime.utcnow()
+    now = utcnow()
 
     # ── 1. In-memory cache (fast) ────────────────────────────────────────
     if (
@@ -2675,7 +2692,7 @@ async def _refresh_global_catalog_async() -> list[dict]:
     # FIX 4: Protect catalog building with lock — only one request fetches from IBTrACS
     async with _catalog_lock:
         # Double-check cache after acquiring lock (another request may have built it)
-        now = datetime.utcnow()
+        now = utcnow()
         if (
             _GLOBAL_IBTRACS_CATALOG_CACHE
             and _GLOBAL_IBTRACS_CATALOG_TIMESTAMP
@@ -2757,10 +2774,10 @@ async def _refresh_global_catalog_async() -> list[dict]:
         # retry instead of waiting the full TTL.
         _GLOBAL_IBTRACS_CATALOG_CACHE = catalog
         if ibtracs_ok:
-            _GLOBAL_IBTRACS_CATALOG_TIMESTAMP = datetime.utcnow()
+            _GLOBAL_IBTRACS_CATALOG_TIMESTAMP = utcnow()
         else:
             # Force the next call to re-fetch by leaving the timestamp stale.
-            _GLOBAL_IBTRACS_CATALOG_TIMESTAMP = datetime.utcnow() - _GLOBAL_IBTRACS_CATALOG_TTL
+            _GLOBAL_IBTRACS_CATALOG_TIMESTAMP = utcnow() - _GLOBAL_IBTRACS_CATALOG_TTL
 
         # Only persist a real NOAA catalog to disk — never a custom-only one,
         # or a cold restart would read the stub back and treat it as authoritative.
@@ -3000,13 +3017,13 @@ async def admin_warm_ibtracs():
     prior_count = len(_GLOBAL_IBTRACS_CATALOG_CACHE or [])
     _GLOBAL_IBTRACS_CATALOG_TIMESTAMP = None
 
-    t0 = datetime.utcnow()
+    t0 = utcnow()
     try:
         catalog = await _refresh_global_catalog_async()
     except Exception as e:
         logger.exception("[IBTRACS ADMIN] refresh raised")
         raise HTTPException(500, "refresh failed")
-    elapsed = (datetime.utcnow() - t0).total_seconds()
+    elapsed = (utcnow() - t0).total_seconds()
 
     # Report disk state so the operator can confirm the file actually landed.
     cache_file = _GLOBAL_IBTRACS_CACHE_FILE
@@ -3148,9 +3165,9 @@ def _dict_to_snapshot(d: dict):
         try:
             ts = datetime.fromisoformat(ts_raw.rstrip("Z"))
         except ValueError:
-            ts = datetime.utcnow()
+            ts = utcnow()
     else:
-        ts = datetime.utcnow()
+        ts = utcnow()
     return _HS(
         storm_id=d.get("storm_id", ""),
         name=d.get("name", ""),
@@ -3183,7 +3200,7 @@ def _load_track_cache(sid: str, *, max_age: timedelta | None = _TRACK_CACHE_TTL)
             return None
         if max_age is not None:
             mtime = datetime.fromtimestamp(fp.stat().st_mtime)
-            if (datetime.utcnow() - mtime) > max_age:
+            if (utcnow() - mtime) > max_age:
                 return None
         with open(fp, "r", encoding="utf-8") as f:
             payload = json.load(f)
@@ -3204,7 +3221,7 @@ def _save_track_cache(sid: str, snapshots) -> None:
         payload = {
             "sid": sid,
             "version": _TRACK_CACHE_VERSION,
-            "cached_at": datetime.utcnow().isoformat() + "Z",
+            "cached_at": utcnow().isoformat() + "Z",
             "snapshots": [_snapshot_to_dict(s) for s in snapshots],
         }
         _atomic_write_json(_track_cache_file(sid), payload)
@@ -3212,7 +3229,7 @@ def _save_track_cache(sid: str, snapshots) -> None:
         logger.debug(f"[TRACK CACHE] write failed for {sid}: {e}")
 
 
-async def _fetch_track_with_cache(sid: str, *, force: bool = False):
+async def _fetch_track_with_cache(sid: str, *, force: bool = False, http_client=None):
     """Fetch IBTrACS snapshots for *sid*, using the track cache aggressively.
 
     - Fresh cache hit → return instantly.
@@ -3225,7 +3242,7 @@ async def _fetch_track_with_cache(sid: str, *, force: bool = False):
             return snaps
 
     try:
-        async with NOAAClient() as client:
+        async with NOAAClient(http_client=http_client) as client:
             # Dispatch on ID format:
             #   - IBTrACS SID (starts with digit, e.g. "2005236N23285") → SID lookup
             #   - ATCF ID    (starts with letter, e.g. "AL092017")      → USA_ATCF_ID lookup
@@ -3294,6 +3311,7 @@ async def warm_track_cache(*, max_concurrency: int = 3) -> dict:
 
 @router.get("/ibtracs/track/{sid}", response_model=list[IKEResponse])
 async def get_ibtracs_track(
+    request: Request,
     sid: str,
     grid_resolution_km: float = Query(10.0, ge=1.0, le=50.0),
 ):
@@ -3306,9 +3324,11 @@ async def get_ibtracs_track(
     Args:
         sid: IBTrACS storm ID (e.g., '2005236N23285' for Katrina)
     """
+    shared_client = getattr(request.app.state, "http_client", None)
+
     async def _do():
         try:
-            snapshots = await _fetch_track_with_cache(sid)
+            snapshots = await _fetch_track_with_cache(sid, http_client=shared_client)
         except (NOAAClientError, Exception) as e:
             raise HTTPException(status_code=404, detail=str(e))
         if not snapshots:
@@ -3344,7 +3364,7 @@ async def search_ibtracs(
 
     # 1) TTL cache — instant for repeat searches across users/sessions.
     hit = _ibtracs_search_cache.get(key)
-    if hit and (datetime.utcnow() - hit[1]) < _IBTRACS_SEARCH_TTL:
+    if hit and (utcnow() - hit[1]) < _IBTRACS_SEARCH_TTL:
         return JSONResponse(content=hit[0])
 
     # 2) Single-flight — one fetch+compute per key under concurrent load.
@@ -3363,7 +3383,7 @@ async def search_ibtracs(
             raise HTTPException(status_code=404, detail=f"No IBTrACS data for {name}{year_str}")
         ike_batch = await _compute_ike_batch(snapshots, grid_resolution_km * 1000, max_workers=4)
         out = [_ike_response_to_dict(_ike_to_response(ike, snap)) for ike, snap in ike_batch]
-        _ibtracs_search_cache[key] = (out, datetime.utcnow())
+        _ibtracs_search_cache[key] = (out, utcnow())
         return out
 
     return JSONResponse(content=await _single_flight(key, _do))
@@ -3387,7 +3407,7 @@ async def get_source_health():
 
 
 @router.get("/storms/{storm_id}/ai-comparison")
-async def get_ai_vs_nhc_comparison(storm_id: str):
+async def get_ai_vs_nhc_comparison(request: Request, storm_id: str):
     """
     Side-by-side comparison of WeatherNext AI forecast vs NHC traditional
     advisory for a given storm. Logged for post-season 2026 validation.
@@ -3398,7 +3418,8 @@ async def get_ai_vs_nhc_comparison(storm_id: str):
 
     async with WeatherDataService() as svc:
         # Attempt to get storm location from NHC active list
-        async with NOAAClient() as client:
+        shared_client = getattr(request.app.state, "http_client", None)
+        async with NOAAClient(http_client=shared_client) as client:
             try:
                 active = await client.get_active_storms()
             except NOAAClientError:
@@ -3496,7 +3517,7 @@ async def record_storm_outcome(
 # ==================================================================
 
 @router.post("/audit/radii/{storm_id}", dependencies=[Depends(require_admin)])
-async def run_radii_audit(storm_id: str):
+async def run_radii_audit(request: Request, storm_id: str):
     """
     Trigger a wind radii cross-validation audit for an active storm.
 
@@ -3516,7 +3537,8 @@ async def run_radii_audit(storm_id: str):
     monitor = SourceHealthMonitor.instance()
     observations = []
 
-    async with NOAAClient() as client:
+    shared_client = getattr(request.app.state, "http_client", None)
+    async with NOAAClient(http_client=shared_client) as client:
         # Source 1: NHC operational advisory (highest authority)
         try:
             t0 = time.time()

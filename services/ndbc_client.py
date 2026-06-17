@@ -22,6 +22,7 @@ import io
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from timeutil import utcnow
 from typing import Optional
 
 import httpx
@@ -179,7 +180,7 @@ class NDBCClient:
         end_utc: datetime,
     ) -> Optional[BuoyPeak]:
         """Return the peak wind/wave observation at *station* during the window."""
-        is_realtime = (datetime.utcnow() - end_utc) < timedelta(days=45)
+        is_realtime = (utcnow() - end_utc) < timedelta(days=45)
 
         text = None
         source = "realtime"

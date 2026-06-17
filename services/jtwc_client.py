@@ -25,6 +25,7 @@ import asyncio
 import logging
 import re
 from datetime import datetime, timedelta, timezone
+from timeutil import utcnow
 from typing import Optional
 
 import httpx
@@ -114,11 +115,11 @@ class JTWCClient:
     def jtwc_is_down(cls) -> bool:
         if cls._jtwc_last_failure is None:
             return False
-        return (datetime.utcnow() - cls._jtwc_last_failure) < cls._jtwc_failure_ttl
+        return (utcnow() - cls._jtwc_last_failure) < cls._jtwc_failure_ttl
 
     @classmethod
     def mark_jtwc_down(cls):
-        cls._jtwc_last_failure = datetime.utcnow()
+        cls._jtwc_last_failure = utcnow()
         logger.warning(
             f"[JTWC] Marked as down — skipping for "
             f"{cls._jtwc_failure_ttl.total_seconds():.0f}s"
@@ -351,7 +352,7 @@ class JTWCClient:
         # JTWC uses season-year = current UTC year for almost all cases.
         # WP/IO cross-year storms are rare; we default to current year and
         # fix up if the warning detail disagrees.
-        year = datetime.utcnow().year
+        year = utcnow().year
 
         return {
             "number": number,

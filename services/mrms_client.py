@@ -25,6 +25,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from timeutil import utcnow
 from typing import Optional
 
 import httpx
@@ -110,7 +111,7 @@ class MRMSClient:
         if storm_time is None:
             return None
 
-        age_days = (datetime.utcnow() - storm_time).days
+        age_days = (utcnow() - storm_time).days
         if age_days > 7:
             # Live service only keeps a rolling window. Signal unavailability
             # rather than silently returning zero.

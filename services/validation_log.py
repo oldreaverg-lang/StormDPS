@@ -28,6 +28,7 @@ import queue
 import sqlite3
 import threading
 from datetime import datetime
+from timeutil import utcnow
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -204,7 +205,7 @@ class ValidationLogger:
         return cls._instance
 
     def __init__(self):
-        self._season_year = datetime.utcnow().year
+        self._season_year = utcnow().year
 
     def log_comparison(self, comparison: Dict[str, Any]) -> bool:
         """
@@ -218,7 +219,7 @@ class ValidationLogger:
         Returns True on success, False if persistence failed (but never raises).
         """
         storm_id = comparison.get("storm_id", "UNKNOWN")
-        comp_time = comparison.get("comparison_time", datetime.utcnow().isoformat() + "Z")
+        comp_time = comparison.get("comparison_time", utcnow().isoformat() + "Z")
 
         try:
             # Layer 1: JSON-Lines file
@@ -267,7 +268,7 @@ class ValidationLogger:
         Called periodically (e.g., every 30 minutes) to track long-term
         reliability and latency trends across the season.
         """
-        snapshot_time = datetime.utcnow().isoformat() + "Z"
+        snapshot_time = utcnow().isoformat() + "Z"
 
         try:
             # JSONL file
@@ -350,7 +351,7 @@ class ValidationLogger:
                 "actual_landfall_lon": landfall_lon,
                 "actual_category": category, "actual_dpi": dpi,
                 "notes": notes,
-                "recorded_at": datetime.utcnow().isoformat() + "Z",
+                "recorded_at": utcnow().isoformat() + "Z",
             }
             with open(season_dir / "storm_outcomes.jsonl", "a") as f:
                 f.write(json.dumps(outcome, default=str) + "\n")

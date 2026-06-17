@@ -37,6 +37,7 @@ import threading
 import time
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timedelta
+from timeutil import utcnow
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -453,7 +454,7 @@ class WindRadiiAuditor:
         Returns:
             RadiiAuditResult with confidence score and flags
         """
-        audit_time = datetime.utcnow().isoformat() + "Z"
+        audit_time = utcnow().isoformat() + "Z"
         advisory_time = observations[0].timestamp if observations else audit_time
 
         all_flags: List[AuditFlag] = []
@@ -541,7 +542,7 @@ class WindRadiiAuditor:
 
     def _persist(self, result: RadiiAuditResult):
         """Write audit result to JSONL and SQLite."""
-        year = datetime.utcnow().year
+        year = utcnow().year
         season_dir = _VALIDATION_DIR / str(year)
         season_dir.mkdir(parents=True, exist_ok=True)
 

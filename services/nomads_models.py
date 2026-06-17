@@ -35,6 +35,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from timeutil import utcnow
 from typing import Optional
 
 import httpx
@@ -87,17 +88,17 @@ class NOMADSClient:
         if not hit:
             return None
         when, value = hit
-        if datetime.utcnow() - when > timedelta(minutes=self._cache_minutes):
+        if utcnow() - when > timedelta(minutes=self._cache_minutes):
             self._cache.pop(key, None)
             return None
         return value
 
     def _store(self, key: str, value: ModelForecast) -> None:
-        self._cache[key] = (datetime.utcnow(), value)
+        self._cache[key] = (utcnow(), value)
 
     @staticmethod
     def latest_cycle(hour_step: int = 6) -> str:
-        now = datetime.utcnow()
+        now = utcnow()
         # Model runs are typically available ~3-4h after the cycle hour
         cycle_hour = (now.hour // hour_step) * hour_step
         cycle = now.replace(hour=cycle_hour, minute=0, second=0, microsecond=0)

@@ -37,6 +37,7 @@ import logging
 import os
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
+from timeutil import utcnow
 from typing import Optional, Any
 
 import httpx
@@ -708,7 +709,7 @@ class WeatherNextClient:
             return None
 
         cached_data, cached_time = self._forecast_cache[cache_key]
-        if (datetime.utcnow() - cached_time).total_seconds() < CACHE_TTL_SECONDS:
+        if (utcnow() - cached_time).total_seconds() < CACHE_TTL_SECONDS:
             logger.debug(f"WeatherNext cache hit: {cache_key}")
             return cached_data
 
@@ -718,7 +719,7 @@ class WeatherNextClient:
 
     def _cache_forecast(self, cache_key: str, data: Any) -> None:
         """Cache a forecast for 6 hours."""
-        self._forecast_cache[cache_key] = (data, datetime.utcnow())
+        self._forecast_cache[cache_key] = (data, utcnow())
         logger.debug(f"WeatherNext cached: {cache_key}")
 
     def _parse_cyclone_forecast(
@@ -761,7 +762,7 @@ class WeatherNextClient:
 
         return CycloneForecast(
             storm_id=storm_id,
-            valid_time=predictions.get("valid_time", datetime.utcnow().isoformat()),
+            valid_time=predictions.get("valid_time", utcnow().isoformat()),
             track_forecast=track_forecast,
             intensity_forecast=intensity_forecast,
             formation_probability=predictions.get("formation_prob"),
@@ -772,7 +773,7 @@ class WeatherNextClient:
             ensemble_member_count=int(
                 predictions.get("ensemble_members", 50)
             ),
-            generated_at=datetime.utcnow().isoformat(),
+            generated_at=utcnow().isoformat(),
         )
 
     def _parse_intensity_prediction(
@@ -880,7 +881,7 @@ class WeatherNextClient:
         predictions = preds_list[0] if preds_list else {}
 
         return EnvironmentalAnalysis(
-            timestamp=datetime.utcnow().isoformat(),
+            timestamp=utcnow().isoformat(),
             lat=lat,
             lon=lon,
             wind_shear_ms=predictions.get("wind_shear_ms", 0.0),
