@@ -17,6 +17,8 @@
 
 **Never read large files from the Linux sandbox mount path (`/sessions/.../mnt/APPS/`) and push to GitHub.** The mount silently truncates large files — no error, clean cut. Has already destroyed: `routes.py`, `noaa_client.py`, `atcf_bdeck_client.py`, `main.py`, `frontend/index.html`.
 
+**It's the *tool*, not git.** The truncation (and the `.git`-write failure) only happen through the **Bash/Linux** tool's mount. Native git run via **PowerShell** reads/writes the real `C:\` filesystem safely — so the **default** commit/push path is plain `git add && git commit && git push` **via PowerShell** (keeps local HEAD in sync; no API-commit desync, no manual `git reset` afterward). `credential.helper=manager` is configured, so push auth works non-interactively. `gh_push.py` (API commit) is the **fallback** — use it only when working through the Bash tool or if native push auth fails.
+
 **Safe read paths:**
 1. **Read tool** (`C:\Users\Ryan\APPS\...`) — always complete
 2. **GitHub API** — fetch a known-good commit, patch in memory
