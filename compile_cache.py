@@ -1091,6 +1091,21 @@ def compile():
         "raw_snapshots": storms_raw,
     }
 
+    # Enrich with observed ground truth (curated damage + FEMA declarations)
+    # BEFORE writing, so a rebake never silently drops the actual_impact block.
+    # Fail-open: a rebake must still succeed offline / if the sources are down.
+    try:
+        import asyncio as _aio
+        import build_actual_impact as _bai
+        _targets = {sid: {"name": s.get("name"), "year": s.get("year")}
+                    for sid, s in compiled_storms.items()}
+        _impact = _aio.run(_bai.gather_impact(_targets))
+        for sid, imp in _impact.items():
+            compiled_storms[sid]["actual_impact"] = imp
+        print(f"Enriched {len(_impact)} storms with observed impact (curated + FEMA)")
+    except Exception as e:
+        print(f"[actual_impact] enrichment skipped (non-fatal): {e}")
+
     # Write output
     with open(output_path, "w") as f:
         json.dump(output, f, separators=(",", ":"))

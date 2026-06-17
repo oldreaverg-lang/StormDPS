@@ -136,7 +136,7 @@ class NCEILoader:
 
         if self._cache_dir:
             try:
-                (self._cache_dir / f"ncei_{year}.csv").write_text(text)
+                (self._cache_dir / f"ncei_{year}.csv").write_text(text, encoding="utf-8")
             except OSError:
                 pass
         return text

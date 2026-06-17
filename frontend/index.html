@@ -669,6 +669,7 @@
             <div id="snapshotCard" style="display:none"><span id="snapshotLabel"></span><span id="snapshotTip"></span><div id="snapshotTabs"></div><div id="statPeakDPS"></div><div id="statDPSLabel"></div><div id="breakdownSnap"></div><div id="panelSnap"></div></div>
             <div class="stat-card" style="border-color:#f97316;background:rgba(249,115,22,.03)"><div class="stat-label">Impact Area<span class="tip" data-tip="IAS: A 0-100 score measuring how geography and rainfall amplify actual impact. Combines continental shelf surge amplification (55%) and rainfall/stall threat (45%).">?</span></div><div class="stat-value" id="statPeakIAS" style="color:var(--text-main);">-</div><div class="stat-sub" id="statIASLabel">-</div><div class="score-context" id="iasContext"></div><div class="breakdown-wrap" onclick="this.classList.toggle('open')"><div class="breakdown-bar" id="breakdownIAS"></div><div class="breakdown-panel" id="panelIAS"></div></div><div class="breakdown-hint">Tap or hover for details</div></div>
             <div class="stat-card" style="border-color:#10b981;background:rgba(16,185,129,.03)"><div class="stat-label">Economic Risk<span class="tip" data-tip="ERS: A 0-100 score measuring economic exposure along the storm's path. Combines coastal economic value with threat reach (storm size x intensity).">?</span></div><div class="stat-value" id="statPeakERS" style="color:var(--text-main);">-</div><div class="stat-sub" id="statERSLabel">-</div><div class="ers-forecast" id="ersForecastLine" style="display:none;font-size:.7rem;font-weight:600;color:#fbbf24;line-height:1.35;margin-top:.1rem"></div><div class="score-context" id="ersContext"></div><div class="breakdown-wrap" onclick="this.classList.toggle('open')"><div class="breakdown-bar" id="breakdownERS"></div><div class="breakdown-panel" id="panelERS"></div></div><div class="breakdown-hint">Tap or hover for details</div></div>
+            <div class="stat-card" id="actualImpactCard" style="display:none;border-color:#7c3aed;background:rgba(124,58,237,.03)"><div class="stat-label">Actual Impact<span class="tip" data-tip="What the storm actually did, from independent records: total damage (StormDPS curated dataset) and the federal disaster response (FEMA OpenFEMA — counties declared, major-disaster status). This is observed ground truth, shown alongside the DPS prediction.">?</span></div><div class="stat-value" id="statActualImpact" style="color:var(--text-main);">-</div><div class="stat-sub" id="statActualImpactSub">-</div><div class="score-context" id="actualImpactContext"></div></div>
         </div>
         <div id="rainfallBar" class="stall-bar" style="display:none;border-color:rgba(239,68,68,.3);background:rgba(239,68,68,.06)">
             <span class="stall-bar-icon" style="font-size:1.1rem">&#127783;&#65039;</span>
@@ -3841,6 +3842,28 @@ function renderAll(stormId,data){
         rainBar.style.display = 'none';
         rainBar.classList.remove('rain-extreme');
     }
+
+    // Actual Impact — observed ground truth (curated damage + FEMA declarations).
+    // Values are structured/curated (formatted $ string, integer counties, bool),
+    // not free feed text, so direct innerHTML for the Major-disaster badge is safe.
+    try {
+        const aiCard = document.getElementById('actualImpactCard');
+        const ai = compiled && compiled.actual_impact;
+        if (ai && (ai.damage_display || ai.counties_declared)) {
+            const big = ai.damage_display || (ai.counties_declared + '');
+            let sub = '';
+            if (ai.damage_display && ai.counties_declared) sub = ai.counties_declared + ' counties declared';
+            else if (!ai.damage_display && ai.counties_declared) sub = 'counties declared';
+            if (ai.major_disaster) sub += (sub ? ' · ' : '') + '<span style="color:#b45309;font-weight:700">Major disaster</span>';
+            document.getElementById('statActualImpact').textContent = big;
+            document.getElementById('statActualImpactSub').innerHTML = sub || '-';
+            const src = (ai.sources || []).join(' + ');
+            document.getElementById('actualImpactContext').textContent = src ? ('Source: ' + src) : '';
+            aiCard.style.display = '';
+        } else {
+            aiCard.style.display = 'none';
+        }
+    } catch (e) { /* impact card is non-critical — never break the render */ }
 
     highlightSelectedChip(stormId);
 
