@@ -258,7 +258,7 @@
             .stat-label{font-size:.5rem!important;letter-spacing:.06em!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
             .stat-value{font-size:1.6rem!important;line-height:1.15}
             .stat-sub{font-size:.6rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-            .score-context{display:none}
+            .score-context{display:none}.dps-explainer{display:none}
             .breakdown-wrap{display:none}
             .breakdown-hint{display:none}
             .tip{display:none!important}
@@ -469,9 +469,9 @@
         .dps-trend-wrap{display:flex;align-items:center;justify-content:center;gap:.35rem}
         .dps-trend{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:0;line-height:1;font-size:1.4rem;font-weight:900;transition:opacity .3s,color .3s;opacity:0;min-width:22px}
         .dps-trend.visible{opacity:1}
-        .dps-trend.trend-up{color:#f97316}
-        .dps-trend.trend-down{color:#34d399}
-        .dps-trend.trend-ri{color:#ef4444}
+        .dps-trend.trend-up{color:#c2410c}
+        .dps-trend.trend-down{color:#047857}
+        .dps-trend.trend-ri{color:#b91c1c}
         .dps-trend .trend-arrow{display:block;line-height:.65;font-size:1.3rem}
         .dps-trend.trend-ri .trend-arrow{font-size:1rem;line-height:.55}
         @keyframes riPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.15)}}
@@ -660,7 +660,7 @@
         <div id="statsRow" class="stats-row">
             <div class="stat-card dps-hero-card" id="dpsHeroCard" style="border-color:var(--primary)">
                 <div class="stat-label dps-label" style="font-size:.75rem;letter-spacing:.1em"><span class="label-full">DESTRUCTIVE POWER SCORE</span><span class="label-short">DPS</span><span class="tip" data-tip="DPS: A 0-100 hurricane threat score combining storm intensity, wind field size, surge potential, duration of coastal exposure, and geographic breadth. A modern alternative to the Saffir-Simpson scale — it captures what peak wind alone misses.">?</span></div>
-                <div class="dps-trend-wrap"><div class="stat-value" id="statHeroDPS" style="color:var(--text-main)">-</div><div class="dps-trend" id="dpsTrendIndicator"></div></div>
+                <div class="dps-explainer" style="font-size:.62rem;color:var(--text-dim);text-transform:none;letter-spacing:0;font-weight:400;line-height:1.25;margin:.1rem 0 .2rem">A 0–100 score of a storm's total destructive power.</div><div class="dps-trend-wrap"><div class="stat-value" id="statHeroDPS" style="color:var(--text-main);font-size:2.4rem">-</div><div class="dps-trend" id="dpsTrendIndicator"></div></div>
                 <div class="stat-sub" id="statHeroDPSLabel" style="font-size:.78rem;opacity:.8">-</div>
                 <div class="score-context" id="dpsContext"></div>
                 <div class="breakdown-wrap" onclick="this.classList.toggle('open')"><div class="breakdown-bar" id="breakdownDPS"></div><div class="breakdown-panel" id="panelDPS"></div></div><div class="breakdown-hint">Tap or hover for details</div>
