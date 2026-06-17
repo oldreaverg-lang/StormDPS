@@ -1198,6 +1198,64 @@ async def get_sst_along_track(request: Request, points: list[dict] = Body(...)):
     return sst_data
 
 
+@router.post("/rainfall/track")
+async def get_rainfall_along_track(request: Request, points: list[dict] = Body(...)):
+    """
+    Observed daily precipitation (mm) at each track point, from the Open-Meteo
+    historical reanalysis archive (ERA5, global, 1940-present). Returns one
+    {"rainfall_mm": x|null} per posted point, in order — a rainfall profile
+    along the storm track for the bottom-chart "Rainfall" tab.
+
+    Mirrors /sst/track: one upstream request per point, so the array is capped.
+    The archive lags ~5 days, so very recent / active storms return null (they
+    already have the live precip overlay); this layer is for historical storms.
+    """
+    if not isinstance(points, list):
+        raise HTTPException(status_code=400, detail="points must be an array")
+    if len(points) > 500:
+        raise HTTPException(status_code=413, detail=f"too many points ({len(points)}); max 500")
+
+    from services.open_meteo_client import OPEN_METEO_HISTORICAL_URL
+
+    shared = getattr(request.app.state, "http_client", None)
+    own = None
+    if shared is None:
+        own = httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=5.0))
+    client = shared or own
+
+    sem = asyncio.Semaphore(8)  # be polite to Open-Meteo; ~N/8 round-trips
+
+    async def _one(pt: dict) -> dict:
+        lat, lon = pt.get("lat"), pt.get("lon")
+        date = (pt.get("timestamp") or "")[:10]
+        if lat is None or lon is None or len(date) != 10:
+            return {"rainfall_mm": None}
+        params = {
+            "latitude": lat, "longitude": lon,
+            "start_date": date, "end_date": date,
+            "daily": "precipitation_sum", "timezone": "UTC",
+        }
+        try:
+            async with sem:
+                r = await client.get(OPEN_METEO_HISTORICAL_URL, params=params)
+            r.raise_for_status()
+            vals = (r.json().get("daily") or {}).get("precipitation_sum") or []
+            v = vals[0] if vals else None
+            return {"rainfall_mm": round(float(v), 1) if v is not None else None}
+        except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
+            return {"rainfall_mm": None}
+
+    try:
+        results = await asyncio.gather(*[_one(p) for p in points])
+    finally:
+        if own is not None:
+            await own.aclose()
+
+    valid = sum(1 for x in results if x.get("rainfall_mm") is not None)
+    logger.info(f"[RAINFALL] {valid}/{len(results)} points have observed precip")
+    return results
+
+
 # ------------------------------------------------------------------
 # IKE computation
 # ------------------------------------------------------------------

@@ -774,6 +774,7 @@
                         <button class="chart-tab" data-tab="pressure" onclick="switchChartTab('pressure')">Pressure <span class="tip" data-tip="Central pressure: Lower = stronger storm. Pressure deficit (1013 - central pressure) drives wind speeds and surge. A rapid pressure drop means rapid intensification and increasing threat. Watch for sudden drops.">?</span></button>
                         <button class="chart-tab" data-tab="wind" onclick="switchChartTab('wind')">Wind Speed <span class="tip" data-tip="Maximum sustained wind speed: The basis of Saffir-Simpson categories (Cat 1-5). Critical for structural damage, but alone it ignores storm size and duration. Combined with IKE and size, it tells the full picture.">?</span></button>
                         <button class="chart-tab" data-tab="sst" onclick="switchChartTab('sst')">Sea Surface Temp <span class="tip" data-tip="Sea surface temperature: Ocean heat fuel. SST >26.5°C supports hurricane formation and intensification. Warm loops and eddies can cause rapid strengthening over warm-core rings. Essential for tracking intensification potential.">?</span></button>
+                        <button class="chart-tab" data-tab="rain" onclick="switchChartTab('rain')">Rainfall <span class="tip" data-tip="Observed rainfall along the storm's track — daily precipitation totals (mm) at each track point from the Open-Meteo ERA5 reanalysis archive. Captures the inland-flooding threat that wind-based categories miss. Historical storms only; the archive lags a few days, so very recent storms show no data.">?</span></button>
                     </div>
                     <div class="chart-tab-body">
                         <div class="chart-tab-pane active" id="tabIKE"><canvas id="ikeChart"></canvas></div>
@@ -781,6 +782,7 @@
                         <div class="chart-tab-pane" id="tabPressure"><canvas id="pressureChart"></canvas></div>
                         <div class="chart-tab-pane" id="tabWind"><canvas id="windChart"></canvas></div>
                         <div class="chart-tab-pane" id="tabSST" style="position:relative"><div id="sstPlaceholder" style="display:none;position:absolute;inset:0;flex-direction:column;align-items:center;justify-content:center;gap:.6rem;color:var(--text-dim);font-size:.82rem;font-weight:500;pointer-events:none;z-index:2"><div style="width:22px;height:22px;border:2px solid rgba(32,84,147,.25);border-top-color:var(--primary);border-radius:50%;animation:spin .9s linear infinite"></div><span>Loading sea surface temperatures…</span><span style="font-size:.7rem;opacity:.6">typically 30–90 seconds</span></div><canvas id="sstChart"></canvas></div>
+                        <div class="chart-tab-pane" id="tabRain" style="position:relative"><div id="rainPlaceholder" style="display:none;position:absolute;inset:0;flex-direction:column;align-items:center;justify-content:center;gap:.6rem;color:var(--text-dim);font-size:.82rem;font-weight:500;pointer-events:none;z-index:2;text-align:center;padding:0 1rem"><div style="width:22px;height:22px;border:2px solid rgba(32,84,147,.25);border-top-color:var(--primary);border-radius:50%;animation:spin .9s linear infinite"></div><span>Loading observed rainfall…</span></div><canvas id="rainfallChart"></canvas></div>
                     </div>
                 </div>
                 <button class="chart-expand-btn" id="chartExpandBtn" onclick="toggleChartExpand()">&#9660; Show IKE, Surge, Pressure, Wind &amp; SST charts</button>
@@ -854,7 +856,7 @@ window.BasinDPS={COEFFICIENTS:BASIN_COEFFICIENTS,detectBasin,applyBasinDPS,getBa
 // CONFIG
 // ============================================================
 const API_BASE=(window.location.hostname==='localhost'||window.location.hostname==='127.0.0.1')?'http://127.0.0.1:8000/api/v1':window.location.origin+'/api/v1';
-let currentDPSChart=null,currentChart=null,currentSurgeChart=null,currentPressureChart=null,currentWindChart=null,currentSSTChart=null,currentMap=null;
+let currentDPSChart=null,currentChart=null,currentSurgeChart=null,currentPressureChart=null,currentWindChart=null,currentSSTChart=null,currentRainChart=null,currentMap=null;
 const NM_TO_M=1852.0;
 const DEG_TO_M=111320; // meters per degree at equator (approximate)
 
@@ -3908,6 +3910,11 @@ function renderAll(stormId,data){
     const _sstPh=document.getElementById('sstPlaceholder');if(_sstPh)_sstPh.style.display='flex';
     fetchAndRenderSST(data);
 
+    // Rainfall tab — async fetch of observed precip (Open-Meteo ERA5) along track
+    window._rainReady=false;window._rainData=null;_renderedChartData.rain=null;
+    const _rainPh=document.getElementById('rainPlaceholder');if(_rainPh){_rainPh.style.display='flex';const _s=_rainPh.querySelector('span');if(_s)_s.textContent='Loading observed rainfall…';const _d=_rainPh.querySelector('div');if(_d)_d.style.display='block';}
+    fetchAndRenderRainfall(data);
+
     // Mobile fix: charts below the fold may render with zero dimensions.
     // Re-render after layout settles, and again when charts scroll into view.
     if(window.innerWidth<=900){
@@ -3945,7 +3952,7 @@ function renderAll(stormId,data){
 // ============================================================
 // Track which charts have been rendered for current data to avoid
 // destroying and recreating them on tab switch.
-const _renderedChartData = {ike:null, surge:null, pressure:null, wind:null, sst:null};
+const _renderedChartData = {ike:null, surge:null, pressure:null, wind:null, sst:null, rain:null};
 
 function switchChartTab(tabName){
     // Update tab button active state — scoped to #chartTabbed only
@@ -3954,7 +3961,7 @@ function switchChartTab(tabName){
 
     // Update pane visibility — scoped to #chartTabbed only (don't touch score chart panes)
     document.querySelectorAll('#chartTabbed .chart-tab-pane').forEach(p=>p.classList.remove('active'));
-    const paneMap={ike:'tabIKE',surge:'tabSurge',pressure:'tabPressure',wind:'tabWind',sst:'tabSST'};
+    const paneMap={ike:'tabIKE',surge:'tabSurge',pressure:'tabPressure',wind:'tabWind',sst:'tabSST',rain:'tabRain'};
     document.getElementById(paneMap[tabName]).classList.add('active');
 
     // Only re-render if chart hasn't been rendered with current data yet
@@ -3965,6 +3972,7 @@ function switchChartTab(tabName){
     if(tabName==='pressure' && currentData && _renderedChartData.pressure!==currentData) { renderPressureChart(currentData); _renderedChartData.pressure=currentData; }
     if(tabName==='wind' && currentData && _renderedChartData.wind!==currentData) { renderWindChart(currentData); _renderedChartData.wind=currentData; }
     if(tabName==='sst' && window._sstReady && window._sstData && _renderedChartData.sst!==currentData) { renderSSTChart(currentData, window._sstData); _renderedChartData.sst=currentData; }
+    if(tabName==='rain' && window._rainReady && window._rainData && _renderedChartData.rain!==currentData) { renderRainfallChart(currentData, window._rainData); _renderedChartData.rain=currentData; }
 
     // Trigger resize so Chart.js redraws for the now-visible canvas
     window.dispatchEvent(new Event('resize'));
@@ -4296,6 +4304,43 @@ function renderSSTChart(data,sstData){
             return c.parsed.y!==null?`SST: ${c.parsed.y.toFixed(1)}°C`:'SST: No data';
         }}}},
         scales:{x:{grid:{color:'rgba(0,0,0,.07)',drawBorder:false},ticks:{maxTicksLimit:10,font:{size:10}}},y:{min:15,max:35,grid:{color:'rgba(0,0,0,.07)',drawBorder:false},title:{display:true,text:'Sea Surface Temp (°C)',color:'#5c6873',font:{size:10,weight:500}},ticks:{font:{size:10}}}}}});
+}
+
+async function fetchAndRenderRainfall(data){
+    // Observed daily precip along the track (Open-Meteo ERA5 archive). Mirrors
+    // the SST fetch: post track points, store the result, render if tab active.
+    const points=data.map(d=>({lat:d.lat,lon:d.lon,timestamp:d.timestamp}));
+    try{
+        const r=await fetch(`${API_BASE}/rainfall/track`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(points)});
+        if(!r.ok) throw new Error(`HTTP ${r.status}`);
+        const rainData=await r.json();
+        const _ph=document.getElementById('rainPlaceholder');
+        const valid=Array.isArray(rainData)?rainData.filter(x=>x&&x.rainfall_mm!==null):[];
+        if(!valid.length){
+            if(_ph){const _s=_ph.querySelector('span');if(_s)_s.textContent='No observed rainfall for this track — historical storms only (the reanalysis archive lags a few days).';const _d=_ph.querySelector('div');if(_d)_d.style.display='none';}
+            return;
+        }
+        window._rainReady=true;window._rainData=rainData;
+        if(_ph)_ph.style.display='none';
+        if(document.getElementById('tabRain').classList.contains('active')){renderRainfallChart(data,rainData);_renderedChartData.rain=data;}
+    }catch(e){
+        console.warn('Rainfall fetch failed:',e);
+        const _ph=document.getElementById('rainPlaceholder');
+        if(_ph){const _s=_ph.querySelector('span');if(_s)_s.textContent='Rainfall data unavailable.';const _d=_ph.querySelector('div');if(_d)_d.style.display='none';}
+    }
+}
+
+function renderRainfallChart(data,rainData){
+    const ctx=document.getElementById('rainfallChart').getContext('2d');
+    if(currentRainChart)currentRainChart.destroy();
+    const labels=data.map(d=>{const t=new Date(d.timestamp);return`${t.getMonth()+1}/${t.getDate()} ${String(t.getHours()).padStart(2,'0')}Z`});
+    const vals=rainData.map(x=>x?x.rainfall_mm:null);
+    currentRainChart=new Chart(ctx,{type:'bar',data:{labels,datasets:[
+        {label:'Observed rainfall (mm/day)',data:vals,backgroundColor:'rgba(37,99,235,.55)',borderColor:'#2563eb',borderWidth:1,borderRadius:2}
+    ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+        onClick:(evt,els)=>{if(els&&els.length){if(window.animationFrameId)stopAnimation();const i=els[0].index;window.currentAnimIndex=i;document.getElementById('scrubSlider').value=i;syncVisualization(i,true)}},
+        plugins:{legend:{position:'top',labels:{color:'#404b57',font:{size:11,weight:500},boxWidth:12,padding:14}},tooltip:{backgroundColor:'rgba(10,14,26,.92)',titleColor:'#f1f5f9',bodyColor:'#94a3b8',borderColor:'#1e293b',borderWidth:1,padding:8,cornerRadius:8,callbacks:{label:c=>c.parsed.y!==null?`Rainfall: ${c.parsed.y.toFixed(1)} mm (${(c.parsed.y/25.4).toFixed(1)} in)`:'No data'}}},
+        scales:{x:{grid:{display:false},ticks:{maxTicksLimit:10,font:{size:10}}},y:{beginAtZero:true,grid:{color:'rgba(0,0,0,.07)',drawBorder:false},title:{display:true,text:'Rainfall (mm/day)',color:'#5c6873',font:{size:10,weight:500}},ticks:{font:{size:10}}}}}});
 }
 
 // ── Satellite layer state (mutable across calls) ─────────────────────────
