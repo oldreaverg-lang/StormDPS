@@ -5,6 +5,10 @@ Implements calibrated formulas for each tropical cyclone basin with
 validation against historical destructive storms.
 """
 
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent.parent))  # repo root (script moved to archive/)
+
+
 import json
 import statistics
 from typing import Dict, List, Tuple

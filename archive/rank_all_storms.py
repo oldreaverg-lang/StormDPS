@@ -3,6 +3,10 @@ Comprehensive DPI ranking of all preloaded storms.
 Computes the current DPI score for every storm in the system and ranks them.
 """
 
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent.parent))  # repo root (script moved to archive/)
+
+
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 

@@ -1,6 +1,10 @@
 """
 Rank all preloaded storms by cumulative DPI and compare to single-snapshot rankings.
 """
+
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent.parent))  # repo root (script moved to archive/)
+
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
