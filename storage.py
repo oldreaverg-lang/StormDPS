@@ -91,9 +91,22 @@ METAR_CACHE_DIR = CACHE_DIR / "metar"
 # Eviction: 48h TTL via precip_routes.evict_old_precip_frames.
 PRECIP_CACHE_DIR = CACHE_DIR / "precip"
 
+# Per-storm along-track data caches. Keyed by storm_id (one JSON per storm).
+# The underlying observations are immutable for historical storms, so once a
+# storm's track is fetched it never needs refetching — repeat views (any
+# visitor) serve straight from disk with zero upstream calls. Written only for
+# historical storms; active/recent storms bypass these (their data still moves).
+#   SST_TRACK_CACHE_DIR/<storm_id>.json       — ERDDAP SST per track point
+#   RAINFALL_TRACK_CACHE_DIR/<storm_id>.json  — Open-Meteo ERA5 precip per point
+#   OBSERVED_TRACK_CACHE_DIR/<storm_id>.json  — CO-OPS surge + NDBC buoy peaks
+SST_TRACK_CACHE_DIR = CACHE_DIR / "sst_track"
+RAINFALL_TRACK_CACHE_DIR = CACHE_DIR / "rainfall_track"
+OBSERVED_TRACK_CACHE_DIR = CACHE_DIR / "observed_track"
+
 # ── Create all directories on import ────────────────────────────────────────
 for _d in (IKE_CACHE_DIR, DPS_CACHE_DIR, TRACK_CACHE_DIR, SATELLITE_CACHE_DIR,
            WIND_CACHE_DIR, PRESSURE_CACHE_DIR, METAR_CACHE_DIR, PRECIP_CACHE_DIR,
+           SST_TRACK_CACHE_DIR, RAINFALL_TRACK_CACHE_DIR, OBSERVED_TRACK_CACHE_DIR,
            VALIDATION_DIR, WIND_RADII_AUDIT_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 

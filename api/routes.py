@@ -38,6 +38,7 @@ import io
 import json
 import logging
 import os
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
@@ -228,9 +229,76 @@ from storage import (
     IBTRACS_INDEX_FILE as _IBTRACS_INDEX_FILE,
     ACTIVE_STORMS_FILE as _ACTIVE_STORMS_FILE,
     CURRENT_SEASON_FILE as _CURRENT_SEASON_FILE,
+    SST_TRACK_CACHE_DIR as _SST_TRACK_CACHE_DIR,
+    RAINFALL_TRACK_CACHE_DIR as _RAINFALL_TRACK_CACHE_DIR,
+    OBSERVED_TRACK_CACHE_DIR as _OBSERVED_TRACK_CACHE_DIR,
     atomic_write_json as _atomic_write_json,
     evict_ike_cache,
 )
+
+
+# ── Per-storm along-track data cache (SST / rainfall / observed) ─────────────
+# Historical storms have immutable observations, so the first fetch of a given
+# storm is written to the persistent volume and every later view serves from
+# disk. Helpers below are shared by the three /track endpoints.
+
+def _track_latest_dt(points: list[dict]):
+    """Most recent timestamp in a track, or None if unparseable."""
+    latest = None
+    for p in points:
+        ts = (p.get("timestamp") or "")
+        if not ts:
+            continue
+        try:
+            dt = datetime.fromisoformat(str(ts).replace("Z", "").split("+")[0][:19])
+        except ValueError:
+            continue
+        if latest is None or dt > latest:
+            latest = dt
+    return latest
+
+
+def _track_is_historical(points: list[dict], min_age_days: int = 7) -> bool:
+    """True when the whole track is old enough that its observations are final.
+
+    Guards against caching a still-evolving active storm or data that upstream
+    archives (ERA5 ~5d lag, CO-OPS verification ~30d) haven't published yet.
+    """
+    latest = _track_latest_dt(points)
+    if latest is None:
+        return False
+    return latest < (utcnow() - timedelta(days=min_age_days))
+
+
+def _storm_cache_path(cache_dir, storm_id: str):
+    """Sanitised <cache_dir>/<storm_id>.json path, or None if id is unusable."""
+    if not storm_id:
+        return None
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "", str(storm_id))[:48]
+    if not safe:
+        return None
+    return cache_dir / f"{safe}.json"
+
+
+def _read_storm_cache(cache_path):
+    """Return cached JSON for a storm layer, or None on miss/unreadable."""
+    if cache_path is None or not cache_path.exists():
+        return None
+    try:
+        return json.loads(cache_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        logger.warning(f"[track-cache] read failed {cache_path}: {e}")
+        return None
+
+
+def _write_storm_cache(cache_path, data) -> None:
+    """Persist a storm layer result atomically; best-effort."""
+    if cache_path is None:
+        return
+    try:
+        _atomic_write_json(cache_path, data)
+    except OSError as e:
+        logger.warning(f"[track-cache] write failed {cache_path}: {e}")
 
 # Bump this when the unified DPS engine's formula changes so stale cached
 # bundles are automatically invalidated on the next request.
@@ -1149,12 +1217,19 @@ def _compute_stall_risk(forecast_track: list[dict]) -> dict:
 # ------------------------------------------------------------------
 
 @router.post("/sst/track")
-async def get_sst_along_track(request: Request, points: list[dict] = Body(...)):
+async def get_sst_along_track(
+    request: Request,
+    points: list[dict] = Body(...),
+    storm_id: Optional[str] = Query(None, description="Storm id; enables per-storm disk cache for historical storms"),
+):
     """
     Fetch sea surface temperature from ERDDAP for a list of track points.
 
     Expects a JSON array of {lat, lon, timestamp} objects.
     Returns SST (°C) at each point from the NOAA Geo-polar Blended SST dataset.
+
+    When *storm_id* is supplied and the track is historical, the result is
+    cached on the persistent volume and served from disk on later views.
     """
     # Input cap. Each point spawns an upstream ERDDAP request inside
     # services/noaa_client.get_sst_along_track, so an unbounded array
@@ -1168,6 +1243,15 @@ async def get_sst_along_track(request: Request, points: list[dict] = Body(...)):
             status_code=413,
             detail=f"too many points ({len(points)}); max 500",
         )
+
+    # Serve immutable historical SST straight from the persistent volume.
+    cache_path = None
+    if storm_id and _track_is_historical(points):
+        cache_path = _storm_cache_path(_SST_TRACK_CACHE_DIR, storm_id)
+        cached = _read_storm_cache(cache_path)
+        if cached is not None:
+            logger.info(f"[SST] cache hit {storm_id} ({len(cached)} points)")
+            return cached
 
     from services.source_health import SourceHealthMonitor
     monitor = SourceHealthMonitor.instance()
@@ -1195,11 +1279,21 @@ async def get_sst_along_track(request: Request, points: list[dict] = Body(...)):
             monitor.record_failure("erddap_sst", error=str(e), latency_ms=elapsed_ms)
             logger.error(f"[SST] ERROR: {type(e).__name__}: {e}")
             raise HTTPException(status_code=500, detail=str(e))
+
+    # Persist only a result with real data, so a transient ERDDAP outage
+    # (all-null) is never frozen into the historical cache.
+    if cache_path is not None and valid_count > 0:
+        _write_storm_cache(cache_path, sst_data)
+        logger.info(f"[SST] cached {storm_id} ({valid_count} valid points)")
     return sst_data
 
 
 @router.post("/rainfall/track")
-async def get_rainfall_along_track(request: Request, points: list[dict] = Body(...)):
+async def get_rainfall_along_track(
+    request: Request,
+    points: list[dict] = Body(...),
+    storm_id: Optional[str] = Query(None, description="Storm id; enables per-storm disk cache for historical storms"),
+):
     """
     Observed daily precipitation (mm) at each track point, from the Open-Meteo
     historical reanalysis archive (ERA5, global, 1940-present). Returns one
@@ -1209,11 +1303,23 @@ async def get_rainfall_along_track(request: Request, points: list[dict] = Body(.
     Mirrors /sst/track: one upstream request per point, so the array is capped.
     The archive lags ~5 days, so very recent / active storms return null (they
     already have the live precip overlay); this layer is for historical storms.
+
+    When *storm_id* is supplied and the track is historical, the result is
+    cached on the persistent volume and served from disk on later views.
     """
     if not isinstance(points, list):
         raise HTTPException(status_code=400, detail="points must be an array")
     if len(points) > 500:
         raise HTTPException(status_code=413, detail=f"too many points ({len(points)}); max 500")
+
+    # Serve immutable historical precip straight from the persistent volume.
+    cache_path = None
+    if storm_id and _track_is_historical(points):
+        cache_path = _storm_cache_path(_RAINFALL_TRACK_CACHE_DIR, storm_id)
+        cached = _read_storm_cache(cache_path)
+        if cached is not None:
+            logger.info(f"[RAINFALL] cache hit {storm_id} ({len(cached)} points)")
+            return cached
 
     from services.open_meteo_client import OPEN_METEO_HISTORICAL_URL
 
@@ -1253,11 +1359,21 @@ async def get_rainfall_along_track(request: Request, points: list[dict] = Body(.
 
     valid = sum(1 for x in results if x.get("rainfall_mm") is not None)
     logger.info(f"[RAINFALL] {valid}/{len(results)} points have observed precip")
+
+    # Persist only a result with real data — the ERA5 archive lags ~5 days, so
+    # an all-null return (storm too recent / upstream hiccup) must not be frozen.
+    if cache_path is not None and valid > 0:
+        _write_storm_cache(cache_path, list(results))
+        logger.info(f"[RAINFALL] cached {storm_id} ({valid} valid points)")
     return results
 
 
 @router.post("/observed/track")
-async def get_observed_peaks(request: Request, points: list[dict] = Body(...)):
+async def get_observed_peaks(
+    request: Request,
+    points: list[dict] = Body(...),
+    storm_id: Optional[str] = Query(None, description="Storm id; enables per-storm disk cache for historical storms"),
+):
     """
     Observed peak impacts at fixed stations near the storm track — ground truth
     for the map's "Observed peaks" layer:
@@ -1268,16 +1384,32 @@ async def get_observed_peaks(request: Request, points: list[dict] = Body(...)):
     Returns a flat list of {type, lat, lon, name, station, value, unit, label,
     time, source}. Each source is timeout-guarded so a slow/flaky feed can't
     hang the request.
+
+    When *storm_id* is supplied and the track is historical, the result is
+    cached on the persistent volume and served from disk on later views. The
+    cache is only written when BOTH sources completed cleanly, so a timeout on
+    one feed never freezes a partial station set.
     """
     if not isinstance(points, list):
         raise HTTPException(status_code=400, detail="points must be an array")
     if len(points) > 500:
         raise HTTPException(status_code=413, detail=f"too many points ({len(points)}); max 500")
 
+    # Serve immutable historical peaks straight from the persistent volume.
+    cache_path = None
+    if storm_id and _track_is_historical(points):
+        cache_path = _storm_cache_path(_OBSERVED_TRACK_CACHE_DIR, storm_id)
+        cached = _read_storm_cache(cache_path)
+        if cached is not None:
+            logger.info(f"[OBSERVED] cache hit {storm_id} ({len(cached)} stations)")
+            return cached
+
     from services.coops_client import COOPSClient
     from services.ndbc_client import NDBCClient
 
     out: list[dict] = []
+    coops_ok = False
+    ndbc_ok = False
 
     # CO-OPS surge — the reliable layer.
     try:
@@ -1292,6 +1424,7 @@ async def get_observed_peaks(request: Request, points: list[dict] = Body(...)):
                 "label": f"Peak surge {g.peak_ft_mllw:.1f} ft",
                 "time": g.peak_time_utc, "source": "NOAA CO-OPS tide gauge",
             })
+        coops_ok = True
     except (asyncio.TimeoutError, Exception) as e:
         logger.warning(f"[OBSERVED] CO-OPS failed/timed out: {e}")
 
@@ -1319,10 +1452,18 @@ async def get_observed_peaks(request: Request, points: list[dict] = Body(...)):
                 "label": label,
                 "time": b.peak_time_utc, "source": "NDBC buoy",
             })
+        ndbc_ok = True
     except (asyncio.TimeoutError, Exception) as e:
         logger.warning(f"[OBSERVED] NDBC failed/timed out: {e}")
 
     logger.info(f"[OBSERVED] {len(out)} observed peaks near track")
+
+    # Cache only a complete result: both feeds must have finished without a
+    # timeout/error, otherwise a clean-but-empty (open ocean) result is safe to
+    # store while a partial one (one feed died) is re-fetched next time.
+    if cache_path is not None and coops_ok and ndbc_ok:
+        _write_storm_cache(cache_path, out)
+        logger.info(f"[OBSERVED] cached {storm_id} ({len(out)} stations)")
     return out
 
 

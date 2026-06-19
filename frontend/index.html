@@ -3909,12 +3909,12 @@ function renderAll(stormId,data){
     window._sstReady=false;
     window._sstData=null;
     const _sstPh=document.getElementById('sstPlaceholder');if(_sstPh)_sstPh.style.display='flex';
-    fetchAndRenderSST(data);
+    fetchAndRenderSST(data, stormId);
 
     // Rainfall tab — async fetch of observed precip (Open-Meteo ERA5) along track
     window._rainReady=false;window._rainData=null;_renderedChartData.rain=null;
     const _rainPh=document.getElementById('rainPlaceholder');if(_rainPh){_rainPh.style.display='flex';const _s=_rainPh.querySelector('span');if(_s)_s.textContent='Loading observed rainfall…';const _d=_rainPh.querySelector('div');if(_d)_d.style.display='block';}
-    fetchAndRenderRainfall(data);
+    fetchAndRenderRainfall(data, stormId);
 
     // Observed peaks map layer (CO-OPS surge + NDBC buoys) — static markers
     window._observedLayer=null;window._observedData=null;
@@ -4231,15 +4231,17 @@ const SST_ZONES=[
     {min:30,max:35,label:'Rapid intensification',color:'rgba(239,68,68,0.07)'}
 ];
 
-async function fetchAndRenderSST(data){
+async function fetchAndRenderSST(data, stormId){
     const sstTab=document.querySelector('.chart-tab[data-tab="sst"]');
 
     // Build track points for the API
     const points=data.map(d=>({lat:d.lat,lon:d.lon,timestamp:d.timestamp}));
+    // storm_id lets the backend serve/persist this on the volume for historical storms
+    const _q=stormId?`?storm_id=${encodeURIComponent(stormId)}`:'';
 
     try{
         console.log(`SST: Requesting SST for ${points.length} track points...`);
-        const r=await fetch(`${API_BASE}/sst/track`,{
+        const r=await fetch(`${API_BASE}/sst/track${_q}`,{
             method:'POST',
             headers:{'Content-Type':'application/json'},
             body:JSON.stringify(points)
@@ -4312,12 +4314,13 @@ function renderSSTChart(data,sstData){
         scales:{x:{grid:{color:'rgba(0,0,0,.07)',drawBorder:false},ticks:{maxTicksLimit:10,font:{size:10}}},y:{min:15,max:35,grid:{color:'rgba(0,0,0,.07)',drawBorder:false},title:{display:true,text:'Sea Surface Temp (°C)',color:'#5c6873',font:{size:10,weight:500}},ticks:{font:{size:10}}}}}});
 }
 
-async function fetchAndRenderRainfall(data){
+async function fetchAndRenderRainfall(data, stormId){
     // Observed daily precip along the track (Open-Meteo ERA5 archive). Mirrors
     // the SST fetch: post track points, store the result, render if tab active.
     const points=data.map(d=>({lat:d.lat,lon:d.lon,timestamp:d.timestamp}));
+    const _q=stormId?`?storm_id=${encodeURIComponent(stormId)}`:'';
     try{
-        const r=await fetch(`${API_BASE}/rainfall/track`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(points)});
+        const r=await fetch(`${API_BASE}/rainfall/track${_q}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(points)});
         if(!r.ok) throw new Error(`HTTP ${r.status}`);
         const rainData=await r.json();
         const _ph=document.getElementById('rainPlaceholder');
@@ -4360,8 +4363,9 @@ window._observedVisible=true;
 async function fetchAndRenderObserved(data, stormId){
     const points=data.map(d=>({lat:d.lat,lon:d.lon,timestamp:d.timestamp}));
     const btn=document.getElementById('observedToggleBtn');
+    const _q=stormId?`?storm_id=${encodeURIComponent(stormId)}`:'';
     try{
-        const r=await fetch(`${API_BASE}/observed/track`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(points)});
+        const r=await fetch(`${API_BASE}/observed/track${_q}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(points)});
         if(!r.ok) throw new Error(`HTTP ${r.status}`);
         const obs=await r.json();
         if(window._currentStormId!==stormId) return;  // user switched storms mid-fetch
