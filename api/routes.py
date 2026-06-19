@@ -1295,19 +1295,28 @@ async def get_observed_peaks(request: Request, points: list[dict] = Body(...)):
     except (asyncio.TimeoutError, Exception) as e:
         logger.warning(f"[OBSERVED] CO-OPS failed/timed out: {e}")
 
-    # NDBC wind/wave — additive, best-effort.
+    # NDBC wind/wave — additive, best-effort. Fetches run concurrently inside
+    # the client (per-station timeout), so the outer cap is just a safety net
+    # and partial results survive a slow feed instead of the layer going empty.
     try:
         async def _ndbc():
             async with NDBCClient() as c:
                 return await c.find_peaks_along_path(points)
-        for b in await asyncio.wait_for(_ndbc(), timeout=15.0):
+        for b in await asyncio.wait_for(_ndbc(), timeout=18.0):
             mph = round(b.peak_wind_ms * 2.23694)
-            wave = f", {b.peak_wave_m:.1f} m waves" if b.peak_wave_m else ""
+            # Accept wind-OR-wave buoys: build the label from whatever logged.
+            bits = []
+            if mph > 0:
+                bits.append(f"Peak wind {mph} mph")
+            if b.peak_wave_m:
+                bits.append(f"{b.peak_wave_m:.1f} m waves")
+            label = ", ".join(bits) or "Buoy observation"
             out.append({
                 "type": "wind", "lat": b.lat, "lon": b.lon,
                 "station": b.station, "name": b.name,
-                "value": mph, "unit": "mph",
-                "label": f"Peak wind {mph} mph{wave}",
+                "value": mph if mph > 0 else b.peak_wave_m,
+                "unit": "mph" if mph > 0 else "m",
+                "label": label,
                 "time": b.peak_time_utc, "source": "NDBC buoy",
             })
     except (asyncio.TimeoutError, Exception) as e:
