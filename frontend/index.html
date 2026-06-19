@@ -729,6 +729,7 @@
                      always on for every storm; see renderMap auto-enable. -->
                 <div id="satelliteSlider" style="display:none"></div>
                 <button class="map-legend-toggle" id="windDirToggleBtn" style="bottom:38px;left:8px;display:flex" onclick="toggleWindDirLayer()" title="Animated wind-flow direction (storm-parametric)">Wind flow: Off</button>
+                <button class="map-legend-toggle" id="observedToggleBtn" style="bottom:68px;left:8px;display:none" onclick="toggleObservedLayer()" title="Observed peak storm surge at NOAA tide gauges (and buoy wind/waves where available)">Observed surge: On</button>
                 <div class="map-legend" id="mapLegend" style="display:none;">
                     <div style="font-weight:600;margin-bottom:2px;color:#22272d;">Wind Speed</div>
                     <div class="legend-item"><div class="legend-swatch" style="background:#ff4da6"></div>Cat 5 (&ge;157 mph)</div>
@@ -3915,6 +3916,11 @@ function renderAll(stormId,data){
     const _rainPh=document.getElementById('rainPlaceholder');if(_rainPh){_rainPh.style.display='flex';const _s=_rainPh.querySelector('span');if(_s)_s.textContent='Loading observed rainfall…';const _d=_rainPh.querySelector('div');if(_d)_d.style.display='block';}
     fetchAndRenderRainfall(data);
 
+    // Observed peaks map layer (CO-OPS surge + NDBC buoys) — static markers
+    window._observedLayer=null;window._observedData=null;
+    const _obsBtn=document.getElementById('observedToggleBtn');if(_obsBtn)_obsBtn.style.display='none';
+    fetchAndRenderObserved(data, stormId);
+
     // Mobile fix: charts below the fold may render with zero dimensions.
     // Re-render after layout settles, and again when charts scroll into view.
     if(window.innerWidth<=900){
@@ -4341,6 +4347,65 @@ function renderRainfallChart(data,rainData){
         onClick:(evt,els)=>{if(els&&els.length){if(window.animationFrameId)stopAnimation();const i=els[0].index;window.currentAnimIndex=i;document.getElementById('scrubSlider').value=i;syncVisualization(i,true)}},
         plugins:{legend:{position:'top',labels:{color:'#404b57',font:{size:11,weight:500},boxWidth:12,padding:14}},tooltip:{backgroundColor:'rgba(10,14,26,.92)',titleColor:'#f1f5f9',bodyColor:'#94a3b8',borderColor:'#1e293b',borderWidth:1,padding:8,cornerRadius:8,callbacks:{label:c=>c.parsed.y!==null?`Rainfall: ${c.parsed.y.toFixed(1)} mm (${(c.parsed.y/25.4).toFixed(1)} in)`:'No data'}}},
         scales:{x:{grid:{display:false},ticks:{maxTicksLimit:10,font:{size:10}}},y:{beginAtZero:true,grid:{color:'rgba(0,0,0,.07)',drawBorder:false},title:{display:true,text:'Rainfall (mm/day)',color:'#5c6873',font:{size:10,weight:500}},ticks:{font:{size:10}}}}}});
+}
+
+// ── Observed peaks layer (CO-OPS surge gauges + NDBC buoys) ──────────────
+// A static map layer of fixed-station observed peaks that the timelapse runs
+// over. Surge gauges (cyan) are the reliable layer; buoy wind/wave points
+// (purple) are additive when available. Click a marker for the observed value.
+window._observedData=null;
+window._observedLayer=null;
+window._observedVisible=true;
+
+async function fetchAndRenderObserved(data, stormId){
+    const points=data.map(d=>({lat:d.lat,lon:d.lon,timestamp:d.timestamp}));
+    const btn=document.getElementById('observedToggleBtn');
+    try{
+        const r=await fetch(`${API_BASE}/observed/track`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(points)});
+        if(!r.ok) throw new Error(`HTTP ${r.status}`);
+        const obs=await r.json();
+        if(window._currentStormId!==stormId) return;  // user switched storms mid-fetch
+        window._observedData=Array.isArray(obs)?obs:[];
+        if(btn) btn.style.display=window._observedData.length?'flex':'none';
+        renderObservedLayer();
+    }catch(e){
+        console.warn('Observed peaks fetch failed:',e);
+        if(btn) btn.style.display='none';
+    }
+}
+
+function renderObservedLayer(){
+    try{
+        if(typeof L==='undefined'||!currentMap) return;
+        if(window._observedLayer){try{currentMap.removeLayer(window._observedLayer);}catch(e){}window._observedLayer=null;}
+        const obs=window._observedData;
+        if(!obs||!obs.length) return;
+        const layer=L.layerGroup();
+        obs.forEach(o=>{
+            if(o.lat==null||o.lon==null) return;
+            const isSurge=o.type==='surge';
+            const fill=isSurge?'#06b6d4':'#a855f7';
+            const m=L.circleMarker([o.lat,o.lon],{radius:7,fillColor:fill,color:'#fff',weight:2,fillOpacity:.9});
+            const t=o.time?(' · '+String(o.time).replace('T',' ').slice(0,16)):'';
+            m.bindPopup(`<div style="font-family:Public Sans,sans-serif;font-size:11px;line-height:1.5;width:190px"><div style="font-weight:700;border-bottom:1px solid #cbd5e1;padding-bottom:3px;margin-bottom:4px">${escapeHtml(o.name||o.station||'Station')}</div><div style="color:${fill};font-weight:700">${escapeHtml(o.label||'')}</div><div style="color:#5c6873;margin-top:3px;font-size:10px">Observed · ${escapeHtml(o.source||'')}${escapeHtml(t)}</div></div>`,{closeButton:false});
+            m.on('mouseover',function(){this.openPopup()});
+            m.on('mouseout',function(){this.closePopup()});
+            layer.addLayer(m);
+        });
+        window._observedLayer=layer;
+        if(window._observedVisible) layer.addTo(currentMap);
+    }catch(e){/* observed layer is non-critical */}
+}
+
+function toggleObservedLayer(){
+    window._observedVisible=!window._observedVisible;
+    const btn=document.getElementById('observedToggleBtn');
+    if(btn) btn.textContent='Observed surge: '+(window._observedVisible?'On':'Off');
+    try{
+        if(!currentMap||!window._observedLayer) return;
+        if(window._observedVisible) window._observedLayer.addTo(currentMap);
+        else currentMap.removeLayer(window._observedLayer);
+    }catch(e){}
 }
 
 // ── Satellite layer state (mutable across calls) ─────────────────────────

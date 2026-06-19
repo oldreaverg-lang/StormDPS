@@ -1256,6 +1256,67 @@ async def get_rainfall_along_track(request: Request, points: list[dict] = Body(.
     return results
 
 
+@router.post("/observed/track")
+async def get_observed_peaks(request: Request, points: list[dict] = Body(...)):
+    """
+    Observed peak impacts at fixed stations near the storm track — ground truth
+    for the map's "Observed peaks" layer:
+      - NOAA CO-OPS tide gauges → peak storm surge (ft). Reliable, historical.
+      - NDBC buoys → peak wind/wave. Additive/best-effort (often empty for
+        older storms), so it never blocks the surge layer.
+
+    Returns a flat list of {type, lat, lon, name, station, value, unit, label,
+    time, source}. Each source is timeout-guarded so a slow/flaky feed can't
+    hang the request.
+    """
+    if not isinstance(points, list):
+        raise HTTPException(status_code=400, detail="points must be an array")
+    if len(points) > 500:
+        raise HTTPException(status_code=413, detail=f"too many points ({len(points)}); max 500")
+
+    from services.coops_client import COOPSClient
+    from services.ndbc_client import NDBCClient
+
+    out: list[dict] = []
+
+    # CO-OPS surge — the reliable layer.
+    try:
+        async def _coops():
+            async with COOPSClient() as c:
+                return await c.find_peak_along_path(points)
+        for g in await asyncio.wait_for(_coops(), timeout=25.0):
+            out.append({
+                "type": "surge", "lat": g.lat, "lon": g.lon,
+                "station": g.station, "name": g.name,
+                "value": g.peak_ft_mllw, "unit": "ft",
+                "label": f"Peak surge {g.peak_ft_mllw:.1f} ft",
+                "time": g.peak_time_utc, "source": "NOAA CO-OPS tide gauge",
+            })
+    except (asyncio.TimeoutError, Exception) as e:
+        logger.warning(f"[OBSERVED] CO-OPS failed/timed out: {e}")
+
+    # NDBC wind/wave — additive, best-effort.
+    try:
+        async def _ndbc():
+            async with NDBCClient() as c:
+                return await c.find_peaks_along_path(points)
+        for b in await asyncio.wait_for(_ndbc(), timeout=15.0):
+            mph = round(b.peak_wind_ms * 2.23694)
+            wave = f", {b.peak_wave_m:.1f} m waves" if b.peak_wave_m else ""
+            out.append({
+                "type": "wind", "lat": b.lat, "lon": b.lon,
+                "station": b.station, "name": b.name,
+                "value": mph, "unit": "mph",
+                "label": f"Peak wind {mph} mph{wave}",
+                "time": b.peak_time_utc, "source": "NDBC buoy",
+            })
+    except (asyncio.TimeoutError, Exception) as e:
+        logger.warning(f"[OBSERVED] NDBC failed/timed out: {e}")
+
+    logger.info(f"[OBSERVED] {len(out)} observed peaks near track")
+    return out
+
+
 # ------------------------------------------------------------------
 # IKE computation
 # ------------------------------------------------------------------
