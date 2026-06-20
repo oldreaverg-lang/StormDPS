@@ -233,6 +233,7 @@ from storage import (
     RAINFALL_TRACK_CACHE_DIR as _RAINFALL_TRACK_CACHE_DIR,
     OBSERVED_TRACK_CACHE_DIR as _OBSERVED_TRACK_CACHE_DIR,
     atomic_write_json as _atomic_write_json,
+    evict_cache_dir as _evict_cache_dir,
     evict_ike_cache,
 )
 
@@ -336,6 +337,13 @@ def _write_storm_cache(cache_path, data, version=None) -> None:
         _atomic_write_json(cache_path, payload)
     except OSError as e:
         logger.warning(f"[track-cache] write failed {cache_path}: {e}")
+        return
+    # Bound the dir's growth (cheap no-op until the cap is hit); also ages out
+    # the pre-fingerprint orphan files from earlier cache iterations.
+    try:
+        _evict_cache_dir(cache_path.parent)
+    except Exception:
+        pass
 
 
 # Bump when the /rainfall/track payload meaning changes so old caches drop.

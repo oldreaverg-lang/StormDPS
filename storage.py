@@ -246,3 +246,38 @@ def evict_ike_cache() -> int:
             pass
     logger.info("IKE cache eviction: removed %d / %d files", removed, len(files))
     return removed
+
+
+# ── Per-storm track-data cache eviction ─────────────────────────────────────
+# The sst_track/rainfall_track/observed_track dirs accrue one small JSON per
+# (storm × track-fingerprint). Files are tiny, so the cap is generous; this is
+# a backstop against unbounded growth (and it ages out the pre-fingerprint
+# orphan files left by earlier cache iterations).
+
+TRACK_CACHE_MAX_FILES = 3000
+TRACK_CACHE_MAX_BYTES = 50 * 1_048_576  # 50 MB
+
+
+def evict_cache_dir(cache_dir, max_files: int = TRACK_CACHE_MAX_FILES,
+                    max_bytes: int = TRACK_CACHE_MAX_BYTES) -> int:
+    """Remove the oldest 25 % of *.json in *cache_dir* when limits are exceeded.
+
+    Best-effort and cheap: returns 0 immediately when under both limits.
+    """
+    try:
+        files = sorted(cache_dir.glob("*.json"), key=lambda f: f.stat().st_mtime)
+    except OSError:
+        return 0
+    if len(files) <= max_files and _dir_size(cache_dir) <= max_bytes:
+        return 0
+    to_remove = max(1, len(files) // 4)
+    removed = 0
+    for f in files[:to_remove]:
+        try:
+            f.unlink()
+            removed += 1
+        except OSError:
+            pass
+    logger.info("track cache eviction: removed %d / %d files from %s",
+                removed, len(files), cache_dir.name)
+    return removed
