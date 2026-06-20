@@ -1354,12 +1354,14 @@ async def get_rainfall_along_track(
     the eye is typically drier than the eyewall. It is not the storm's peak or
     total footprint rainfall (that needs a gridded swath product).
 
-    Reliability: one upstream request per point (Open-Meteo returns a day's
-    hourly series in a single call). Failures are retried once; null means
-    genuine no-data, never a dropped request. When *storm_id* is supplied and
-    the track is historical the result is cached on the persistent volume — but
-    only when every point resolved (no hard failures), so a transient
-    rate-limit is never frozen into the cache.
+    Reliability/scale: requests are batched by calendar day — one multi-location
+    Open-Meteo call covers every point on that day (date range [day-1, day] also
+    covers midnight-crossing windows), collapsing a 131-point track from 131
+    calls to ~one-per-day. Failures are retried once; null means genuine
+    no-data, never a dropped request. When *storm_id* is supplied and the track
+    is historical the result is cached on the persistent volume — but only when
+    every point resolved (no hard failures), so a transient rate-limit is never
+    frozen into the cache.
     """
     if not isinstance(points, list):
         raise HTTPException(status_code=400, detail="points must be an array")
@@ -1393,63 +1395,89 @@ async def get_rainfall_along_track(
         except ValueError:
             parsed.append(None)
 
-    # Reliability over cold-fetch speed: the result is cached once per historical
-    # storm, so a slower low-concurrency fetch with a retry beats burst-rate-
-    # limited nulls that would otherwise be frozen on the volume.
-    sem = asyncio.Semaphore(4)
     _DEFAULT_STEP = timedelta(hours=6)
     _MAX_STEP = timedelta(hours=12)
 
-    async def _one(i: int) -> tuple[str, Optional[float]]:
-        """-> (status, value): status in {'ok','nodata','fail'}; 'fail' blocks caching."""
-        pt = points[i]
-        lat, lon = pt.get("lat"), pt.get("lon")
-        t_i = parsed[i]
-        if lat is None or lon is None or t_i is None:
-            return ("nodata", None)
+    def _window_start(i: int, t_i: datetime) -> datetime:
         prev = parsed[i - 1] if i > 0 else None
         start = prev if prev is not None else (t_i - _DEFAULT_STEP)
         if not (timedelta(0) < (t_i - start) <= _MAX_STEP):
             start = t_i - _DEFAULT_STEP  # guard gaps / out-of-order timestamps
+        return start
+
+    # Outcome per point: ('ok', value) | ('nodata', None) | ('fail', None).
+    # Points without coords/timestamp can't be placed → 'nodata'.
+    outcomes: list[tuple[str, Optional[float]]] = [("nodata", None)] * len(points)
+
+    # Group point indices by the calendar day of their timestamp. One request
+    # per day (range [day-1, day]) covers every point that day plus any
+    # midnight-crossing window — far fewer upstream calls than one-per-point.
+    by_day: dict = {}
+    for i, t_i in enumerate(parsed):
+        if t_i is None or points[i].get("lat") is None or points[i].get("lon") is None:
+            continue
+        by_day.setdefault(t_i.date(), []).append(i)
+
+    _CHUNK = 100          # max locations per Open-Meteo multi-location request
+    sem = asyncio.Semaphore(6)
+
+    async def _fetch_chunk(day, idxs: list[int]) -> None:
         params = {
-            "latitude": lat, "longitude": lon,
-            "start_date": start.strftime("%Y-%m-%d"),
-            "end_date": t_i.strftime("%Y-%m-%d"),
+            "latitude": ",".join(str(points[i]["lat"]) for i in idxs),
+            "longitude": ",".join(str(points[i]["lon"]) for i in idxs),
+            "start_date": (day - timedelta(days=1)).strftime("%Y-%m-%d"),
+            "end_date": day.strftime("%Y-%m-%d"),
             "hourly": "precipitation", "timezone": "UTC",
         }
+        payload = None
         for attempt in range(2):
             try:
                 async with sem:
                     r = await client.get(OPEN_METEO_HISTORICAL_URL, params=params)
                 r.raise_for_status()
-                hourly = r.json().get("hourly") or {}
-                htimes = hourly.get("time") or []
-                hprec = hourly.get("precipitation") or []
-                if not htimes:
-                    return ("nodata", None)
-                # Hourly precip is left-labeled (value at H covers [H, H+1)),
-                # so the segment (start, t_i] is the sum over hours [start, t_i).
-                total = 0.0
-                for tstr, val in zip(htimes, hprec):
-                    if val is None:
-                        continue
-                    try:
-                        ht = datetime.fromisoformat(str(tstr)[:19])
-                    except ValueError:
-                        continue
-                    if start <= ht < t_i:
-                        total += float(val)
-                return ("ok", round(total, 1))
+                payload = r.json()
+                break
             except (httpx.HTTPError, ValueError, KeyError, TypeError) as e:
                 if attempt == 0:
                     await asyncio.sleep(0.75)
                     continue
-                logger.debug(f"[RAINFALL] point {i} failed: {type(e).__name__}: {e}")
-                return ("fail", None)
-        return ("fail", None)
+                logger.debug(f"[RAINFALL] batch {params['start_date']} ({len(idxs)} pts) failed: {type(e).__name__}: {e}")
+                for i in idxs:
+                    outcomes[i] = ("fail", None)
+                return
+        # Multi-location → list (input order, no dedup); single coord → dict.
+        locs = payload if isinstance(payload, list) else [payload]
+        for j, i in enumerate(idxs):
+            loc = locs[j] if j < len(locs) else None
+            hourly = (loc or {}).get("hourly") or {}
+            htimes = hourly.get("time") or []
+            hprec = hourly.get("precipitation") or []
+            if not htimes:
+                outcomes[i] = ("nodata", None)
+                continue
+            # Hourly precip is left-labeled (value at H covers [H, H+1)), so the
+            # segment is the sum over hours [start, t_i).
+            t_i = parsed[i]
+            start = _window_start(i, t_i)
+            total = 0.0
+            for tstr, val in zip(htimes, hprec):
+                if val is None:
+                    continue
+                try:
+                    ht = datetime.fromisoformat(str(tstr)[:19])
+                except ValueError:
+                    continue
+                if start <= ht < t_i:
+                    total += float(val)
+            outcomes[i] = ("ok", round(total, 1))
 
+    tasks = []
+    for day, idxs in by_day.items():
+        for c in range(0, len(idxs), _CHUNK):
+            tasks.append(_fetch_chunk(day, idxs[c:c + _CHUNK]))
     try:
-        outcomes = await asyncio.gather(*[_one(i) for i in range(len(points))])
+        if tasks:
+            await asyncio.gather(*tasks)
     finally:
         if own is not None:
             await own.aclose()
@@ -1457,7 +1485,7 @@ async def get_rainfall_along_track(
     results = [{"rainfall_mm": v} for (_s, v) in outcomes]
     had_failure = any(s == "fail" for (s, _v) in outcomes)
     valid = sum(1 for (s, _v) in outcomes if s == "ok")
-    logger.info(f"[RAINFALL] {valid}/{len(results)} segments with precip; had_failure={had_failure}")
+    logger.info(f"[RAINFALL] {valid}/{len(results)} segments with precip across {len(by_day)} day-batches; had_failure={had_failure}")
 
     # Cache only a complete result: any hard fetch failure (as opposed to genuine
     # no-data) forces a re-fetch next view, so transient rate-limiting is never
