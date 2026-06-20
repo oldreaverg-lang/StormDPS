@@ -236,7 +236,13 @@ class NDBCClient:
             except ValueError:
                 return -1
 
-        i_yy = idx("YY")  # 4-digit year in new format; 2-digit in old
+        # Year column: modern (2007+) archives label it "YY" (4-digit value),
+        # pre-2007 archives label it "YYYY". Match either, else rows would
+        # silently fall to the 1970 default and never land in the storm window
+        # (this is why pre-2007 storms like Katrina returned zero buoys).
+        i_yy = idx("YY")
+        if i_yy < 0:
+            i_yy = idx("YYYY")
         i_mm = idx("MM")
         i_dd = idx("DD")
         i_hh = idx("hh")

@@ -351,6 +351,11 @@ def _write_storm_cache(cache_path, data, version=None) -> None:
 #     (summed from hourly ERA5), replacing the v1 whole-day precipitation_sum.
 _RAINFALL_CACHE_VERSION = 2
 
+# Bump when the /observed/track result changes so stale caches drop.
+# v2: NDBC pre-2007 year-column parse fix — buoys now populate for pre-2007
+#     storms (Katrina etc.) that previously cached with zero buoys.
+_OBSERVED_CACHE_VERSION = 2
+
 # Bump this when the unified DPS engine's formula changes so stale cached
 # bundles are automatically invalidated on the next request.
 # v6-sqrt: initial sqrt compression (T=60, S=4), flat RI bonus +15.
@@ -1539,7 +1544,7 @@ async def get_observed_peaks(
     cache_path = None
     if storm_id and _track_is_historical(points, min_age_days=35):
         cache_path = _storm_cache_path(_OBSERVED_TRACK_CACHE_DIR, storm_id, points)
-        cached = _read_storm_cache(cache_path)
+        cached = _read_storm_cache(cache_path, version=_OBSERVED_CACHE_VERSION)
         if cached is not None:
             logger.info(f"[OBSERVED] cache hit {storm_id} ({len(cached)} stations)")
             return cached
@@ -1602,7 +1607,7 @@ async def get_observed_peaks(
     # timeout/error, otherwise a clean-but-empty (open ocean) result is safe to
     # store while a partial one (one feed died) is re-fetched next time.
     if cache_path is not None and coops_ok and ndbc_ok:
-        _write_storm_cache(cache_path, out)
+        _write_storm_cache(cache_path, out, version=_OBSERVED_CACHE_VERSION)
         logger.info(f"[OBSERVED] cached {storm_id} ({len(out)} stations)")
     return out
 
