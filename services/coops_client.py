@@ -24,6 +24,7 @@ parameter if ever needed.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -204,14 +205,26 @@ class COOPSClient:
                 if abs(lat - plat) <= radius_deg and abs(lon - plon) <= radius_deg:
                     candidates.add(sid)
 
-        readings: list[GaugeReading] = []
-        for sid in candidates:
-            try:
-                r = await self.get_peak_water_level(sid, begin, end)
-                if r is not None:
-                    readings.append(r)
-            except Exception as e:
-                logger.debug(f"[CO-OPS] skipped {sid}: {e}")
+        # Fetch candidate gauges concurrently with a per-station timeout. The
+        # old sequential loop could exhaust the endpoint's overall budget on a
+        # storm with many nearby gauges and silently return an empty surge
+        # layer; concurrency + an individual cap means one slow gauge is dropped
+        # on its own instead of starving the rest.
+        sem = asyncio.Semaphore(16)
+
+        async def _one(sid: str) -> Optional[GaugeReading]:
+            async with sem:
+                try:
+                    return await asyncio.wait_for(
+                        self.get_peak_water_level(sid, begin, end),
+                        timeout=8.0,
+                    )
+                except (asyncio.TimeoutError, Exception) as e:
+                    logger.debug(f"[CO-OPS] skipped {sid}: {e}")
+                    return None
+
+        results = await asyncio.gather(*[_one(s) for s in candidates])
+        readings = [r for r in results if r is not None]
 
         # Sort by peak height descending so the biggest surge gauge is first.
         readings.sort(key=lambda r: r.peak_ft_mllw, reverse=True)
