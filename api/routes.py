@@ -270,14 +270,35 @@ def _track_is_historical(points: list[dict], min_age_days: int = 7) -> bool:
     return latest < (utcnow() - timedelta(days=min_age_days))
 
 
-def _storm_cache_path(cache_dir, storm_id: str):
-    """Sanitised <cache_dir>/<storm_id>.json path, or None if id is unusable."""
+def _track_fingerprint(points: list[dict]) -> str:
+    """Short stable hash of the posted track (count + rounded coords + hour).
+
+    Keying the cache by storm_id ALONE is unsafe: the same storm can be posted
+    at different resolutions (preset bundle track vs the finer /track endpoint),
+    and the SST/rainfall results are index-aligned to the posted points — so a
+    cache warmed at one resolution would return a misaligned array to a caller
+    at another. The fingerprint gives each distinct track its own cache entry.
+    """
+    h = hashlib.sha1()
+    for p in points:
+        try:
+            lat = round(float(p.get("lat")), 2)
+            lon = round(float(p.get("lon")), 2)
+            ts = str(p.get("timestamp") or "")[:13]  # to the hour
+            h.update(f"{lat},{lon},{ts};".encode())
+        except (TypeError, ValueError):
+            h.update(b"x;")
+    return f"{len(points)}_{h.hexdigest()[:12]}"
+
+
+def _storm_cache_path(cache_dir, storm_id: str, points: list[dict]):
+    """Sanitised <cache_dir>/<storm_id>__<track-fp>.json, or None if id unusable."""
     if not storm_id:
         return None
     safe = re.sub(r"[^A-Za-z0-9_.-]", "", str(storm_id))[:48]
     if not safe:
         return None
-    return cache_dir / f"{safe}.json"
+    return cache_dir / f"{safe}__{_track_fingerprint(points)}.json"
 
 
 def _read_storm_cache(cache_path, version=None):
@@ -1269,7 +1290,7 @@ async def get_sst_along_track(
     # Serve immutable historical SST straight from the persistent volume.
     cache_path = None
     if storm_id and _track_is_historical(points):
-        cache_path = _storm_cache_path(_SST_TRACK_CACHE_DIR, storm_id)
+        cache_path = _storm_cache_path(_SST_TRACK_CACHE_DIR, storm_id, points)
         cached = _read_storm_cache(cache_path)
         if cached is not None:
             logger.info(f"[SST] cache hit {storm_id} ({len(cached)} points)")
@@ -1348,7 +1369,7 @@ async def get_rainfall_along_track(
     # Serve immutable historical precip straight from the persistent volume.
     cache_path = None
     if storm_id and _track_is_historical(points):
-        cache_path = _storm_cache_path(_RAINFALL_TRACK_CACHE_DIR, storm_id)
+        cache_path = _storm_cache_path(_RAINFALL_TRACK_CACHE_DIR, storm_id, points)
         cached = _read_storm_cache(cache_path, version=_RAINFALL_CACHE_VERSION)
         if cached is not None:
             logger.info(f"[RAINFALL] cache hit {storm_id} ({len(cached)} points)")
@@ -1477,7 +1498,7 @@ async def get_observed_peaks(
     # Serve immutable historical peaks straight from the persistent volume.
     cache_path = None
     if storm_id and _track_is_historical(points):
-        cache_path = _storm_cache_path(_OBSERVED_TRACK_CACHE_DIR, storm_id)
+        cache_path = _storm_cache_path(_OBSERVED_TRACK_CACHE_DIR, storm_id, points)
         cached = _read_storm_cache(cache_path)
         if cached is not None:
             logger.info(f"[OBSERVED] cache hit {storm_id} ({len(cached)} stations)")
