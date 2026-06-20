@@ -1532,8 +1532,12 @@ async def get_observed_peaks(
         raise HTTPException(status_code=413, detail=f"too many points ({len(points)}); max 500")
 
     # Serve immutable historical peaks straight from the persistent volume.
+    # Longer age gate than SST/rainfall: CO-OPS publishes *verified* water levels
+    # on a ~30-day lag (preliminary before that), so we wait ~35 days before
+    # freezing the surge peaks, avoiding caching preliminary values that NOAA
+    # later revises.
     cache_path = None
-    if storm_id and _track_is_historical(points):
+    if storm_id and _track_is_historical(points, min_age_days=35):
         cache_path = _storm_cache_path(_OBSERVED_TRACK_CACHE_DIR, storm_id, points)
         cached = _read_storm_cache(cache_path)
         if cached is not None:

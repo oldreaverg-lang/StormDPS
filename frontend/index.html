@@ -4252,6 +4252,7 @@ async function fetchAndRenderSST(data, stormId){
             throw new Error(`HTTP ${r.status}`);
         }
         const sstData=await r.json();
+        if(stormId && window._currentStormId!==stormId) return;  // user switched storms mid-fetch
         console.log(`SST: Received ${sstData.length} points, ${sstData.filter(s=>s.sst_c!==null).length} with valid data`);
 
         const validSST=sstData.filter(s=>s.sst_c!==null);
@@ -4323,6 +4324,7 @@ async function fetchAndRenderRainfall(data, stormId){
         const r=await fetch(`${API_BASE}/rainfall/track${_q}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(points)});
         if(!r.ok) throw new Error(`HTTP ${r.status}`);
         const rainData=await r.json();
+        if(stormId && window._currentStormId!==stormId) return;  // user switched storms mid-fetch
         const _ph=document.getElementById('rainPlaceholder');
         const valid=Array.isArray(rainData)?rainData.filter(x=>x&&x.rainfall_mm!==null):[];
         if(!valid.length){
