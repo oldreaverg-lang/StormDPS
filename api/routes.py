@@ -280,25 +280,47 @@ def _storm_cache_path(cache_dir, storm_id: str):
     return cache_dir / f"{safe}.json"
 
 
-def _read_storm_cache(cache_path):
-    """Return cached JSON for a storm layer, or None on miss/unreadable."""
+def _read_storm_cache(cache_path, version=None):
+    """Return cached data for a storm layer, or None on miss/unreadable.
+
+    When *version* is given, the on-disk payload must be a {"_v", "data"} wrapper
+    with a matching version; any mismatch (or an old bare payload from before the
+    layer's meaning changed) reads as a miss, auto-invalidating stale shapes.
+    When *version* is None the raw payload is returned as-is (legacy bare files).
+    """
     if cache_path is None or not cache_path.exists():
         return None
     try:
-        return json.loads(cache_path.read_text(encoding="utf-8"))
+        raw = json.loads(cache_path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
         logger.warning(f"[track-cache] read failed {cache_path}: {e}")
         return None
+    if version is None:
+        return raw
+    if isinstance(raw, dict) and raw.get("_v") == version:
+        return raw.get("data")
+    return None  # version mismatch / pre-versioning shape → treat as miss
 
 
-def _write_storm_cache(cache_path, data) -> None:
-    """Persist a storm layer result atomically; best-effort."""
+def _write_storm_cache(cache_path, data, version=None) -> None:
+    """Persist a storm layer result atomically; best-effort.
+
+    With *version*, wraps as {"_v": version, "data": data} so future schema
+    changes invalidate old files via _read_storm_cache's version check.
+    """
     if cache_path is None:
         return
+    payload = data if version is None else {"_v": version, "data": data}
     try:
-        _atomic_write_json(cache_path, data)
+        _atomic_write_json(cache_path, payload)
     except OSError as e:
         logger.warning(f"[track-cache] write failed {cache_path}: {e}")
+
+
+# Bump when the /rainfall/track payload meaning changes so old caches drop.
+# v2: per-track-point value is now the 6-hour accumulation ending at the point
+#     (summed from hourly ERA5), replacing the v1 whole-day precipitation_sum.
+_RAINFALL_CACHE_VERSION = 2
 
 # Bump this when the unified DPS engine's formula changes so stale cached
 # bundles are automatically invalidated on the next request.
@@ -1295,17 +1317,28 @@ async def get_rainfall_along_track(
     storm_id: Optional[str] = Query(None, description="Storm id; enables per-storm disk cache for historical storms"),
 ):
     """
-    Observed daily precipitation (mm) at each track point, from the Open-Meteo
-    historical reanalysis archive (ERA5, global, 1940-present). Returns one
-    {"rainfall_mm": x|null} per posted point, in order — a rainfall profile
-    along the storm track for the bottom-chart "Rainfall" tab.
+    Observed precipitation along the storm track, from the Open-Meteo historical
+    reanalysis archive (ERA5, global hourly, 1940-present). Returns one
+    {"rainfall_mm": x|null} per posted point, in order.
 
-    Mirrors /sst/track: one upstream request per point, so the array is capped.
-    The archive lags ~5 days, so very recent / active storms return null (they
-    already have the live precip overlay); this layer is for historical storms.
+    Each value is the **accumulation over the track segment ending at that
+    point** — the rain that fell at the storm's location during that step (the
+    window from the previous track point to this one, summed from hourly ERA5).
+    This keeps every value on the track's own timeline (one per point, at its
+    timestamp), independent per bar (not cumulative — the storm moves, so
+    summing across points would add unrelated locations), and free of the
+    daily-total double-representation the old per-day value had.
 
-    When *storm_id* is supplied and the track is historical, the result is
-    cached on the persistent volume and served from disk on later views.
+    Note: this is precipitation at the storm *center* track point, a proxy —
+    the eye is typically drier than the eyewall. It is not the storm's peak or
+    total footprint rainfall (that needs a gridded swath product).
+
+    Reliability: one upstream request per point (Open-Meteo returns a day's
+    hourly series in a single call). Failures are retried once; null means
+    genuine no-data, never a dropped request. When *storm_id* is supplied and
+    the track is historical the result is cached on the persistent volume — but
+    only when every point resolved (no hard failures), so a transient
+    rate-limit is never frozen into the cache.
     """
     if not isinstance(points, list):
         raise HTTPException(status_code=400, detail="points must be an array")
@@ -1316,7 +1349,7 @@ async def get_rainfall_along_track(
     cache_path = None
     if storm_id and _track_is_historical(points):
         cache_path = _storm_cache_path(_RAINFALL_TRACK_CACHE_DIR, storm_id)
-        cached = _read_storm_cache(cache_path)
+        cached = _read_storm_cache(cache_path, version=_RAINFALL_CACHE_VERSION)
         if cached is not None:
             logger.info(f"[RAINFALL] cache hit {storm_id} ({len(cached)} points)")
             return cached
@@ -1329,42 +1362,88 @@ async def get_rainfall_along_track(
         own = httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=5.0))
     client = shared or own
 
-    sem = asyncio.Semaphore(8)  # be polite to Open-Meteo; ~N/8 round-trips
+    # Pre-parse timestamps so each point's window is [prev_point, this_point):
+    # the rain that fell along that track segment.
+    parsed: list[Optional[datetime]] = []
+    for p in points:
+        ts = p.get("timestamp")
+        try:
+            parsed.append(datetime.fromisoformat(str(ts).replace("Z", "").split("+")[0][:19]) if ts else None)
+        except ValueError:
+            parsed.append(None)
 
-    async def _one(pt: dict) -> dict:
+    # Reliability over cold-fetch speed: the result is cached once per historical
+    # storm, so a slower low-concurrency fetch with a retry beats burst-rate-
+    # limited nulls that would otherwise be frozen on the volume.
+    sem = asyncio.Semaphore(4)
+    _DEFAULT_STEP = timedelta(hours=6)
+    _MAX_STEP = timedelta(hours=12)
+
+    async def _one(i: int) -> tuple[str, Optional[float]]:
+        """-> (status, value): status in {'ok','nodata','fail'}; 'fail' blocks caching."""
+        pt = points[i]
         lat, lon = pt.get("lat"), pt.get("lon")
-        date = (pt.get("timestamp") or "")[:10]
-        if lat is None or lon is None or len(date) != 10:
-            return {"rainfall_mm": None}
+        t_i = parsed[i]
+        if lat is None or lon is None or t_i is None:
+            return ("nodata", None)
+        prev = parsed[i - 1] if i > 0 else None
+        start = prev if prev is not None else (t_i - _DEFAULT_STEP)
+        if not (timedelta(0) < (t_i - start) <= _MAX_STEP):
+            start = t_i - _DEFAULT_STEP  # guard gaps / out-of-order timestamps
         params = {
             "latitude": lat, "longitude": lon,
-            "start_date": date, "end_date": date,
-            "daily": "precipitation_sum", "timezone": "UTC",
+            "start_date": start.strftime("%Y-%m-%d"),
+            "end_date": t_i.strftime("%Y-%m-%d"),
+            "hourly": "precipitation", "timezone": "UTC",
         }
-        try:
-            async with sem:
-                r = await client.get(OPEN_METEO_HISTORICAL_URL, params=params)
-            r.raise_for_status()
-            vals = (r.json().get("daily") or {}).get("precipitation_sum") or []
-            v = vals[0] if vals else None
-            return {"rainfall_mm": round(float(v), 1) if v is not None else None}
-        except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
-            return {"rainfall_mm": None}
+        for attempt in range(2):
+            try:
+                async with sem:
+                    r = await client.get(OPEN_METEO_HISTORICAL_URL, params=params)
+                r.raise_for_status()
+                hourly = r.json().get("hourly") or {}
+                htimes = hourly.get("time") or []
+                hprec = hourly.get("precipitation") or []
+                if not htimes:
+                    return ("nodata", None)
+                # Hourly precip is left-labeled (value at H covers [H, H+1)),
+                # so the segment (start, t_i] is the sum over hours [start, t_i).
+                total = 0.0
+                for tstr, val in zip(htimes, hprec):
+                    if val is None:
+                        continue
+                    try:
+                        ht = datetime.fromisoformat(str(tstr)[:19])
+                    except ValueError:
+                        continue
+                    if start <= ht < t_i:
+                        total += float(val)
+                return ("ok", round(total, 1))
+            except (httpx.HTTPError, ValueError, KeyError, TypeError) as e:
+                if attempt == 0:
+                    await asyncio.sleep(0.75)
+                    continue
+                logger.debug(f"[RAINFALL] point {i} failed: {type(e).__name__}: {e}")
+                return ("fail", None)
+        return ("fail", None)
 
     try:
-        results = await asyncio.gather(*[_one(p) for p in points])
+        outcomes = await asyncio.gather(*[_one(i) for i in range(len(points))])
     finally:
         if own is not None:
             await own.aclose()
 
-    valid = sum(1 for x in results if x.get("rainfall_mm") is not None)
-    logger.info(f"[RAINFALL] {valid}/{len(results)} points have observed precip")
+    results = [{"rainfall_mm": v} for (_s, v) in outcomes]
+    had_failure = any(s == "fail" for (s, _v) in outcomes)
+    valid = sum(1 for (s, _v) in outcomes if s == "ok")
+    logger.info(f"[RAINFALL] {valid}/{len(results)} segments with precip; had_failure={had_failure}")
 
-    # Persist only a result with real data — the ERA5 archive lags ~5 days, so
-    # an all-null return (storm too recent / upstream hiccup) must not be frozen.
-    if cache_path is not None and valid > 0:
-        _write_storm_cache(cache_path, list(results))
-        logger.info(f"[RAINFALL] cached {storm_id} ({valid} valid points)")
+    # Cache only a complete result: any hard fetch failure (as opposed to genuine
+    # no-data) forces a re-fetch next view, so transient rate-limiting is never
+    # frozen. Genuine zeros (dry segments) are real data and do get cached.
+    if cache_path is not None and valid > 0 and not had_failure:
+        _write_storm_cache(cache_path, results, version=_RAINFALL_CACHE_VERSION)
+        logger.info(f"[RAINFALL] cached {storm_id} ({valid} valid segments)")
     return results
 
 
