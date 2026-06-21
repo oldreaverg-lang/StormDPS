@@ -3913,10 +3913,12 @@ function renderAll(stormId,data){
     const _sstPh=document.getElementById('sstPlaceholder');if(_sstPh)_sstPh.style.display='flex';
     fetchAndRenderSST(data, stormId);
 
-    // Rainfall tab — async fetch of observed precip (Open-Meteo ERA5) along track
-    window._rainReady=false;window._rainData=null;_renderedChartData.rain=null;
+    // Rainfall tab — DEFERRED: fetched on first open of the Rainfall tab
+    // (see switchChartTab). Unlike SST/observed it only feeds its own chart, not
+    // the map popups/markers, so a storm load shouldn't pay for precip the user
+    // may never look at.
+    window._rainReady=false;window._rainData=null;_renderedChartData.rain=null;window._rainFetchStarted=false;
     const _rainPh=document.getElementById('rainPlaceholder');if(_rainPh){_rainPh.style.display='flex';const _s=_rainPh.querySelector('span');if(_s)_s.textContent='Loading observed rainfall…';const _d=_rainPh.querySelector('div');if(_d)_d.style.display='block';}
-    fetchAndRenderRainfall(data, stormId);
 
     // Observed peaks map layer (CO-OPS surge + NDBC buoys) — static markers
     window._observedLayer=null;window._observedData=null;
@@ -3980,6 +3982,9 @@ function switchChartTab(tabName){
     if(tabName==='pressure' && currentData && _renderedChartData.pressure!==currentData) { renderPressureChart(currentData); _renderedChartData.pressure=currentData; }
     if(tabName==='wind' && currentData && _renderedChartData.wind!==currentData) { renderWindChart(currentData); _renderedChartData.wind=currentData; }
     if(tabName==='sst' && window._sstReady && window._sstData && _renderedChartData.sst!==currentData) { renderSSTChart(currentData, window._sstData); _renderedChartData.sst=currentData; }
+    // Rainfall is fetched lazily on first open of this tab (it only feeds this
+    // chart). fetchAndRenderRainfall renders itself when done if the tab is active.
+    if(tabName==='rain' && !window._rainFetchStarted && currentData){ window._rainFetchStarted=true; fetchAndRenderRainfall(currentData, window._currentStormId); }
     if(tabName==='rain' && window._rainReady && window._rainData && _renderedChartData.rain!==currentData) { renderRainfallChart(currentData, window._rainData); _renderedChartData.rain=currentData; }
 
     // Trigger resize so Chart.js redraws for the now-visible canvas
