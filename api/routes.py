@@ -302,16 +302,26 @@ def _storm_cache_path(cache_dir, storm_id: str, points: list[dict]):
     return cache_dir / f"{safe}__{_track_fingerprint(points)}.json"
 
 
-def _read_storm_cache(cache_path, version=None):
+def _read_storm_cache(cache_path, version=None, max_age_s=None):
     """Return cached data for a storm layer, or None on miss/unreadable.
 
     When *version* is given, the on-disk payload must be a {"_v", "data"} wrapper
     with a matching version; any mismatch (or an old bare payload from before the
     layer's meaning changed) reads as a miss, auto-invalidating stale shapes.
     When *version* is None the raw payload is returned as-is (legacy bare files).
+
+    *max_age_s* bounds freshness for active-storm entries: a file older than this
+    reads as a miss so the live "tip" of the track is re-fetched. None = no age
+    limit (immutable historical storms).
     """
     if cache_path is None or not cache_path.exists():
         return None
+    if max_age_s is not None:
+        try:
+            if (time.time() - cache_path.stat().st_mtime) > max_age_s:
+                return None  # stale active-storm entry → re-fetch
+        except OSError:
+            return None
     try:
         raw = json.loads(cache_path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
@@ -355,6 +365,14 @@ _RAINFALL_CACHE_VERSION = 2
 # v2: NDBC pre-2007 year-column parse fix — buoys now populate for pre-2007
 #     storms (Katrina etc.) that previously cached with zero buoys.
 _OBSERVED_CACHE_VERSION = 2
+
+# Active/recent storms aren't immutable, so their track-data is cached only
+# briefly: the fingerprint key already changes when a new advisory updates the
+# track, and this TTL bounds how long an unchanged track is served before the
+# live "tip" (newly published SST, fresh observations) is re-fetched. Its real
+# job is absorbing the traffic spike that concentrates on one storm during an
+# event — all viewers in a cycle share a single upstream fetch.
+_ACTIVE_TRACK_TTL_S = 5400  # 90 minutes
 
 # Bump this when the unified DPS engine's formula changes so stale cached
 # bundles are automatically invalidated on the next request.
@@ -1300,11 +1318,15 @@ async def get_sst_along_track(
             detail=f"too many points ({len(points)}); max 500",
         )
 
-    # Serve immutable historical SST straight from the persistent volume.
+    # Serve from the persistent volume: historical storms permanently,
+    # active/recent storms briefly (TTL) to absorb the per-event traffic spike.
     cache_path = None
-    if storm_id and _track_is_historical(points):
+    cache_max_age = None
+    if storm_id:
         cache_path = _storm_cache_path(_SST_TRACK_CACHE_DIR, storm_id, points)
-        cached = _read_storm_cache(cache_path)
+        if not _track_is_historical(points):
+            cache_max_age = _ACTIVE_TRACK_TTL_S
+        cached = _read_storm_cache(cache_path, max_age_s=cache_max_age)
         if cached is not None:
             logger.info(f"[SST] cache hit {storm_id} ({len(cached)} points)")
             return cached
@@ -1381,11 +1403,15 @@ async def get_rainfall_along_track(
     if len(points) > 500:
         raise HTTPException(status_code=413, detail=f"too many points ({len(points)}); max 500")
 
-    # Serve immutable historical precip straight from the persistent volume.
+    # Serve from the persistent volume: historical storms permanently,
+    # active/recent storms briefly (TTL) to absorb the per-event traffic spike.
     cache_path = None
-    if storm_id and _track_is_historical(points):
+    cache_max_age = None
+    if storm_id:
         cache_path = _storm_cache_path(_RAINFALL_TRACK_CACHE_DIR, storm_id, points)
-        cached = _read_storm_cache(cache_path, version=_RAINFALL_CACHE_VERSION)
+        if not _track_is_historical(points):
+            cache_max_age = _ACTIVE_TRACK_TTL_S
+        cached = _read_storm_cache(cache_path, version=_RAINFALL_CACHE_VERSION, max_age_s=cache_max_age)
         if cached is not None:
             logger.info(f"[RAINFALL] cache hit {storm_id} ({len(cached)} points)")
             return cached
@@ -1536,15 +1562,18 @@ async def get_observed_peaks(
     if len(points) > 500:
         raise HTTPException(status_code=413, detail=f"too many points ({len(points)}); max 500")
 
-    # Serve immutable historical peaks straight from the persistent volume.
-    # Longer age gate than SST/rainfall: CO-OPS publishes *verified* water levels
-    # on a ~30-day lag (preliminary before that), so we wait ~35 days before
-    # freezing the surge peaks, avoiding caching preliminary values that NOAA
-    # later revises.
+    # Serve from the persistent volume. Historical gate is longer than
+    # SST/rainfall: CO-OPS publishes *verified* water levels on a ~30-day lag
+    # (preliminary before that), so we wait ~35 days before freezing surge peaks
+    # permanently. Active/recent storms are cached only briefly (TTL) to absorb
+    # the per-event traffic spike while still refreshing the live tip.
     cache_path = None
-    if storm_id and _track_is_historical(points, min_age_days=35):
+    cache_max_age = None
+    if storm_id:
         cache_path = _storm_cache_path(_OBSERVED_TRACK_CACHE_DIR, storm_id, points)
-        cached = _read_storm_cache(cache_path, version=_OBSERVED_CACHE_VERSION)
+        if not _track_is_historical(points, min_age_days=35):
+            cache_max_age = _ACTIVE_TRACK_TTL_S
+        cached = _read_storm_cache(cache_path, version=_OBSERVED_CACHE_VERSION, max_age_s=cache_max_age)
         if cached is not None:
             logger.info(f"[OBSERVED] cache hit {storm_id} ({len(cached)} stations)")
             return cached
