@@ -2991,13 +2991,15 @@ function basinName(b){return BASIN_NAMES[b]||b}
 
     try {
         // Fetch catalogs in parallel. Custom storms are local and should return quickly.
+        // NOTE: /storms/catalog is already the full global catalog (same disk-cached
+        // source as /storms/catalog/global — see get_storm_catalog), so fetching both
+        // just re-downloaded the identical ~1000-storm list on every load. We keep the
+        // single (CDN-cached) catalog + custom; the merge below dedupes as before.
         const [hurdat, ibtracs, custom] = await Promise.all([
             fetch(`${API_BASE}/storms/catalog?min_year=2015`, {signal: controller.signal})
                 .then(r => r.ok ? r.json() : [])
-                .catch(e => { console.error('HURDAT2 catalog fetch failed:', e); return []; }),
-            fetch(`${API_BASE}/storms/catalog/global?min_year=2015`, {signal: controller.signal})
-                .then(r => r.ok ? r.json() : [])
-                .catch(e => { console.error('IBTrACS catalog fetch failed:', e); return []; }),
+                .catch(e => { console.error('Catalog fetch failed:', e); return []; }),
+            Promise.resolve([]),  // global catalog == /storms/catalog; no second download
             fetch(`${API_BASE}/storms/catalog/custom?min_year=2015`, {signal: controller.signal})
                 .then(r => r.ok ? r.json() : [])
                 .catch(e => { console.error('Custom catalog fetch failed:', e); return []; }),
