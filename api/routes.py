@@ -3686,14 +3686,31 @@ async def get_ibtracs_track(
     shared_client = getattr(request.app.state, "http_client", None)
 
     async def _do():
+        # Disk-cache the computed IKE like /storms/{id}/track does. This endpoint
+        # recomputed the whole batch from scratch on every call (~25s for a long
+        # track at 10km), even though IBTrACS tracks are immutable once final.
+        cached = _load_ike_cache(sid, grid_resolution_km, 0)
+        if cached:
+            return cached
         try:
             snapshots = await _fetch_track_with_cache(sid, http_client=shared_client)
         except (NOAAClientError, Exception) as e:
             raise HTTPException(status_code=404, detail=str(e))
         if not snapshots:
             raise HTTPException(status_code=404, detail=f"No IBTrACS data for {sid}")
+        t0 = time.time()
         ike_batch = await _compute_ike_batch(snapshots, grid_resolution_km * 1000, max_workers=4)
-        return [_ike_response_to_dict(_ike_to_response(ike, snap)) for ike, snap in ike_batch]
+        results = [_ike_response_to_dict(_ike_to_response(ike, snap)) for ike, snap in ike_batch]
+        # Don't freeze a still-evolving current-season storm (IBTrACS "last 3
+        # years" updates in-season); SIDs are otherwise historical and immutable.
+        last_ts = getattr(snapshots[-1], "timestamp", None)
+        if last_ts is not None and getattr(last_ts, "tzinfo", None) is not None:
+            last_ts = last_ts.replace(tzinfo=None)
+        is_live = bool(last_ts and (utcnow() - last_ts) < timedelta(days=2))
+        if not is_live:
+            _save_ike_cache(sid, grid_resolution_km, 0, results,
+                            source="ibtracs", compute_ms=(time.time() - t0) * 1000)
+        return results
 
     # Collapse concurrent requests for the same SID into one fetch+compute.
     return JSONResponse(content=await _single_flight(f"ibtrack|{sid}|{grid_resolution_km}", _do))
