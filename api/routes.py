@@ -233,8 +233,8 @@ from storage import (
     RAINFALL_TRACK_CACHE_DIR as _RAINFALL_TRACK_CACHE_DIR,
     OBSERVED_TRACK_CACHE_DIR as _OBSERVED_TRACK_CACHE_DIR,
     atomic_write_json as _atomic_write_json,
-    evict_cache_dir as _evict_cache_dir,
-    evict_ike_cache,
+    cache_read as _cache_read,
+    cache_write as _cache_write,
 )
 
 
@@ -322,10 +322,8 @@ def _read_storm_cache(cache_path, version=None, max_age_s=None):
                 return None  # stale active-storm entry → re-fetch
         except OSError:
             return None
-    try:
-        raw = json.loads(cache_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as e:
-        logger.warning(f"[track-cache] read failed {cache_path}: {e}")
+    raw = _cache_read(cache_path)
+    if raw is None:
         return None
     if version is None:
         return raw
@@ -335,25 +333,16 @@ def _read_storm_cache(cache_path, version=None, max_age_s=None):
 
 
 def _write_storm_cache(cache_path, data, version=None) -> None:
-    """Persist a storm layer result atomically; best-effort.
+    """Persist a storm layer result via the unified cache writer; best-effort.
 
     With *version*, wraps as {"_v": version, "data": data} so future schema
-    changes invalidate old files via _read_storm_cache's version check.
+    changes invalidate old files via _read_storm_cache's version check. Eviction
+    (and the size cap) are handled by cache_write.
     """
     if cache_path is None:
         return
     payload = data if version is None else {"_v": version, "data": data}
-    try:
-        _atomic_write_json(cache_path, payload)
-    except OSError as e:
-        logger.warning(f"[track-cache] write failed {cache_path}: {e}")
-        return
-    # Bound the dir's growth (cheap no-op until the cap is hit); also ages out
-    # the pre-fingerprint orphan files from earlier cache iterations.
-    try:
-        _evict_cache_dir(cache_path.parent)
-    except Exception:
-        pass
+    _cache_write(cache_path, payload, evict_dir=cache_path.parent)
 
 
 # Bump when the /rainfall/track payload meaning changes so old caches drop.
@@ -451,46 +440,10 @@ _IKE_CACHE_VERSION = "v6-coaps"
 # named storms; each storm generates a handful of parameter combos, so
 # 500 is generous headroom while preventing unbounded growth from years
 # of accumulated batch runs.
+# IKE eviction limits — applied by the unified cache_write (via _save_ike_cache).
+# IKE results are larger than track-data, so they get their own caps.
 _IKE_CACHE_MAX_FILES = 500
 _IKE_CACHE_MAX_SIZE_MB = 200  # soft cap — triggers eviction when exceeded
-
-
-def _evict_ike_cache():
-    """
-    Evict oldest IKE cache files when count or total size exceeds limits.
-
-    Called after each cache write.  Uses mtime to determine age and removes
-    the oldest 25% of files to amortize eviction overhead.
-    """
-    try:
-        files = list(_IKE_CACHE_DIR.glob("*.json"))
-        if not files:
-            return
-
-        total_size_mb = sum(f.stat().st_size for f in files) / (1024 * 1024)
-        needs_eviction = (
-            len(files) > _IKE_CACHE_MAX_FILES
-            or total_size_mb > _IKE_CACHE_MAX_SIZE_MB
-        )
-        if not needs_eviction:
-            return
-
-        # Sort by modification time (oldest first)
-        files.sort(key=lambda f: f.stat().st_mtime)
-        evict_count = max(1, len(files) // 4)
-        evicted = 0
-        for f in files[:evict_count]:
-            try:
-                f.unlink()
-                evicted += 1
-            except OSError:
-                pass
-        logger.info(
-            f"IKE cache eviction: removed {evicted} files "
-            f"(was {len(files)} files / {total_size_mb:.1f} MB)"
-        )
-    except Exception as e:
-        logger.warning(f"IKE cache eviction error: {e}")
 
 
 def _ike_cache_key(storm_id: str, grid_res_km: float, skip: int) -> str:
@@ -509,33 +462,18 @@ def _ike_cache_key(storm_id: str, grid_res_km: float, skip: int) -> str:
 
 
 def _load_ike_cache(storm_id: str, grid_res_km: float, skip: int) -> list[dict] | None:
-    """Load cached IKE results if available and valid."""
-    fname = _ike_cache_key(storm_id, grid_res_km, skip)
-    path = _IKE_CACHE_DIR / fname
-    if not path.exists():
+    """Load cached IKE results if present and valid (version + storm_id match)."""
+    data = _cache_read(_IKE_CACHE_DIR / _ike_cache_key(storm_id, grid_res_km, skip))
+    if not isinstance(data, dict):
         return None
-    try:
-        data = json.loads(path.read_text())
-        # Verify version and storm_id match
-        if data.get("_version") != _IKE_CACHE_VERSION:
-            return None
-        if data.get("_storm_id") != storm_id:
-            return None
-        return data.get("results")
-    except json.JSONDecodeError as e:
-        logger.warning(f"Corrupted IKE cache file for {storm_id}: {e}")
+    if data.get("_version") != _IKE_CACHE_VERSION or data.get("_storm_id") != storm_id:
         return None
-    except (KeyError, Exception) as e:
-        logger.warning(f"Invalid IKE cache data for {storm_id}: {e}")
-        return None
+    return data.get("results")
 
 
 def _save_ike_cache(storm_id: str, grid_res_km: float, skip: int,
                     results: list[dict], source: str, compute_ms: float):
-    """Save IKE results to disk cache with atomic writes."""
-    import tempfile
-    fname = _ike_cache_key(storm_id, grid_res_km, skip)
-    path = _IKE_CACHE_DIR / fname
+    """Save IKE results via the unified cache writer (atomic + size-bounded)."""
     payload = {
         "_version": _IKE_CACHE_VERSION,
         "_storm_id": storm_id,
@@ -547,17 +485,12 @@ def _save_ike_cache(storm_id: str, grid_res_km: float, skip: int,
         "_obs_count": len(results),
         "results": results,
     }
-    tmp_path = path.with_suffix('.tmp')
-    try:
-        tmp_path.write_text(json.dumps(payload, default=str))
-        tmp_path.replace(path)  # atomic rename on POSIX
-    except Exception as e:
-        logger.warning(f"Failed to write IKE cache for {storm_id}: {e}")
-        if tmp_path.exists():
-            tmp_path.unlink(missing_ok=True)
-
-    # Run eviction check after every write
-    _evict_ike_cache()
+    _cache_write(
+        _IKE_CACHE_DIR / _ike_cache_key(storm_id, grid_res_km, skip), payload,
+        evict_dir=_IKE_CACHE_DIR,
+        evict_max_files=_IKE_CACHE_MAX_FILES,
+        evict_max_bytes=_IKE_CACHE_MAX_SIZE_MB * 1_048_576,
+    )
 
 
 def _ike_response_to_dict(r: "IKEResponse") -> dict:
@@ -2276,13 +2209,10 @@ def _dps_cache_path(storm_id: str) -> Path:
 
 
 def _load_dps_cache(storm_id: str) -> Optional[dict]:
-    fp = _dps_cache_path(storm_id)
-    if not fp.exists():
-        return None
-    try:
-        return json.loads(fp.read_text())
-    except (json.JSONDecodeError, OSError):
-        return None
+    # Version is encoded in the filename (_dps_cache_path), so a bump orphans
+    # old files automatically — no in-content version check needed here.
+    data = _cache_read(_dps_cache_path(storm_id))
+    return data if isinstance(data, dict) else None
 
 
 def _invalidate_dps_cache(storm_id: str) -> None:
@@ -2304,32 +2234,18 @@ def _invalidate_dps_cache(storm_id: str) -> None:
 
 
 def _save_dps_cache(storm_id: str, bundle: dict) -> None:
-    """Persist a storm's computed DPS bundle to the volume.
+    """Persist a storm's computed DPS bundle via the unified cache writer.
 
-    NOTE on the EACCES landscape (Railway volume permission state, May 2026):
-    `/app/persistent/cache/dps/` is owned by root with mode 755. The app
-    user (uid 1001) has READ but not WRITE on the directory itself. There
-    are 17 pre-existing files in the dir that ARE app-writable (file mode
-    permits truncate-overwrite), but new-file creation fails with EACCES.
-
-    write_text() on an existing file:  works (just truncates the file)
-    write_text() on a new file:        FAILS (needs dir-write to create)
-    atomic_write_json + os.rename:     FAILS (needs dir-write to create .tmp)
-
-    Tried switching to atomic_write_json in commit 30273b5 — that broke
-    even the 17 existing-file writes because the .tmp creation needs
-    dir-write too. Reverted in this commit.
-
-    Real fix is a Dockerfile entrypoint script that chowns the volume
-    at boot before dropping to `app` user. Until then: write_text keeps
-    the 17 existing storms updatable; new storm_ids (e.g. WP062026) will
-    still log a single warning per refresh tick until they get a writable
-    cache slot somehow.
+    The `/app/persistent/cache/dps/` dir on the Railway volume is root-owned
+    (mode 755): the app uid can overwrite existing files but cannot create new
+    ones (no dir-write, so a .tmp+rename also fails). cache_write's atomic-then-
+    in-place-overwrite fallback is exactly what keeps the pre-existing storm
+    files updatable; brand-new storm_ids will log a single write warning per
+    refresh tick until the volume perms are fixed (Dockerfile chown at boot).
+    No eviction here — the dir is root-owned (unlink would fail) and DPS files
+    are bounded by the storm count anyway.
     """
-    try:
-        _dps_cache_path(storm_id).write_text(json.dumps(bundle, separators=(",", ":")))
-    except OSError as e:
-        logger.warning(f"[DPS CACHE] Failed to save {storm_id}: {e}")
+    _cache_write(_dps_cache_path(storm_id), bundle)
 
 
 def _ike_responses_to_engine_snapshots(responses: list) -> list[dict]:

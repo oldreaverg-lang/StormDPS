@@ -30,6 +30,7 @@ Directory layout on the persistent volume:
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
@@ -281,3 +282,63 @@ def evict_cache_dir(cache_dir, max_files: int = TRACK_CACHE_MAX_FILES,
     logger.info("track cache eviction: removed %d / %d files from %s",
                 removed, len(files), cache_dir.name)
     return removed
+
+
+# ── Unified cache I/O ───────────────────────────────────────────────────────
+# One read path and one write path shared by every per-storm datapoint cache
+# (DPS bundles, IKE results, SST/rainfall/observed track data). Callers keep
+# their own key/version/TTL semantics on top; this just centralises the
+# error-prone mechanics: safe JSON load, robust atomic write, and eviction —
+# so a fix or hardening lands once instead of in N bespoke copies.
+
+def cache_read(path):
+    """Return parsed JSON from *path*, or None on missing/corrupt/unreadable."""
+    if path is None:
+        return None
+    try:
+        if not path.exists():
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        logger.warning("cache read failed %s: %s", path, e)
+        return None
+
+
+def cache_write(path, obj, *, evict_dir=None,
+                evict_max_files: int = TRACK_CACHE_MAX_FILES,
+                evict_max_bytes: int = TRACK_CACHE_MAX_BYTES) -> bool:
+    """Write *obj* as JSON to *path*, robustly. Returns True on success.
+
+    Prefers an atomic temp-file + rename. Some volume directories (notably the
+    legacy root-owned ``cache/dps``) don't permit *creating* files — only
+    overwriting existing ones — so on any OSError we fall back to an in-place
+    ``write_text``. When *evict_dir* is given, that directory is size-bounded
+    after a successful write.
+    """
+    if path is None:
+        return False
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass  # root-owned dir already exists; the write attempts handle the rest
+    text = json.dumps(obj, separators=(",", ":"), default=str)
+    ok = False
+    try:
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, path)
+        ok = True
+    except OSError:
+        # Directory may be read-only for new files (can't create .tmp); fall
+        # back to overwriting the target in place where that's permitted.
+        try:
+            path.write_text(text, encoding="utf-8")
+            ok = True
+        except OSError as e:
+            logger.warning("cache write failed %s: %s", path, e)
+    if ok and evict_dir is not None:
+        try:
+            evict_cache_dir(evict_dir, evict_max_files, evict_max_bytes)
+        except Exception:
+            pass
+    return ok
