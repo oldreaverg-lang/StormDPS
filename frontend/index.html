@@ -459,6 +459,9 @@
         .dps-hero-card.severity-minor{border-color:#2c608a!important;background:#eff4fa!important}
 
         #statHeroDPS{transition:color .4s,transform .3s;font-variant-numeric:tabular-nums}
+        /* Dominant-hazard headline: hidden by default; revealed only in Analyst mode. */
+        #dominantHazard{display:none;font-size:.72rem;font-weight:700;margin-top:.18rem;line-height:1.3}
+        body.analyst-mode #dominantHazard{display:block}
         .dps-hero-card.severity-catastrophic #statHeroDPS{animation:heroPulse 2s ease-in-out infinite}
 
         @keyframes heroPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.75;transform:scale(1.02)}}
@@ -662,6 +665,10 @@
                 <div class="stat-label dps-label" style="font-size:.75rem;letter-spacing:.1em"><span class="label-full">DESTRUCTIVE POWER SCORE</span><span class="label-short">DPS</span><span class="tip" data-tip="DPS: A 0-100 hurricane threat score combining storm intensity, wind field size, surge potential, duration of coastal exposure, and geographic breadth. A modern alternative to the Saffir-Simpson scale — it captures what peak wind alone misses.">?</span></div>
                 <div class="dps-trend-wrap"><div class="stat-value" id="statHeroDPS" style="color:var(--text-main)">-</div><div class="dps-trend" id="dpsTrendIndicator"></div></div>
                 <div class="stat-sub" id="statHeroDPSLabel" style="font-size:.78rem;opacity:.8">-</div>
+                <!-- Dominant-hazard headline — Analyst mode only (CSS-gated). Tells
+                     you the *kind* of threat (surge / rainfall / wind) so the score
+                     isn't read as a single undifferentiated danger. -->
+                <div class="dominant-hazard" id="dominantHazard"></div>
                 <div class="score-context" id="dpsContext"></div>
                 <div class="breakdown-wrap" onclick="this.classList.toggle('open')"><div class="breakdown-bar" id="breakdownDPS"></div><div class="breakdown-panel" id="panelDPS"></div></div><div class="breakdown-hint">Tap or hover for details</div>
             </div>
@@ -1538,6 +1545,28 @@ document.addEventListener('DOMContentLoaded', function () {
     try { saved = localStorage.getItem('stormdps_analyst_mode') === '1'; } catch (e) {}
     applyAnalystMode(saved);
 });
+// Dominant-hazard classifier (Analyst mode). Names the standout threat type for a
+// storm — surge / rainfall / wind — so the single DPS isn't read as one
+// undifferentiated danger. Inputs: surgeGeo (0-1) + rainfallThreat (0-1) from the
+// IAS, plus peak wind (kt). Storm-level, NOT location-specific.
+function getDominantHazard(surgeGeo, rainThreat, peakWindKt) {
+    const surge = Math.max(0, Math.min(1, surgeGeo || 0));
+    const rain  = Math.max(0, Math.min(1, rainThreat || 0));
+    // Wind: TS-force (34 kt) → Cat 5 (137 kt) mapped to 0-1.
+    const wind  = Math.max(0, Math.min(1, ((peakWindKt || 0) - 34) / (137 - 34)));
+    const items = [
+        { v: surge, label: 'storm surge',     short: 'surge', color: '#0891b2' },
+        { v: rain,  label: 'inland rainfall', short: 'rain',  color: '#2563eb' },
+        { v: wind,  label: 'wind',            short: 'wind',  color: '#c2410c' },
+    ].sort((a, b) => b.v - a.v);
+    const top = items[0], second = items[1];
+    let phrase, color;
+    if (top.v < 0.15) { phrase = 'No single dominant hazard'; color = '#64748b'; }
+    else if (top.v - second.v < 0.15) { phrase = 'Primarily ' + top.label + ' + ' + second.label; color = top.color; }
+    else { phrase = 'Primarily a ' + top.label + ' threat'; color = top.color; }
+    const detail = items.map(i => i.short + ' ' + Math.round(i.v * 100)).join(' · ');
+    return { phrase: phrase, color: color, detail: detail };
+}
 // Safety net: StormDPS is not an emergency authority and must never render a
 // protective-action directive — even from a stale cached/compiled bundle written
 // before the wording was fixed. Rewrite any legacy "Evacuate ..." marquee text to
@@ -3852,6 +3881,22 @@ function renderAll(stormId,data){
     heroEl.classList.add('dps-count-up');
     animateCountUp(heroEl, heroDPS, heroColor);
     document.getElementById('statHeroDPSLabel').textContent = heroDPSLabel;
+    // Dominant-hazard headline (Analyst mode only; CSS-gated, always populated so
+    // flipping the toggle is instant). Never allowed to break the default render.
+    try {
+        let _pw = (compiled && compiled.peak_wind_kt) || 0;
+        if (!_pw && data && data.length) {
+            _pw = Math.max.apply(null, data.map(function (d) {
+                return d.max_wind_kt || (d.max_wind_ms ? d.max_wind_ms * 1.94384 : (d.max_wind_mph ? d.max_wind_mph / 1.15078 : 0)) || 0;
+            }));
+        }
+        const _dh = getDominantHazard(peakIasObj.surgeGeo, peakIasObj.rainfallThreat, _pw);
+        const _dhEl = document.getElementById('dominantHazard');
+        if (_dhEl) {
+            _dhEl.innerHTML = '<span style="color:' + _dh.color + '">▸ ' + escapeHtml(_dh.phrase) + '</span> <span style="opacity:.55;font-weight:500">(' + escapeHtml(_dh.detail) + ')</span>';
+            _dhEl.title = 'Dominant hazard (Analyst): the standout threat type for this storm — from surge geography, rainfall threat, and peak wind, each shown 0–100. Storm-level, not location-specific.';
+        }
+    } catch (e) { /* analyst-only; must never break the public render */ }
     updateScoreContexts(heroDPS, peakIasObj.score, peakErsObj.score);
 
     // Storm title bar
