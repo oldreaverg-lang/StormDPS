@@ -1547,25 +1547,28 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 // Dominant-hazard classifier (Analyst mode). Names the standout threat type for a
 // storm — surge / rainfall / wind — so the single DPS isn't read as one
-// undifferentiated danger. Inputs: surgeGeo (0-1) + rainfallThreat (0-1) from the
-// IAS, plus peak wind (kt). Storm-level, NOT location-specific.
-function getDominantHazard(surgeGeo, rainThreat, peakWindKt) {
-    const surge = Math.max(0, Math.min(1, surgeGeo || 0));
-    const rain  = Math.max(0, Math.min(1, rainThreat || 0));
-    // Wind: TS-force (34 kt) → Cat 5 (137 kt) mapped to 0-1.
-    const wind  = Math.max(0, Math.min(1, ((peakWindKt || 0) - 34) / (137 - 34)));
+// undifferentiated danger. Takes three pre-normalised 0-1 signals (see the
+// caller in renderAll for how each is derived). Storm-level, NOT location-specific.
+function getDominantHazard(surge, rain, wind) {
     const items = [
-        { v: surge, label: 'storm surge',     short: 'surge', color: '#0891b2' },
-        { v: rain,  label: 'inland rainfall', short: 'rain',  color: '#2563eb' },
-        { v: wind,  label: 'wind',            short: 'wind',  color: '#c2410c' },
+        { v: Math.max(0, Math.min(1, surge || 0)), label: 'storm surge',     short: 'surge', color: '#0891b2' },
+        { v: Math.max(0, Math.min(1, rain  || 0)), label: 'inland rainfall', short: 'rain',  color: '#2563eb' },
+        { v: Math.max(0, Math.min(1, wind  || 0)), label: 'wind',            short: 'wind',  color: '#c2410c' },
     ].sort((a, b) => b.v - a.v);
     const top = items[0], second = items[1];
     let phrase, color;
-    if (top.v < 0.15) { phrase = 'No single dominant hazard'; color = '#64748b'; }
+    if (top.v < 0.2) { phrase = 'No single dominant hazard'; color = '#64748b'; }
     else if (top.v - second.v < 0.15) { phrase = 'Primarily ' + top.label + ' + ' + second.label; color = top.color; }
     else { phrase = 'Primarily a ' + top.label + ' threat'; color = top.color; }
     const detail = items.map(i => i.short + ' ' + Math.round(i.v * 100)).join(' · ');
     return { phrase: phrase, color: color, detail: detail };
+}
+// Map the storm-level rainfall level to a 0-1 signal (whole-storm; the per-
+// snapshot IAS rainfallThreat barely separates a Harvey from a fast mover).
+function _rainLevelSignal(level) {
+    return ({ HISTORIC: 0.95, EXTREME: 0.78, HIGH: 0.55, ELEVATED: 0.35, NORMAL: 0.15 })[
+        String(level || '').toUpperCase()
+    ];
 }
 // Safety net: StormDPS is not an emergency authority and must never render a
 // protective-action directive — even from a stale cached/compiled bundle written
@@ -3884,29 +3887,37 @@ function renderAll(stormId,data){
     // Dominant-hazard headline (Analyst mode only; CSS-gated, always populated so
     // flipping the toggle is instant). Never allowed to break the default render.
     try {
+        // WIND: peak sustained wind, TS-force (34 kt) → Cat 5 (137 kt).
         let _pw = (compiled && compiled.peak_wind_kt) || 0;
         if (!_pw && data && data.length) {
             _pw = Math.max.apply(null, data.map(function (d) {
                 return d.max_wind_kt || (d.max_wind_ms ? d.max_wind_ms * 1.94384 : (d.max_wind_mph ? d.max_wind_mph / 1.15078 : 0)) || 0;
             }));
         }
-        // Use each hazard's PEAK over the whole track, not the peak-DPS snapshot:
-        // a storm's rainfall threat can peak during a post-landfall stall (Harvey),
-        // long after its wind/DPS peak at landfall.
-        let _maxSurge = peakIasObj.surgeGeo || 0, _maxRain = peakIasObj.rainfallThreat || 0;
-        if (data && data.length) {
-            data.forEach(function (d) {
-                if (d && d.ias) {
-                    if ((d.ias.surgeGeo || 0) > _maxSurge) _maxSurge = d.ias.surgeGeo;
-                    if ((d.ias.rainfallThreat || 0) > _maxRain) _maxRain = d.ias.rainfallThreat;
-                }
+        const _windSig = (_pw - 34) / (137 - 34);
+        // SURGE: the larger of shelf-amplified surge (IAS surgeGeo, peak over the
+        // track) OR size-driven surge (IKE) — Ike's surge came from its huge wind
+        // field, which surgeGeo (shelf geometry only) badly underrates.
+        let _maxSurgeGeo = 0;
+        if (data && data.length) data.forEach(function (d) {
+            if (d && d.ias && (d.ias.surgeGeo || 0) > _maxSurgeGeo) _maxSurgeGeo = d.ias.surgeGeo;
+        });
+        const _ikeTj = (compiled && (compiled.peak_ike_tj || compiled.peak_ike)) || 0;
+        const _surgeSig = Math.max(_maxSurgeGeo, _ikeTj / 100);
+        // RAINFALL: whole-storm rainfall level (the per-snapshot rainfallThreat
+        // barely differentiates Harvey-class stalls). Fall back to track-max.
+        let _rainSig = _rainLevelSignal(compiled && compiled.rainfall_level);
+        if (_rainSig === undefined) {
+            _rainSig = peakIasObj.rainfallThreat || 0;
+            if (data && data.length) data.forEach(function (d) {
+                if (d && d.ias && (d.ias.rainfallThreat || 0) > _rainSig) _rainSig = d.ias.rainfallThreat;
             });
         }
-        const _dh = getDominantHazard(_maxSurge, _maxRain, _pw);
+        const _dh = getDominantHazard(_surgeSig, _rainSig, _windSig);
         const _dhEl = document.getElementById('dominantHazard');
         if (_dhEl) {
             _dhEl.innerHTML = '<span style="color:' + _dh.color + '">▸ ' + escapeHtml(_dh.phrase) + '</span> <span style="opacity:.55;font-weight:500">(' + escapeHtml(_dh.detail) + ')</span>';
-            _dhEl.title = 'Dominant hazard (Analyst): the standout threat type for this storm — from surge geography, rainfall threat, and peak wind, each shown 0–100. Storm-level, not location-specific.';
+            _dhEl.title = 'Dominant hazard (Analyst): the standout threat type for this storm — surge (shelf + storm size), inland rainfall (storm-total level), and peak wind, each shown 0–100. Storm-level, not location-specific.';
         }
     } catch (e) { /* analyst-only; must never break the public render */ }
     updateScoreContexts(heroDPS, peakIasObj.score, peakErsObj.score);
