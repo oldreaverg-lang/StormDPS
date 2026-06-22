@@ -1551,15 +1551,15 @@ document.addEventListener('DOMContentLoaded', function () {
 // caller in renderAll for how each is derived). Storm-level, NOT location-specific.
 function getDominantHazard(surge, rain, wind) {
     const items = [
-        { v: Math.max(0, Math.min(1, surge || 0)), label: 'storm surge',     short: 'surge', color: '#0891b2' },
-        { v: Math.max(0, Math.min(1, rain  || 0)), label: 'inland rainfall', short: 'rain',  color: '#2563eb' },
-        { v: Math.max(0, Math.min(1, wind  || 0)), label: 'wind',            short: 'wind',  color: '#c2410c' },
+        { v: Math.max(0, Math.min(1, surge || 0)), label: 'storm surge',     short: 'surge', color: '#0891b2', art: 'a' },
+        { v: Math.max(0, Math.min(1, rain  || 0)), label: 'inland rainfall', short: 'rain',  color: '#2563eb', art: 'an' },
+        { v: Math.max(0, Math.min(1, wind  || 0)), label: 'wind',            short: 'wind',  color: '#c2410c', art: 'a' },
     ].sort((a, b) => b.v - a.v);
     const top = items[0], second = items[1];
     let phrase, color;
     if (top.v < 0.2) { phrase = 'No single dominant hazard'; color = '#64748b'; }
     else if (top.v - second.v < 0.15) { phrase = 'Primarily ' + top.label + ' + ' + second.label; color = top.color; }
-    else { phrase = 'Primarily a ' + top.label + ' threat'; color = top.color; }
+    else { phrase = 'Primarily ' + top.art + ' ' + top.label + ' threat'; color = top.color; }
     const detail = items.map(i => i.short + ' ' + Math.round(i.v * 100)).join(' · ');
     return { phrase: phrase, color: color, detail: detail };
 }
