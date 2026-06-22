@@ -3890,7 +3890,19 @@ function renderAll(stormId,data){
                 return d.max_wind_kt || (d.max_wind_ms ? d.max_wind_ms * 1.94384 : (d.max_wind_mph ? d.max_wind_mph / 1.15078 : 0)) || 0;
             }));
         }
-        const _dh = getDominantHazard(peakIasObj.surgeGeo, peakIasObj.rainfallThreat, _pw);
+        // Use each hazard's PEAK over the whole track, not the peak-DPS snapshot:
+        // a storm's rainfall threat can peak during a post-landfall stall (Harvey),
+        // long after its wind/DPS peak at landfall.
+        let _maxSurge = peakIasObj.surgeGeo || 0, _maxRain = peakIasObj.rainfallThreat || 0;
+        if (data && data.length) {
+            data.forEach(function (d) {
+                if (d && d.ias) {
+                    if ((d.ias.surgeGeo || 0) > _maxSurge) _maxSurge = d.ias.surgeGeo;
+                    if ((d.ias.rainfallThreat || 0) > _maxRain) _maxRain = d.ias.rainfallThreat;
+                }
+            });
+        }
+        const _dh = getDominantHazard(_maxSurge, _maxRain, _pw);
         const _dhEl = document.getElementById('dominantHazard');
         if (_dhEl) {
             _dhEl.innerHTML = '<span style="color:' + _dh.color + '">▸ ' + escapeHtml(_dh.phrase) + '</span> <span style="opacity:.55;font-weight:500">(' + escapeHtml(_dh.detail) + ')</span>';
