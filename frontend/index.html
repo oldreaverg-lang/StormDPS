@@ -730,6 +730,11 @@
                 <div id="satelliteSlider" style="display:none"></div>
                 <button class="map-legend-toggle" id="windDirToggleBtn" style="bottom:38px;left:8px;display:flex" onclick="toggleWindDirLayer()" title="Animated wind-flow direction (storm-parametric)">Wind flow: Off</button>
                 <button class="map-legend-toggle" id="observedToggleBtn" style="bottom:68px;left:8px;display:none" onclick="toggleObservedLayer()" title="Observed peak storm surge at NOAA tide gauges (and buoy wind/waves where available)">Observed surge: On</button>
+                <!-- Analyst mode: opt-in master switch for meteorologist-facing layers
+                     (forecast-uncertainty band, observed-vs-modeled validation, hazard
+                     breakdown). OFF by default so the public snapshot view is never
+                     altered for casual visitors. Persisted per-browser. -->
+                <button class="map-legend-toggle" id="analystToggleBtn" style="top:8px;right:8px;display:flex" onclick="toggleAnalystMode()" title="Analyst mode — adds forecast-uncertainty, observed-vs-modeled validation, and hazard-breakdown layers for meteorologists. Off by default; your choice is remembered.">Analyst: Off</button>
                 <div class="map-legend" id="mapLegend" style="display:none;">
                     <div style="font-weight:600;margin-bottom:2px;color:#22272d;">Wind Speed</div>
                     <div class="legend-item"><div class="legend-swatch" style="background:#ff4da6"></div>Cat 5 (&ge;157 mph)</div>
@@ -1501,6 +1506,38 @@ function getDPSBand(score) {
     if (score >= 10) return 'Low';
     return 'Minimal';
 }
+// ── Analyst mode (opt-in) ─────────────────────────────────────────────────
+// Master gate for the meteorologist-facing layers (forecast-uncertainty band,
+// observed-vs-modeled validation, hazard breakdown, …). OFF by default so the
+// public "current snapshot" view renders identically for casual visitors and
+// the 3-months-perfected format is never disturbed. Persisted per-browser.
+// Each future analyst feature renders only when window._analystMode is true
+// (and/or re-renders on the 'analystmodechange' event). Scaffold only for now —
+// nothing is gated behind it yet.
+window._analystMode = false;
+function applyAnalystMode(on) {
+    window._analystMode = !!on;
+    document.body.classList.toggle('analyst-mode', !!on);
+    const btn = document.getElementById('analystToggleBtn');
+    if (btn) {
+        btn.textContent = 'Analyst: ' + (on ? 'On' : 'Off');
+        if (on) { btn.style.background = 'rgba(34,211,238,.85)'; btn.style.color = '#06343a'; btn.style.borderColor = 'rgba(8,145,178,.6)'; }
+        else { btn.style.background = ''; btn.style.color = ''; btn.style.borderColor = ''; }
+    }
+}
+function toggleAnalystMode() {
+    const on = !window._analystMode;
+    try { localStorage.setItem('stormdps_analyst_mode', on ? '1' : '0'); } catch (e) {}
+    applyAnalystMode(on);
+    // Notify analyst features to (re)render. The public render path is untouched.
+    try { window.dispatchEvent(new CustomEvent('analystmodechange', { detail: { on } })); } catch (e) {}
+}
+// Restore the saved preference once the toggle button exists (default off).
+document.addEventListener('DOMContentLoaded', function () {
+    let saved = false;
+    try { saved = localStorage.getItem('stormdps_analyst_mode') === '1'; } catch (e) {}
+    applyAnalystMode(saved);
+});
 // Safety net: StormDPS is not an emergency authority and must never render a
 // protective-action directive — even from a stale cached/compiled bundle written
 // before the wording was fixed. Rewrite any legacy "Evacuate ..." marquee text to
