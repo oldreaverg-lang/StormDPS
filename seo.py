@@ -260,10 +260,16 @@ _SSR_STYLES = """
 
 _DPS_LABEL_RATING = {
     "historic": "Historic",
-    "catastrophic": "Catastrophic",
+    "devastating": "Devastating",
+    "extreme": "Extreme",
     "severe": "Severe",
-    "notable": "Notable",
+    "moderate": "Moderate",
+    "low": "Low",
     "minimal": "Minimal",
+    # Legacy labels from older bakes (stale bundle), mapped onto the canonical set:
+    "catastrophic": "Devastating",
+    "notable": "Moderate",
+    "minor": "Minimal",
 }
 
 
@@ -352,12 +358,16 @@ def _get_per_storm_breakdown(storm_id: str) -> list[str]:
 
 
 def _rating_from_dps(dps: Optional[float]) -> str:
+    # Canonical band scheme — must match core.dpi.categorize_dpi, the frontend
+    # getDPSBand, and the methodology table.
     if not isinstance(dps, (int, float)):
         return ""
     if dps >= 90: return "Historic"
-    if dps >= 75: return "Catastrophic"
-    if dps >= 50: return "Severe"
-    if dps >= 25: return "Notable"
+    if dps >= 80: return "Devastating"
+    if dps >= 60: return "Extreme"
+    if dps >= 40: return "Severe"
+    if dps >= 20: return "Moderate"
+    if dps >= 10: return "Low"
     return "Minimal"
 
 

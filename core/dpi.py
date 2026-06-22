@@ -10,13 +10,14 @@ The final DPI is a composite 0-100 score that represents the total destructive
 potential of a hurricane at a specific location, accounting for both the
 storm's characteristics and the vulnerability of the landfall zone.
 
-DPI Interpretation:
-  0-15:  Minor — Limited damage, mainly trees and minor structures
-  15-30: Moderate — Significant damage to weak structures, some flooding
-  30-50: Severe — Major structural damage, dangerous surge and flooding
-  50-70: Extreme — Catastrophic damage, life-threatening conditions
-  70-85: Devastating — Widespread destruction, uninhabitable zones
-  85-100: Catastrophic — Generational event, total regional destruction
+DPI Interpretation (canonical bands — match getDPSBand + methodology table):
+  0-10:   Minimal — Limited damage, mainly trees and minor structures
+  10-20:  Low — Significant damage to weak structures, some flooding
+  20-40:  Moderate — Regional damage, isolated infrastructure failures
+  40-60:  Severe — Major structural damage, dangerous surge and flooding
+  60-80:  Extreme — Catastrophic damage, life-threatening conditions
+  80-90:  Devastating — Wide-area destruction across multiple zones
+  90-100: Historic — Generation-defining event (Katrina, Maria, Haiyan)
 
 Reference calibration points:
   Hurricane Andrew (1992): DPI ≈ 72
@@ -95,19 +96,27 @@ class DPIResult:
 
 
 def categorize_dpi(score: float) -> str:
-    """Map DPI score to human-readable category."""
-    if score < 15:
-        return "Minor"
-    elif score < 30:
-        return "Moderate"
-    elif score < 50:
-        return "Severe"
-    elif score < 70:
-        return "Extreme"
-    elif score < 85:
+    """Map DPI score to human-readable category.
+
+    Canonical band scheme — must stay in lockstep with the frontend hero-card
+    label (getDPSBand) and the methodology table so no surface disagrees:
+        90+  Historic | 80-90 Devastating | 60-80 Extreme | 40-60 Severe
+        20-40 Moderate | 10-20 Low | <10 Minimal
+    """
+    if score >= 90:
+        return "Historic"
+    elif score >= 80:
         return "Devastating"
+    elif score >= 60:
+        return "Extreme"
+    elif score >= 40:
+        return "Severe"
+    elif score >= 20:
+        return "Moderate"
+    elif score >= 10:
+        return "Low"
     else:
-        return "Catastrophic"
+        return "Minimal"
 
 
 def compute_dpi(

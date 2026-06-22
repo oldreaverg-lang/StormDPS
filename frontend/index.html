@@ -807,11 +807,12 @@
 
         <p style="font-weight:600;color:var(--text-main);margin-top:.8rem;margin-bottom:.3rem">Destructive Power Score (DPS)</p>
         <div class="score-scale">
-            <div class="score-scale-row"><span class="scale-badge" style="background:#ef4444">80-100</span><span style="color:#b91c1c"><b>Catastrophic</b> &mdash; follow local evacuation orders</span></div>
+            <div class="score-scale-row"><span class="scale-badge" style="background:#7e22ce">90-100</span><span style="color:#6b21a8"><b>Historic</b> &mdash; generation-defining; follow local evacuation orders</span></div>
+            <div class="score-scale-row"><span class="scale-badge" style="background:#ef4444">80-89</span><span style="color:#b91c1c"><b>Devastating</b> &mdash; follow local evacuation orders</span></div>
             <div class="score-scale-row"><span class="scale-badge" style="background:#f97316">60-79</span><span style="color:#c2410c"><b>Extreme</b> &mdash; Major damage likely</span></div>
             <div class="score-scale-row"><span class="scale-badge" style="background:#fbbf24">40-59</span><span style="color:#a16207"><b>Severe</b> &mdash; Significant threat</span></div>
             <div class="score-scale-row"><span class="scale-badge" style="background:#34d399">20-39</span><span style="color:#047857"><b>Moderate</b> &mdash; Prepare if in forecast cone</span></div>
-            <div class="score-scale-row"><span class="scale-badge" style="background:#60a5fa">10-19</span><span style="color:#1d4ed8"><b>Minor</b> &mdash; Stay informed</span></div>
+            <div class="score-scale-row"><span class="scale-badge" style="background:#60a5fa">10-19</span><span style="color:#1d4ed8"><b>Low</b> &mdash; Stay informed</span></div>
             <div class="score-scale-row"><span class="scale-badge" style="background:#94a3b8">0-9</span><span><b>Minimal</b> &mdash; Low concern</span></div>
         </div>
 
@@ -1480,6 +1481,7 @@ function animateCountUp(el, target, color) {
 
 // ---- Score Context Helpers (plain-language guidance for new users) ----
 function getDPSContext(score) {
+    if (score >= 90) return 'A generation-defining storm — among the most destructive on record. Follow evacuation orders and guidance from your local authorities.';
     if (score >= 80) return 'Equivalent to a worst-case hurricane. Follow evacuation orders and guidance from your local authorities.';
     if (score >= 60) return 'Extremely dangerous. Major damage likely across a wide area.';
     if (score >= 40) return 'Significant threat. Comparable to a large Cat 2-3 hurricane.';
@@ -1491,6 +1493,7 @@ function getDPSContext(score) {
 // the label and the guidance sentence can never disagree — previously the server
 // dps_label called an 18 "Moderate" while the sentence below said "Low".
 function getDPSBand(score) {
+    if (score >= 90) return 'Historic';
     if (score >= 80) return 'Devastating';
     if (score >= 60) return 'Extreme';
     if (score >= 40) return 'Severe';
@@ -3784,10 +3787,13 @@ function renderAll(stormId,data){
     let heroDPS, heroDPSLabel;
     if (compiled) {
         heroDPS = Math.round(compiled.dps);
-        // Only show "Peak X" when peak snapshot ≥ cumulative (avoids confusing
-        // users when the single-snapshot peak is lower than the running total).
         heroDPSLabel = getDPSBand(heroDPS);
-        if (Math.round(compiled.peak_dps) >= heroDPS) {
+        // The "current vs Peak" split only makes sense for a LIVE storm that is
+        // still evolving. For a historical storm the event is over, so showing a
+        // lower "current" beside a higher "Peak" just reads oddly — show the
+        // single headline score. (Active storms keep the · Peak X annotation,
+        // and only when the peak snapshot ≥ the cumulative running total.)
+        if (window._isActiveStorm && Math.round(compiled.peak_dps) >= heroDPS) {
             heroDPSLabel += ' · Peak ' + Math.round(compiled.peak_dps);
         }
     } else {

@@ -460,18 +460,20 @@
         <p>Stage 5 is honestly the most editorially-loaded part of the pipeline, and it's worth being explicit about it.</p>
         <p>The output of Stages 1–4 is a pre-compression "raw" value that can range from ~30 (weak tropical storms) into the hundreds for the most extreme storms in the historical record — Katrina, for example, has a Stage-4 output around 127. The structurally meaningful number for analytical use is this pre-compression value; it's what the formula actually computes from the underlying physics.</p>
         <p>The displayed 0–99 score is then produced by mapping that raw value through the square-root compression curve. That mapping is a <strong>presentation choice</strong>, calibrated so that the most destructive storms in modern history (Katrina, Maria, Haiyan) cluster near 90, with the 99 ceiling unreachable except by storms beyond any current historical reference. A linear pass-through, a logistic curve, or a different (T, S) pair would all produce the same <em>ordering</em> of storms but different displayed spacings between them.</p>
-        <p>This matters because <strong>the difference between an 87 and a 92 is editorial, not structural.</strong> The underlying hazard ranking is robust to the compression choice; the specific displayed value reflects a calibration intended to make the public scale intuitive (Catastrophic / Historic bands match how readers describe these storms) rather than to encode a precise quantitative interpretation. Anyone using DPS for downstream quantitative work — risk pricing, portfolio scoring, regulatory filings — should reference the pre-compression value alongside or instead of the displayed score.</p>
+        <p>This matters because <strong>the difference between an 87 and a 92 is editorial, not structural.</strong> The underlying hazard ranking is robust to the compression choice; the specific displayed value reflects a calibration intended to make the public scale intuitive (Devastating / Historic bands match how readers describe these storms) rather than to encode a precise quantitative interpretation. Anyone using DPS for downstream quantitative work — risk pricing, portfolio scoring, regulatory filings — should reference the pre-compression value alongside or instead of the displayed score.</p>
 
         <h2>How DPS maps to outcomes</h2>
         <p>The 0–100 scale is calibrated against historical outcomes — damage in inflation-adjusted dollars, fatalities, and post-storm survey reports — across roughly 200 storms from 2015 onward. The ranges below are not strict bins; they are typical outcome buckets.</p>
         <table>
             <thead><tr><th>DPS</th><th>Label</th><th>Typical outcome profile</th></tr></thead>
             <tbody>
-                <tr><td class="num">0–24</td><td>Minimal</td><td>Localized wind damage, no widespread surge or flooding.</td></tr>
-                <tr><td class="num">25–49</td><td>Notable</td><td>Regional damage, isolated infrastructure failures.</td></tr>
-                <tr><td class="num">50–74</td><td>Severe</td><td>Multi-billion-dollar event, sustained coastal damage.</td></tr>
-                <tr><td class="num">75–89</td><td>Catastrophic</td><td>Wide-area destruction across multiple zones — <a href="/storm/AL092022" class="inline">Ian (2022)</a>, <a href="/storm/AL092024" class="inline">Helene (2024)</a>.</td></tr>
-                <tr><td class="num">90–100</td><td>Historic</td><td>Generation-defining storms — <a href="/storm/AL122005" class="inline">Katrina</a>, <a href="/storm/AL152017" class="inline">Maria</a>, Haiyan, Mangkhut.</td></tr>
+                <tr><td class="num">0–9</td><td>Minimal</td><td>Localized wind damage, no widespread surge or flooding.</td></tr>
+                <tr><td class="num">10–19</td><td>Low</td><td>Minor, localized impacts; isolated flooding.</td></tr>
+                <tr><td class="num">20–39</td><td>Moderate</td><td>Regional damage, isolated infrastructure failures.</td></tr>
+                <tr><td class="num">40–59</td><td>Severe</td><td>Multi-billion-dollar event, sustained coastal damage.</td></tr>
+                <tr><td class="num">60–79</td><td>Extreme</td><td>Major destruction across multiple zones.</td></tr>
+                <tr><td class="num">80–89</td><td>Devastating</td><td>Wide-area destruction across multiple zones — <a href="/storm/AL092022" class="inline">Ian (2022)</a>, <a href="/storm/AL092024" class="inline">Helene (2024)</a>, <a href="/storm/AL152017" class="inline">Maria (2017)</a>.</td></tr>
+                <tr><td class="num">90–100</td><td>Historic</td><td>Generation-defining storms — <a href="/storm/AL122005" class="inline">Katrina</a>, Haiyan, Mangkhut.</td></tr>
             </tbody>
         </table>
 
