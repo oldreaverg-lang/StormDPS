@@ -445,6 +445,14 @@ _IKE_CACHE_VERSION = "v6-coaps"
 _IKE_CACHE_MAX_FILES = 500
 _IKE_CACHE_MAX_SIZE_MB = 200  # soft cap — triggers eviction when exceeded
 
+# Live storms recompute their track (~13s: b-deck/IBTrACS fetch + IKE compute)
+# on every view because the storm is still evolving. Rather than bypass the
+# cache entirely, cache the result with this short TTL: a burst of viewers
+# during an event shares one compute, and the next advisory (~every 6h) is
+# picked up within the window. The track GET is keyed by (storm_id, grid, skip)
+# — no track fingerprint — so the TTL is the sole freshness gate.
+_LIVE_TRACK_TTL_S = 1800  # 30 minutes
+
 
 def _ike_cache_key(storm_id: str, grid_res_km: float, skip: int) -> str:
     """Generate cache filename for a storm+params combo.
@@ -461,9 +469,22 @@ def _ike_cache_key(storm_id: str, grid_res_km: float, skip: int) -> str:
     return f"{safe_sid}_{h}.json"
 
 
-def _load_ike_cache(storm_id: str, grid_res_km: float, skip: int) -> list[dict] | None:
-    """Load cached IKE results if present and valid (version + storm_id match)."""
-    data = _cache_read(_IKE_CACHE_DIR / _ike_cache_key(storm_id, grid_res_km, skip))
+def _load_ike_cache(storm_id: str, grid_res_km: float, skip: int,
+                    max_age_s: float | None = None) -> list[dict] | None:
+    """Load cached IKE results if present and valid (version + storm_id match).
+
+    *max_age_s* bounds freshness for live storms: a file older than this reads
+    as a miss so the next advisory is picked up. None = no age limit (immutable
+    historical storms).
+    """
+    path = _IKE_CACHE_DIR / _ike_cache_key(storm_id, grid_res_km, skip)
+    if max_age_s is not None:
+        try:
+            if (time.time() - path.stat().st_mtime) > max_age_s:
+                return None  # stale live entry → recompute
+        except OSError:
+            return None  # missing/unreadable → miss
+    data = _cache_read(path)
     if not isinstance(data, dict):
         return None
     if data.get("_version") != _IKE_CACHE_VERSION or data.get("_storm_id") != storm_id:
@@ -1932,11 +1953,16 @@ async def get_storm_track(
             for s in _active_storms_cache
         )
     _is_live = _is_live_jtwc or _is_live_nhc
-    if not _is_live:
-        cached = _load_ike_cache(storm_id, grid_resolution_km, skip_points)
-        if cached:
-            logger.info(f"[CACHE HIT] {storm_id} — returning {len(cached)} cached IKE results")
-            return JSONResponse(content=cached)
+    # Historical storms are immutable (no age limit). Live storms get a short
+    # TTL so a new advisory is picked up within _LIVE_TRACK_TTL_S — but a hit
+    # still skips the b-deck/IBTrACS fetch AND the IKE compute (~13s for a live
+    # storm), so a burst of viewers during an event shares a single compute.
+    _ike_ttl = _LIVE_TRACK_TTL_S if _is_live else None
+    cached = _load_ike_cache(storm_id, grid_resolution_km, skip_points, max_age_s=_ike_ttl)
+    if cached:
+        logger.info(f"[CACHE HIT] {storm_id} — {len(cached)} cached IKE results"
+                    + (" (live, within TTL)" if _is_live else ""))
+        return JSONResponse(content=cached)
 
     snapshots = []
     source = None
@@ -2175,19 +2201,18 @@ async def get_storm_track(
     results = [_ike_to_response(ike, snap) for ike, snap in ike_batch]
 
     # --- Save to cache for future requests ---
-    # Skip for live JTWC storms — they change every 6 hours and serving a
-    # cached copy would hide the next advisory.
+    # Live storms are cached too, but read back only within _LIVE_TRACK_TTL_S
+    # (see the read above), so the next advisory is picked up promptly while a
+    # burst of concurrent viewers during an event still shares one compute.
     compute_ms = (time.time() - t0) * 1000
-    if not _is_live_jtwc:
-        _save_ike_cache(
-            storm_id, grid_resolution_km, skip_points,
-            [_ike_response_to_dict(r) for r in results],
-            source=source or "unknown",
-            compute_ms=compute_ms,
-        )
-        logger.info(f"[CACHE MISS] {storm_id} — computed {len(results)} IKE results in {compute_ms:.0f}ms, saved to cache")
-    else:
-        logger.info(f"[LIVE JTWC] {storm_id} — computed {len(results)} IKE results in {compute_ms:.0f}ms (cache bypassed)")
+    _save_ike_cache(
+        storm_id, grid_resolution_km, skip_points,
+        [_ike_response_to_dict(r) for r in results],
+        source=source or "unknown",
+        compute_ms=compute_ms,
+    )
+    logger.info(f"[CACHE MISS] {storm_id} — computed {len(results)} IKE results in {compute_ms:.0f}ms, saved"
+                + (" (live, TTL)" if _is_live else ""))
 
     return results
 
