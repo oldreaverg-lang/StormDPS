@@ -286,27 +286,68 @@ def detect_landfall_events(snapshots):
                 return True
         return False
 
+    def _region_if_near(snap):
+        la = snap.get("lat", 0)
+        lo = snap.get("lon", 0)
+        return classify_region(la, lo) if is_near_coast(la, lo) else None
+
+    def _event(snap, idx, region, wind):
+        return {
+            "timestamp": snap.get("timestamp", ""),
+            "lat": round(snap.get("lat", 0), 2),
+            "lon": round(snap.get("lon", 0), 2),
+            "region": region,
+            "snapshot_idx": idx,
+            "max_wind_ms": round(wind, 1),
+            "min_pressure_hpa": round(snap.get("min_pressure_hpa", 1013) or 1013, 0),
+        }
+
     events = []
-    prev_near_coast = False
-
-    for idx, snapshot in enumerate(snapshots):
-        lat = snapshot.get("lat", 0)
-        lon = snapshot.get("lon", 0)
-        near_coast = is_near_coast(lat, lon)
+    n = len(snapshots)
+    prev_region = None   # named coastal region of the previous snapshot, or None over open ocean
+    i = 0
+    while i < n:
+        snapshot = snapshots[i]
         wind = snapshot.get("max_wind_ms", 0) or 0
+        region = _region_if_near(snapshot)
+        is_us = region in US_MAINLAND_REGIONS
 
-        if near_coast and not prev_near_coast and wind >= 20:
-            events.append({
-                "timestamp": snapshot.get("timestamp", ""),
-                "lat": round(lat, 2),
-                "lon": round(lon, 2),
-                "region": classify_region(lat, lon),
-                "snapshot_idx": idx,
-                "max_wind_ms": round(wind, 1),
-                "min_pressure_hpa": round(snapshot.get("min_pressure_hpa", 1013) or 1013, 0),
-            })
+        # ── US-mainland landfall ──
+        # A storm can hug the coast continuously for days (Isaias: NC landfall
+        # then up through the Mid-Atlantic/NE), so the plain ocean→coast rule
+        # below records ZERO US landfalls for coast-parallel tracks. Here we fire
+        # when the storm ENTERS US mainland from a non-US state (open ocean or a
+        # foreign/Caribbean coast), consume the whole contiguous US-near-coast
+        # span, and emit ONE event at its PEAK wind (so the recorded region and
+        # intensity reflect the actual landfall, not the box-entry point).
+        if is_us and (prev_region not in US_MAINLAND_REGIONS) and wind >= 20:
+            j = i
+            pk = -1.0
+            pk_idx = i
+            pk_region = region
+            while j < n:
+                rj = _region_if_near(snapshots[j])
+                if rj not in US_MAINLAND_REGIONS:
+                    break
+                wj = snapshots[j].get("max_wind_ms", 0) or 0
+                if wj > pk:
+                    pk = wj
+                    pk_idx = j
+                    pk_region = rj
+                j += 1
+            events.append(_event(snapshots[pk_idx], pk_idx, pk_region, pk))
+            prev_region = _region_if_near(snapshots[j - 1]) if j > i else region
+            i = j
+            continue
 
-        prev_near_coast = near_coast
+        # ── Non-US (Caribbean / WP / EP / …) ──
+        # Original ocean→coast transition rule, UNCHANGED, so every non-US basin
+        # behaves exactly as before (no WP inflation).
+        if region is not None and prev_region is None and not is_us and wind >= 20:
+            events.append(_event(snapshot, i, region, wind))
+
+        prev_region = region
+        i += 1
 
     return events
 
