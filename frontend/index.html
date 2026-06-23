@@ -6720,24 +6720,29 @@ function renderMap(data){
             fetch(`${API_BASE}/storms/${sid}/forecast`).then(r=>r.ok?r.json():null).then(fc=>{
                 if(!fc||!currentMap)return;
 
+                // ── Forecast-uncertainty DPS band (Analyst mode) ──
+                // Range the PEAK DPS could reach given the official intensity error.
+                // Rendered FIRST so an error in a later block can't suppress it.
+                try { renderForecastDpsBand(computeForecastDpsBand(fc.forecast_track)); } catch(e) {}
+
                 // ── Stall Risk Analysis ──
-                if(fc.stall_risk) {
-                    window._activeStallRisk = fc.stall_risk;
-                    displayStallRisk(fc.stall_risk);
-                    // Re-compute IAS with stall risk boost for active storms
-                    if(window.stormData) {
-                        applyStallRiskToIAS(window.stormData, fc.stall_risk);
+                // Guarded: an unguarded throw here previously aborted the whole
+                // handler, silently dropping the forecast cone, track, and ERS.
+                try {
+                    if(fc.stall_risk) {
+                        window._activeStallRisk = fc.stall_risk;
+                        displayStallRisk(fc.stall_risk);
+                        // Re-compute IAS with stall risk boost for active storms
+                        if(window.stormData) {
+                            applyStallRiskToIAS(window.stormData, fc.stall_risk);
+                        }
                     }
-                }
+                } catch(e) { console.warn('[FORECAST] stall-risk render failed:', e); }
 
                 // ── Forecast-driven Economic Risk ──
                 // Score the projected track and surface it on the ERS card
                 // (forward-looking; never overwrites observed-to-date ERS).
                 try { displayForecastERS(computeForecastERS(fc.forecast_track, true)); } catch(e) {}
-
-                // ── Forecast-uncertainty DPS band (Analyst mode) ──
-                // Range the PEAK DPS could reach given the official intensity error.
-                try { renderForecastDpsBand(computeForecastDpsBand(fc.forecast_track)); } catch(e) {}
 
                 // Draw forecast cone
                 if(fc.cone_polygon&&fc.cone_polygon.length>2){
