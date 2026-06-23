@@ -462,6 +462,10 @@
         /* Dominant-hazard headline: hidden by default; revealed only in Analyst mode. */
         #dominantHazard{display:none;font-size:.72rem;font-weight:700;margin-top:.18rem;line-height:1.3}
         body.analyst-mode #dominantHazard{display:block}
+        /* Forecast-uncertainty DPS band: Analyst mode + live storms only, shown
+           only when populated (:not(:empty)). */
+        #dpsForecastBand{display:none;font-size:.7rem;font-weight:600;margin-top:.12rem;line-height:1.3;color:var(--text-muted)}
+        body.analyst-mode #dpsForecastBand:not(:empty){display:block}
         /* Surge-validation panel: Analyst mode only, and only when it has content
            (:not(:empty)) so storms without gauge data show nothing. */
         #surgeValidation{display:none;margin:.5rem 0 0;padding:.55rem .7rem;border:1px solid var(--border);border-radius:var(--radius);background:rgba(8,145,178,.05);font-size:.78rem;line-height:1.5;color:var(--text-main)}
@@ -673,6 +677,10 @@
                      you the *kind* of threat (surge / rainfall / wind) so the score
                      isn't read as a single undifferentiated danger. -->
                 <div class="dominant-hazard" id="dominantHazard"></div>
+                <!-- Forecast-uncertainty DPS band — Analyst mode, live storms only
+                     (CSS + :empty gated). Range the peak DPS could reach given the
+                     official intensity-forecast error. -->
+                <div id="dpsForecastBand"></div>
                 <div class="score-context" id="dpsContext"></div>
                 <div class="breakdown-wrap" onclick="this.classList.toggle('open')"><div class="breakdown-bar" id="breakdownDPS"></div><div class="breakdown-panel" id="panelDPS"></div></div><div class="breakdown-hint">Tap or hover for details</div>
             </div>
@@ -1626,6 +1634,73 @@ function updateSurgeValidation() {
         '<div style="opacity:.75">Nearest gauge: ' + escapeHtml(best.name || best.station || 'gauge') + when + '</div>' +
         '<div>Model <b>~' + Math.round(modeled) + ' ft</b> <span style="opacity:.6">open-coast potential</span> · Observed <b>~' + obsV.toFixed(1) + ' ft</b> surge</div>' +
         '<div style="margin-top:.2rem;color:' + color + '">' + note + '</div>';
+}
+// ── Forecast-uncertainty DPS band (Analyst mode, live storms) ──────────────
+// Official mean intensity-forecast error (kt) by lead hour. NHC OFCL for the
+// Atlantic/E-Pacific; the (larger) JTWC envelope for the West Pacific and other
+// basins. Linearly interpolated; clamped to the table ends.
+function intensityErrorKt(hour, basin) {
+    var nhc  = [[12, 5], [24, 7], [36, 9], [48, 10], [72, 12], [96, 13], [120, 14]];
+    var jtwc = [[12, 6], [24, 9], [36, 11], [48, 13], [72, 16], [96, 18], [120, 19]];
+    var tbl = (basin === 'ATLANTIC' || basin === 'EASTERN_PACIFIC') ? nhc : jtwc;
+    var h = Math.max(tbl[0][0], Math.min(tbl[tbl.length - 1][0], hour || 48));
+    for (var i = 1; i < tbl.length; i++) {
+        if (h <= tbl[i][0]) {
+            var a = tbl[i - 1], b = tbl[i];
+            return a[1] + (b[1] - a[1]) * (h - a[0]) / (b[0] - a[0]);
+        }
+    }
+    return tbl[tbl.length - 1][1];
+}
+// Recompute the projected PEAK DPS at the forecast peak intensity ± the official
+// intensity error, holding storm size/motion at their latest observed values
+// (forecasts publish position + intensity, not wind radii). The low end is
+// floored at the DPS already realized — what's happened can't un-happen.
+function computeForecastDpsBand(forecastTrack) {
+    var obs = window.stormData;
+    if (!Array.isArray(forecastTrack) || !forecastTrack.length || !obs || !obs.length) return null;
+    var tmpl = null, curR34 = 0, curR64 = 0, curFwd = 0;
+    for (var i = obs.length - 1; i >= 0; i--) { if (obs[i] && obs[i].max_wind_ms) { tmpl = obs[i]; break; } }
+    if (!tmpl) return null;
+    for (var i = obs.length - 1; i >= 0; i--) { if (obs[i] && obs[i].r34_nm) { curR34 = obs[i].r34_nm; break; } }
+    for (var i = obs.length - 1; i >= 0; i--) { if (obs[i] && obs[i].r64_nm) { curR64 = obs[i].r64_nm; break; } }
+    for (var i = obs.length - 1; i >= 0; i--) { if (obs[i] && obs[i].forward_speed_knots) { curFwd = obs[i].forward_speed_knots; break; } }
+    var curWkt = tmpl.max_wind_ms / 0.514444;
+    var curDp = Math.max(0, 1013 - (tmpl.min_pressure_hpa || 1013));
+    var obsPeak = 0;
+    obs.forEach(function (d) { var s = (d.dps && d.dps.score) || 0; if (s > obsPeak) obsPeak = s; });
+    // Forecast peak fix (max wind, ≥ TS-force).
+    var pk = null;
+    forecastTrack.forEach(function (p) { if (p && p.max_wind_kt >= 34) { if (!pk || p.max_wind_kt > pk.max_wind_kt) pk = p; } });
+    if (!pk) return { central: Math.round(obsPeak), low: Math.round(obsPeak), high: Math.round(obsPeak), err: 0, hour: 0 };
+    var basin = 'ATLANTIC';
+    try { if (window.BasinDPS) basin = window.BasinDPS.detectBasin(pk.lat, pk.lon); } catch (e) {}
+    var err = intensityErrorKt(pk.hour, basin);
+    function dpsAt(wkt) {
+        // Scale the pressure deficit with wind² to keep intensity self-consistent.
+        var dp = curWkt > 0 ? curDp * Math.pow(wkt / curWkt, 2) : curDp;
+        var r = calculateDPS({
+            lat: pk.lat, lon: pk.lon, max_wind_ms: wkt * 0.514444,
+            r34_nm: curR34, r64_nm: curR64, forward_speed_knots: curFwd,
+            min_pressure_hpa: 1013 - dp
+        });
+        return (r && r.score) || 0;
+    }
+    return {
+        central: Math.round(Math.max(obsPeak, dpsAt(pk.max_wind_kt))),
+        low:     Math.round(Math.max(obsPeak, dpsAt(Math.max(34, pk.max_wind_kt - err)))),
+        high:    Math.round(Math.max(obsPeak, dpsAt(pk.max_wind_kt + err))),
+        err: Math.round(err), hour: pk.hour
+    };
+}
+function renderForecastDpsBand(band) {
+    var el = document.getElementById('dpsForecastBand');
+    if (!el) return;
+    // Only worth showing when the forecast implies a non-trivial upside spread.
+    if (!band || band.high - band.low < 2) { el.innerHTML = ''; return; }
+    el.innerHTML = '<span style="opacity:.7">◷ Projected peak DPS:</span> <b>' + band.low + '–' + band.high + '</b>' +
+        '<span style="opacity:.6"> (intensity ±' + band.err + ' kt @ +' + band.hour + 'h)</span>';
+    el.title = 'Forecast-uncertainty range for this storm’s PEAK DPS: the model recomputed at the forecast peak intensity ± the official mean intensity-forecast error for the basin (' + band.err + ' kt at +' + band.hour + 'h), with storm size and motion held at current values. The low end is floored at the DPS already realized. Indicative, not a probabilistic interval.';
 }
 // Safety net: StormDPS is not an emergency authority and must never render a
 // protective-action directive — even from a stale cached/compiled bundle written
@@ -6658,6 +6733,10 @@ function renderMap(data){
                 // Score the projected track and surface it on the ERS card
                 // (forward-looking; never overwrites observed-to-date ERS).
                 try { displayForecastERS(computeForecastERS(fc.forecast_track, true)); } catch(e) {}
+
+                // ── Forecast-uncertainty DPS band (Analyst mode) ──
+                // Range the PEAK DPS could reach given the official intensity error.
+                try { renderForecastDpsBand(computeForecastDpsBand(fc.forecast_track)); } catch(e) {}
 
                 // Draw forecast cone
                 if(fc.cone_polygon&&fc.cone_polygon.length>2){
