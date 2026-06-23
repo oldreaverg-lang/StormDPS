@@ -6712,7 +6712,12 @@ function renderMap(data){
 
     // Forecast track overlay for active storms
     if(window._isActiveStorm){
-        const sid=data[0]&&window.stormData?document.getElementById('stormId').value.trim().toUpperCase():'';
+        // Use the canonical storm ID, NOT the search field — after load the field
+        // holds the display NAME (e.g. "Higos"), and /storms/<name>/forecast
+        // returns 200 with an EMPTY forecast_track, silently dropping the cone,
+        // track, forecast ERS, and DPS band. The ID (e.g. WP082026) resolves the
+        // b-deck forecast correctly.
+        const sid=data[0]&&window.stormData?String(window._currentStormId||document.getElementById('stormId').value).trim().toUpperCase():'';
         // Guard against duplicate forecast fetches when renderMap re-runs
         // for the same active storm (e.g. tab refocus, slider re-init).
         if(sid && window._forecastFetchedSid !== sid){
