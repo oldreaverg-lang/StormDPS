@@ -1587,8 +1587,8 @@ function _rainLevelSignal(level) {
 function updateSurgeValidation() {
     var el = document.getElementById('surgeValidation');
     if (!el) return;
-    var modeled = window._modeledPeakSurge || 0;
     var obs = window._observedData || [];
+    // Highest TRUE surge residual among the CO-OPS gauges along the track.
     var best = null;
     for (var i = 0; i < obs.length; i++) {
         var o = obs[i];
@@ -1596,19 +1596,35 @@ function updateSurgeValidation() {
             if (!best || o.surge_ft > best.surge_ft) best = o;
         }
     }
-    // Need both a modeled value and an observed residual to say anything honest.
-    if (!best || !(modeled > 0)) { el.innerHTML = ''; return; }
+    if (!best) { el.innerHTML = ''; return; }
     var obsV = best.surge_ft;
+    // Model surge potential WHEN THE STORM WAS NEAREST this gauge — a fair,
+    // location-matched comparison, not the lifetime open-water max (which can sit
+    // hundreds of miles away at peak intensity and dwarf an off-peak gauge).
+    var track = window.stormData || [];
+    var modeled = 0;
+    if (track.length && typeof best.lat === 'number' && typeof best.lon === 'number') {
+        var nd = Infinity, nearest = null;
+        for (var j = 0; j < track.length; j++) {
+            var d = track[j];
+            if (typeof d.lat !== 'number' || typeof d.lon !== 'number') continue;
+            var dlat = d.lat - best.lat, dlon = d.lon - best.lon, dd = dlat * dlat + dlon * dlon;
+            if (dd < nd) { nd = dd; nearest = d; }
+        }
+        if (nearest) modeled = calculateSurgeParametric(nearest);
+    }
+    if (!(modeled > 0)) modeled = window._modeledPeakSurge || 0;
+    if (!(modeled > 0)) { el.innerHTML = ''; return; }
     var when = best.surge_time ? ' · ' + escapeHtml(String(best.surge_time).slice(0, 10)) : '';
     var note, color;
     if (obsV > modeled + 1.5) { note = 'Observed surge exceeded the model here — under-predicted.'; color = '#b45309'; }
     else if (obsV >= modeled * 0.6) { note = 'Model in line with the nearest gauge.'; color = '#047857'; }
     else { note = 'Model above the gauge — expected, since fixed gauges rarely sit at the peak-surge point.'; color = '#475569'; }
-    var tip = "Model = open-coast surge potential (above normal tide), peak over the storm's life. Observed = highest true storm-surge residual at a NOAA CO-OPS gauge along the track (observed water level minus predicted astronomical tide). Gauges sample fixed points, so observed ≤ modeled is normal.";
+    var tip = "Observed = highest true storm-surge residual at a NOAA CO-OPS gauge along the track (observed water level minus predicted astronomical tide). Model = open-coast surge potential (above normal tide) when the storm was nearest that gauge. Gauges sample fixed points, so observed ≤ modeled is normal.";
     el.innerHTML =
         '<div style="font-weight:700;margin-bottom:.15rem;color:#0e7490" title="' + tip + '">◑ Surge validation — model vs. observed</div>' +
-        '<div>Model: <b>~' + Math.round(modeled) + ' ft</b> <span style="opacity:.6">open-coast potential</span></div>' +
-        '<div>Observed: <b>~' + obsV.toFixed(1) + ' ft</b> surge at ' + escapeHtml(best.name || best.station || 'gauge') + when + '</div>' +
+        '<div style="opacity:.75">Nearest gauge: ' + escapeHtml(best.name || best.station || 'gauge') + when + '</div>' +
+        '<div>Model <b>~' + Math.round(modeled) + ' ft</b> <span style="opacity:.6">open-coast potential</span> · Observed <b>~' + obsV.toFixed(1) + ' ft</b> surge</div>' +
         '<div style="margin-top:.2rem;color:' + color + '">' + note + '</div>';
 }
 // Safety net: StormDPS is not an emergency authority and must never render a
