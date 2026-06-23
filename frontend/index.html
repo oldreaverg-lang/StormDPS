@@ -1669,9 +1669,10 @@ function computeForecastDpsBand(forecastTrack) {
     var curDp = Math.max(0, 1013 - (tmpl.min_pressure_hpa || 1013));
     var obsPeak = 0;
     obs.forEach(function (d) { var s = (d.dps && d.dps.score) || 0; if (s > obsPeak) obsPeak = s; });
-    // Forecast peak fix (max wind, ≥ TS-force).
+    // Forecast peak fix (max wind, ≥ TS-force). Skip hour 0 — that's the current
+    // analysis, not a forecast, so it carries no forecast uncertainty.
     var pk = null;
-    forecastTrack.forEach(function (p) { if (p && p.max_wind_kt >= 34) { if (!pk || p.max_wind_kt > pk.max_wind_kt) pk = p; } });
+    forecastTrack.forEach(function (p) { if (p && p.hour > 0 && p.max_wind_kt >= 34) { if (!pk || p.max_wind_kt > pk.max_wind_kt) pk = p; } });
     if (!pk) return { central: Math.round(obsPeak), low: Math.round(obsPeak), high: Math.round(obsPeak), err: 0, hour: 0 };
     var basin = 'ATLANTIC';
     try { if (window.BasinDPS) basin = window.BasinDPS.detectBasin(pk.lat, pk.lon); } catch (e) {}
