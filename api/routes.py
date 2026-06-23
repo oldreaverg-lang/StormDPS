@@ -353,7 +353,9 @@ _RAINFALL_CACHE_VERSION = 2
 # Bump when the /observed/track result changes so stale caches drop.
 # v2: NDBC pre-2007 year-column parse fix — buoys now populate for pre-2007
 #     storms (Katrina etc.) that previously cached with zero buoys.
-_OBSERVED_CACHE_VERSION = 2
+# v3: CO-OPS surge records now carry surge_ft (observed water level − predicted
+#     tide = true storm-surge residual) for the analyst surge-validation panel.
+_OBSERVED_CACHE_VERSION = 3
 
 # Active/recent storms aren't immutable, so their track-data is cached only
 # briefly: the fingerprint key already changes when a new advisory updates the
@@ -1549,6 +1551,10 @@ async def get_observed_peaks(
                 "type": "surge", "lat": g.lat, "lon": g.lon,
                 "station": g.station, "name": g.name,
                 "value": g.peak_ft_mllw, "unit": "ft",
+                # True storm-surge residual (obs − predicted tide); None when tide
+                # predictions weren't available. Consumed by the analyst panel.
+                "surge_ft": g.peak_surge_ft,
+                "surge_time": g.surge_time_utc or None,
                 "label": f"Peak surge {g.peak_ft_mllw:.1f} ft",
                 "time": g.peak_time_utc, "source": "NOAA CO-OPS tide gauge",
             })

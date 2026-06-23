@@ -84,6 +84,13 @@ class GaugeReading:
     peak_ft_mllw: float
     peak_time_utc: str  # ISO timestamp
     sample_count: int
+    # True storm-surge residual: max over the window of (observed water level −
+    # predicted astronomical tide), in feet. This is the quantity directly
+    # comparable to the model's surge estimate (water above normal tide), unlike
+    # peak_ft_mllw which still contains the tide. None when tide predictions are
+    # unavailable for the station/era.
+    peak_surge_ft: Optional[float] = None
+    surge_time_utc: str = ""
 
 
 class COOPSClient:
@@ -143,16 +150,44 @@ class COOPSClient:
 
             samples = data["data"]
             best = None
+            obs_by_t: dict[str, float] = {}
             for s in samples:
                 try:
                     v = float(s.get("v", ""))
                 except (ValueError, TypeError):
                     continue
+                t = s.get("t", "")
+                obs_by_t[t] = v
                 if best is None or v > best[0]:
-                    best = (v, s.get("t", ""))
+                    best = (v, t)
 
             if best is None:
                 continue
+
+            # True storm-surge residual = max(observed − predicted tide). Fetch the
+            # astronomical tide predictions for the same window/datum and align by
+            # timestamp. Best-effort: if predictions are missing (older era, station
+            # without harmonic constituents, feed error) we leave peak_surge_ft None
+            # and the caller falls back to the water-level peak.
+            peak_surge: Optional[float] = None
+            surge_time = ""
+            try:
+                interval = "h" if product == "hourly_height" else None
+                preds = await self._get_predictions(
+                    station, begin_yyyymmdd, end_yyyymmdd, datum, interval
+                )
+                for t, ov in obs_by_t.items():
+                    pv = preds.get(t)
+                    if pv is None:
+                        continue
+                    resid = ov - pv
+                    if peak_surge is None or resid > peak_surge:
+                        peak_surge = resid
+                        surge_time = t
+                if peak_surge is not None:
+                    peak_surge = round(peak_surge, 2)
+            except Exception as e:
+                logger.debug(f"[CO-OPS] {station} predictions/residual failed: {e}")
 
             # Look up station metadata
             meta = _find_gauge_meta(station)
@@ -164,8 +199,44 @@ class COOPSClient:
                 peak_ft_mllw=round(best[0], 2),
                 peak_time_utc=best[1],
                 sample_count=len(samples),
+                peak_surge_ft=peak_surge,
+                surge_time_utc=surge_time,
             )
         return None
+
+    async def _get_predictions(
+        self,
+        station: str,
+        begin_yyyymmdd: str,
+        end_yyyymmdd: str,
+        datum: str = "MLLW",
+        interval: Optional[str] = None,
+    ) -> dict[str, float]:
+        """
+        Return {timestamp: predicted_tide_ft} for *station* over the window, used
+        to subtract the astronomical tide from observed water levels and recover
+        the storm-surge residual. ``interval`` should be "h" to match an
+        hourly_height observed series; omit it (6-min) to match ``water_level``.
+        """
+        params = {
+            "product": "predictions",
+            "station": station,
+            "begin_date": begin_yyyymmdd,
+            "end_date": end_yyyymmdd,
+            "datum": datum,
+            "units": "english",
+            "time_zone": "gmt",
+        }
+        if interval:
+            params["interval"] = interval
+        data = await self._get(params)
+        out: dict[str, float] = {}
+        for s in data.get("predictions", []):
+            try:
+                out[s.get("t", "")] = float(s.get("v", ""))
+            except (ValueError, TypeError):
+                continue
+        return out
 
     async def find_peak_along_path(
         self,
