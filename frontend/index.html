@@ -6449,7 +6449,13 @@ function renderMap(data){
     parent.removeChild(mapDiv);
     const nd=document.createElement('div');nd.id='map';
     parent.insertBefore(nd,parent.querySelector('.map-legend'));
-    currentMap=L.map('map',{zoomControl:false}).setView([data[0].lat,data[0].lon],5);
+    // fadeAnimation:false — Leaflet's tile fade-in ramps opacity 0→1 via
+    // requestAnimationFrame, which the browser PAUSES in a backgrounded tab. If the
+    // map loads while the tab is in the background (open-in-new-tab, middle-click,
+    // or switching away during load), the fade never completes and tiles stay stuck
+    // at opacity 0 — a blank/blue map that doesn't recover on focus until you pan.
+    // Disabling the fade makes tiles paint immediately, independent of rAF.
+    currentMap=L.map('map',{zoomControl:false,fadeAnimation:false}).setView([data[0].lat,data[0].lon],5);
     L.control.zoom({position:'topright'}).addTo(currentMap);
     L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{
         attribution:'&copy; OSM &copy; CARTO',subdomains:'abcd',maxZoom:19
