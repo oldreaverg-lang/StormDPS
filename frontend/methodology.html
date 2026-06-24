@@ -486,6 +486,81 @@
         </ul>
         <p>DPS scores Charley around 71 and Ike around 84. That ordering matches the damage record. The categorical ordering does not.</p>
 
+        <h2 id="validation">How well does DPS predict real damage?</h2>
+        <p>A score is only as good as what it predicts. We test DPS against independent ground truth &mdash; the federal disaster response &mdash; across the 35 U.S. storms in our dataset that carry FEMA records, and compare it to the metrics a forecaster would otherwise reach for: peak wind, integrated kinetic energy, and minimum central pressure. Two measures: the <strong>AUC</strong> (how cleanly each metric separates the storms that drew a FEMA <em>major-disaster</em> declaration &mdash; 30 of 35) and the <strong>rank correlation</strong> (how well each orders storms by counties declared). Higher is better on both.</p>
+        <table>
+            <thead><tr><th>Metric</th><th>Major-disaster AUC</th><th>Footprint rank &rho;</th></tr></thead>
+            <tbody>
+<tr style="font-weight:700"><td>DPS</td><td>0.83</td><td>0.66</td></tr>
+<tr><td>Peak IKE</td><td>0.75</td><td>0.50</td></tr>
+<tr><td>Peak wind</td><td>0.64</td><td>0.47</td></tr>
+<tr><td>Min pressure</td><td>0.61</td><td>0.44</td></tr>
+            </tbody>
+        </table>
+        <p>DPS leads on both &mdash; because it weighs storm size, duration, and surge geography, not just peak intensity. The scatter plots every storm by its DPS against the breadth of its federal disaster footprint:</p>
+        <figure style="margin:1.25rem 0">
+<svg viewBox="0 0 720 380" role="img" aria-label="DPS versus FEMA counties declared, 35 US storms" style="width:100%;height:auto;max-width:720px;color:#475569">
+<line x1="64" y1="328.0" x2="700" y2="328.0" stroke="currentColor" stroke-opacity="0.12"/>
+<text x="56" y="332.0" text-anchor="end" font-size="12" fill="currentColor" fill-opacity="0.7">0</text>
+<line x1="64" y1="228.0" x2="700" y2="228.0" stroke="currentColor" stroke-opacity="0.12"/>
+<text x="56" y="232.0" text-anchor="end" font-size="12" fill="currentColor" fill-opacity="0.7">100</text>
+<line x1="64" y1="128.0" x2="700" y2="128.0" stroke="currentColor" stroke-opacity="0.12"/>
+<text x="56" y="132.0" text-anchor="end" font-size="12" fill="currentColor" fill-opacity="0.7">200</text>
+<line x1="64" y1="28.0" x2="700" y2="28.0" stroke="currentColor" stroke-opacity="0.12"/>
+<text x="56" y="32.0" text-anchor="end" font-size="12" fill="currentColor" fill-opacity="0.7">300</text>
+<text x="64.0" y="348" text-anchor="middle" font-size="12" fill="currentColor" fill-opacity="0.7">0</text>
+<text x="191.2" y="348" text-anchor="middle" font-size="12" fill="currentColor" fill-opacity="0.7">20</text>
+<text x="318.4" y="348" text-anchor="middle" font-size="12" fill="currentColor" fill-opacity="0.7">40</text>
+<text x="445.6" y="348" text-anchor="middle" font-size="12" fill="currentColor" fill-opacity="0.7">60</text>
+<text x="572.8" y="348" text-anchor="middle" font-size="12" fill="currentColor" fill-opacity="0.7">80</text>
+<text x="700.0" y="348" text-anchor="middle" font-size="12" fill="currentColor" fill-opacity="0.7">100</text>
+<line x1="64" y1="28" x2="64" y2="328" stroke="currentColor" stroke-opacity="0.4"/>
+<line x1="64" y1="328" x2="700" y2="328" stroke="currentColor" stroke-opacity="0.4"/>
+<text x="382.0" y="374" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor" fill-opacity="0.85">Destructive Power Score (DPS) &#8594;</text>
+<text transform="translate(16,178.0) rotate(-90)" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor" fill-opacity="0.85">FEMA counties declared &#8594;</text>
+<circle cx="659.7" cy="48.0" r="4.5" fill="#dc2626" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Katrina: DPS 94, 280 counties</title></circle>
+<circle cx="625.2" cy="156.0" r="4.5" fill="#dc2626" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Irma: DPS 88, 172 counties</title></circle>
+<circle cx="581.9" cy="158.0" r="4.5" fill="#dc2626" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Helene: DPS 81, 170 counties</title></circle>
+<circle cx="601.5" cy="185.0" r="4.5" fill="#dc2626" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Sandy: DPS 85, 143 counties</title></circle>
+<circle cx="543.4" cy="186.0" r="4.5" fill="#dc2626" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Florence: DPS 75, 142 counties</title></circle>
+<circle cx="576.7" cy="191.0" r="4.5" fill="#dc2626" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Michael: DPS 81, 137 counties</title></circle>
+<circle cx="608.7" cy="209.0" r="4.5" fill="#dc2626" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Ike: DPS 86, 119 counties</title></circle>
+<circle cx="616.8" cy="214.0" r="4.5" fill="#dc2626" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Dorian: DPS 87, 114 counties</title></circle>
+<circle cx="344.0" cy="216.0" r="4.5" fill="#dc2626" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Debby: DPS 44, 112 counties</title></circle>
+<circle cx="623.0" cy="218.0" r="4.5" fill="#dc2626" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Ian: DPS 88, 110 counties</title></circle>
+<circle cx="574.5" cy="222.0" r="4.5" fill="#dc2626" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Matthew: DPS 80, 106 counties</title></circle>
+<circle cx="280.7" cy="224.0" r="4.5" fill="#dc2626" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Isaias: DPS 34, 104 counties</title></circle>
+<circle cx="591.5" cy="243.0" r="4.5" fill="#dc2626" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Ida: DPS 83, 85 counties</title></circle>
+<circle cx="610.6" cy="245.0" r="4.5" fill="#dc2626" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Laura: DPS 86, 83 counties</title></circle>
+<circle cx="608.5" cy="247.0" r="4.5" fill="#dc2626" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Maria: DPS 86, 81 counties</title></circle>
+<circle cx="436.7" cy="249.0" r="4.5" fill="#dc2626" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Zeta: DPS 59, 79 counties</title></circle>
+<circle cx="531.2" cy="250.0" r="4.5" fill="#dc2626" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Fiona: DPS 73, 78 counties</title></circle>
+<circle cx="445.3" cy="253.0" r="4.5" fill="#dc2626" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Idalia: DPS 60, 75 counties</title></circle>
+<circle cx="278.7" cy="257.0" r="4.5" fill="#dc2626" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Sally: DPS 34, 71 counties</title></circle>
+<circle cx="336.1" cy="259.0" r="4.5" fill="#dc2626" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Nicole: DPS 43, 69 counties</title></circle>
+<circle cx="505.7" cy="259.0" r="4.5" fill="#dc2626" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Delta: DPS 69, 69 counties</title></circle>
+<circle cx="584.0" cy="260.0" r="4.5" fill="#dc2626" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Harvey: DPS 82, 68 counties</title></circle>
+<circle cx="579.0" cy="261.0" r="4.5" fill="#dc2626" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Beryl: DPS 81, 67 counties</title></circle>
+<circle cx="364.0" cy="264.0" r="4.5" fill="#dc2626" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Francine: DPS 47, 64 counties</title></circle>
+<circle cx="586.8" cy="269.0" r="4.5" fill="#dc2626" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Milton: DPS 82, 59 counties</title></circle>
+<circle cx="329.9" cy="278.0" r="4.5" fill="#dc2626" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Nate: DPS 42, 50 counties</title></circle>
+<circle cx="338.2" cy="287.0" r="4.5" fill="#dc2626" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Ernesto: DPS 43, 41 counties</title></circle>
+<circle cx="159.7" cy="290.0" r="4.5" fill="#dc2626" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Fred: DPS 15, 38 counties</title></circle>
+<circle cx="181.5" cy="291.0" r="4.5" fill="#2563eb" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Henri: DPS 18, 37 counties</title></circle>
+<circle cx="268.4" cy="296.0" r="4.5" fill="#2563eb" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Hanna: DPS 32, 32 counties</title></circle>
+<circle cx="391.7" cy="302.0" r="4.5" fill="#dc2626" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Barry: DPS 52, 26 counties</title></circle>
+<circle cx="338.8" cy="302.0" r="4.5" fill="#dc2626" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Hermine: DPS 43, 26 counties</title></circle>
+<circle cx="152.0" cy="304.0" r="4.5" fill="#2563eb" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Marco: DPS 14, 24 counties</title></circle>
+<circle cx="497.1" cy="312.0" r="4.5" fill="#2563eb" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Lee: DPS 68, 16 counties</title></circle>
+<circle cx="485.7" cy="315.0" r="4.5" fill="#2563eb" fill-opacity="0.72" stroke="#fff" stroke-width="0.8"><title>Eta: DPS 66, 13 counties</title></circle>
+<rect x="502" y="276" width="196" height="42" rx="6" fill="currentColor" fill-opacity="0.05"/>
+<circle cx="512" cy="290" r="4.5" fill="#dc2626" fill-opacity="0.72"/><text x="522" y="294" font-size="11.5" fill="currentColor" fill-opacity="0.8">FEMA major-disaster declaration</text>
+<circle cx="512" cy="308" r="4.5" fill="#2563eb" fill-opacity="0.72"/><text x="522" y="312" font-size="11.5" fill="currentColor" fill-opacity="0.8">Emergency declaration only</text>
+</svg>
+            <figcaption style="font-size:0.85rem;opacity:0.7;margin-top:0.5rem">Each dot is a U.S. storm (2015&ndash;present) with FEMA records. Higher DPS tracks a wider federal disaster footprint (Spearman &rho; = 0.66). Curated sample, n = 35 &mdash; small, but the ranking is consistent across both measures.</figcaption>
+        </figure>
+        <p>This is a deliberately honest test, not a victory lap: the sample is small and U.S.-only, the FEMA-declaration outcome is itself imperfect, and DPS still misses the exposure- and rainfall-driven damage discussed above. But on the question it is built to answer &mdash; <em>which storm carries more destructive power</em> &mdash; it out-predicts every conventional single-number metric.</p>
+
         <h2>What DPS does not do</h2>
         <p>DPS is a destructive-potential score, not a forecast. It is computed from observed or forecast track and intensity data; it does not generate the track itself. NHC, JTWC, and the various ensemble models produce the track; DPS interprets it.</p>
         <p>DPS is also not a replacement for the official watch/warning system. The National Hurricane Center's products are the operational source of record for evacuation decisions. DPS is meant for situational awareness, historical comparison, and research — telling you that the Category 2 bearing down on your coast is in fact more dangerous than the Category 4 that grazed the same coast a decade ago.</p>

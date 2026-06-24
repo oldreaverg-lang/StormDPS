@@ -470,10 +470,6 @@
            (:not(:empty)) so storms without gauge data show nothing. */
         #surgeValidation{display:none;margin:.5rem 0 0;padding:.55rem .7rem;border:1px solid var(--border);border-radius:var(--radius);background:rgba(8,145,178,.05);font-size:.78rem;line-height:1.5;color:var(--text-main)}
         body.analyst-mode #surgeValidation:not(:empty){display:block}
-        /* Validation benchmark panel: Analyst mode + Validation tab only (populated
-           on demand), shown only when it has content. */
-        #validationStats{display:none;margin:.5rem .25rem 0;padding:.55rem .7rem;border:1px solid var(--border);border-radius:var(--radius);background:rgba(8,145,178,.05);font-size:.74rem;line-height:1.45;color:var(--text-main)}
-        body.analyst-mode #validationStats:not(:empty){display:block}
         .dps-hero-card.severity-catastrophic #statHeroDPS{animation:heroPulse 2s ease-in-out infinite}
 
         @keyframes heroPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.75;transform:scale(1.02)}}
@@ -786,23 +782,17 @@
                         <button class="chart-tab active" data-scoretab="dps" onclick="switchScoreTab('dps')">DPS <span style="font-size:.85em;font-weight:400;opacity:.6;letter-spacing:0;text-transform:none">· Power</span> <span class="tip" data-tip="Destructive Power Score: Combines peak intensity, storm size, surge potential, duration, and geographic breadth. Shows what actually matters for damage—not just wind speed, but how big and how long the threat lasts.">?</span></button>
                         <button class="chart-tab" data-scoretab="ias" onclick="switchScoreTab('ias')">IAS <span style="font-size:.85em;font-weight:400;opacity:.6;letter-spacing:0;text-transform:none">· Impact Area</span> <span class="tip" data-tip="Impact Area Score: Measures geographic and rainfall amplification. Shows how local geography (continental shelf, terrain, river basins) and stalling storms can magnify actual damage beyond peak intensity alone.">?</span></button>
                         <button class="chart-tab" data-scoretab="ers" onclick="switchScoreTab('ers')">ERS <span style="font-size:.85em;font-weight:400;opacity:.6;letter-spacing:0;text-transform:none">· Economic Risk</span> <span class="tip" data-tip="Economic Risk Score: Combines coastal economic value with storm threat. Shows exposure—where the most valuable infrastructure lies along the projected path relative to storm intensity and size.">?</span></button>
-                        <button class="chart-tab" data-scoretab="val" onclick="switchScoreTab('val')">Validation <span style="font-size:.85em;font-weight:400;opacity:.6;letter-spacing:0;text-transform:none">· vs Reality</span> <span class="tip" data-tip="Validation: how DPS compares to what storms actually did. Each dot is a past storm plotted by its DPS (horizontal) against the number of U.S. counties that received a FEMA disaster declaration (vertical) — an independent, real-world measure of impact footprint. A rising trend means a higher DPS predicts wider real damage.">?</span></button>
                     </div>
                     <div style="font-size:.72rem;color:var(--text-dim);text-align:right;padding:.1rem .5rem 0;">Click a point to sync the map ↑</div>
                     <div class="chart-tab-body">
                         <div class="chart-tab-pane active" id="tabDPS"><canvas id="dpsCanvas"></canvas></div>
                         <div class="chart-tab-pane" id="tabIAS"><canvas id="iasCanvas"></canvas></div>
                         <div class="chart-tab-pane" id="tabERS"><canvas id="ersCanvas"></canvas></div>
-                        <div class="chart-tab-pane" id="tabVAL"><canvas id="valCanvas"></canvas></div>
                     </div>
                     <div id="dpsContextBox" class="dps-context-box" style="display:none;">
                         <div class="dps-context-bullets" id="dpsContextBullets"></div>
                     </div>
                     <button id="dpsContextToggle" class="dps-context-toggle" style="display:none;" onclick="toggleDpsContext()" title="Storm context">?</button>
-                    <!-- Validation benchmark — Analyst mode, Validation tab only
-                         (populated by switchScoreTab('val'); CSS + :empty gated).
-                         How well DPS predicts real FEMA impact vs conventional metrics. -->
-                    <div id="validationStats"></div>
                 </div>
                 <div class="chart-tabbed" id="chartTabbed">
                     <div class="chart-tabs">
@@ -4289,24 +4279,18 @@ function updateStormContext(data){
     box.style.display='none'; // start hidden, user clicks to reveal
 }
 
-let currentIASChart=null, currentERSChart=null, currentVALChart=null;
+let currentIASChart=null, currentERSChart=null;
 
 function switchScoreTab(tabName){
     document.querySelectorAll('#scoreChartTabbed .chart-tab').forEach(t=>t.classList.remove('active'));
     document.querySelector(`#scoreChartTabbed .chart-tab[data-scoretab="${tabName}"]`).classList.add('active');
     document.querySelectorAll('#scoreChartTabbed .chart-tab-pane').forEach(p=>p.classList.remove('active'));
-    const paneMap={dps:'tabDPS',ias:'tabIAS',ers:'tabERS',val:'tabVAL'};
+    const paneMap={dps:'tabDPS',ias:'tabIAS',ers:'tabERS'};
     document.getElementById(paneMap[tabName]).classList.add('active');
     // Resize active chart so it fills the pane (charts in hidden panes render
     // at 0px until shown; resize on activation gives them their real size).
-    const charts={dps:currentDPSChart,ias:currentIASChart,ers:currentERSChart,val:currentVALChart};
+    const charts={dps:currentDPSChart,ias:currentIASChart,ers:currentERSChart};
     if(charts[tabName]) charts[tabName].resize();
-    // Analyst-only outcome-validation benchmark — populate on the Validation tab,
-    // clear otherwise (CSS gates it to analyst mode). Never breaks the tab switch.
-    try {
-        const vs=document.getElementById('validationStats');
-        if(vs){ if(tabName==='val') renderValidationBenchmark(); else vs.innerHTML=''; }
-    } catch(e) {}
 }
 
 function _buildScoreChart(canvasId, scores, data, label, lineColor, gradientStops, tooltipCb){
@@ -4351,128 +4335,6 @@ function renderDPSChart(data){
         [[0,'rgba(16,185,129,0.16)'],[0.5,'rgba(16,185,129,0.06)'],[1,'rgba(32,84,147,0.02)']],
         c=>{const score=Math.round(c.parsed.y);const d=data[c.dataIndex];const lbl=d&&d.ers?d.ers.label:'—';const zone=d&&d.ers&&d.ers.zone?' ('+d.ers.zone+')':'';return`ERS: ${score} / 100  —  ${lbl} Risk${zone}`;}
     );
-
-    // Cross-storm validation scatter (DPS vs observed FEMA footprint).
-    renderValidationChart();
-}
-
-// Validation: plot every storm that has both a DPS and FEMA counties-declared
-// (from actual_impact baked into compiled_bundle.json) as DPS-x vs counties-y,
-// highlighting the current storm. Non-critical — wrapped so a failure here can
-// never break the score charts above.
-function renderValidationChart(){
-    try{
-        if(currentVALChart){currentVALChart.destroy();currentVALChart=null;}
-        const canvas=document.getElementById('valCanvas');
-        if(!canvas||typeof Chart==='undefined') return;
-        const curId=window._currentStormId;
-        const others=[]; let cur=null;
-        Object.keys(COMPILED_SCORES).forEach(sid=>{
-            const s=COMPILED_SCORES[sid];
-            const ai=s&&s.actual_impact;
-            if(!ai||!ai.counties_declared||typeof s.dps!=='number') return;
-            const p={x:Math.round(s.dps),y:ai.counties_declared,name:s.name||sid,year:s.year||''};
-            if(sid===curId) cur=p; else others.push(p);
-        });
-        if(!others.length&&!cur) return;
-        // Pearson r over all shown points — an honest, self-updating caption.
-        const allPts=cur?others.concat([cur]):others;
-        let rTxt='';
-        if(allPts.length>=3){
-            const n=allPts.length;
-            const mx=allPts.reduce((a,p)=>a+p.x,0)/n, my=allPts.reduce((a,p)=>a+p.y,0)/n;
-            let cov=0,vx=0,vy=0;
-            allPts.forEach(p=>{cov+=(p.x-mx)*(p.y-my);vx+=(p.x-mx)*(p.x-mx);vy+=(p.y-my)*(p.y-my);});
-            if(vx>0&&vy>0){rTxt='  ·  correlation r = '+(cov/Math.sqrt(vx*vy)).toFixed(2)+' (n='+n+')';}
-        }
-        const ctx=canvas.getContext('2d');
-        const datasets=[{label:'Past storms',data:others,backgroundColor:'rgba(32,84,147,.5)',pointRadius:4,pointHoverRadius:6}];
-        if(cur) datasets.push({label:'This storm',data:[cur],backgroundColor:'#f43f5e',borderColor:'#fff',borderWidth:1.5,pointRadius:7,pointHoverRadius:9});
-        currentVALChart=new Chart(ctx,{type:'scatter',data:{datasets},options:{responsive:true,maintainAspectRatio:false,
-            plugins:{
-                legend:{display:!!cur,labels:{font:{size:11},usePointStyle:true}},
-                subtitle:{display:true,text:'Each dot is a storm — higher DPS, wider federal disaster footprint'+rTxt,color:'#5c6873',font:{size:10,style:'italic'},padding:{bottom:6}},
-                tooltip:{backgroundColor:'rgba(10,14,26,.95)',titleColor:'#f1f5f9',bodyColor:'#94a3b8',borderColor:'#1e293b',borderWidth:1,padding:10,cornerRadius:8,callbacks:{label:c=>`${c.raw.name}${c.raw.year?' ('+c.raw.year+')':''}: DPS ${c.raw.x}, ${c.raw.y} counties`}}
-            },
-            scales:{
-                x:{min:0,max:100,title:{display:true,text:'Destructive Power Score (DPS)',color:'#5c6873',font:{size:10,weight:600}},grid:{color:'rgba(0,0,0,.07)'},ticks:{stepSize:20,font:{size:10}}},
-                y:{beginAtZero:true,title:{display:true,text:'FEMA counties declared',color:'#5c6873',font:{size:10,weight:600}},grid:{color:'rgba(0,0,0,.07)'},ticks:{font:{size:10}}}
-            }}});
-    }catch(e){/* validation chart is non-critical */}
-}
-
-// ── Outcome-validation benchmark (Analyst mode) ───────────────────────────
-// Quantifies how well DPS predicts REAL impact vs conventional metrics, across
-// every storm in the bundle that carries FEMA ground truth. Two independent
-// measures: AUC against the binary major-disaster declaration, and Spearman
-// rank correlation against the federal footprint (counties declared).
-function _aucPairs(values, labels){
-    var P=[], N=[];
-    for(var i=0;i<values.length;i++){ if(values[i]==null) continue; (labels[i]?P:N).push(values[i]); }
-    if(!P.length||!N.length) return null;
-    var c=0;
-    for(var a=0;a<P.length;a++) for(var b=0;b<N.length;b++){ c += P[a]>N[b]?1 : (P[a]===N[b]?0.5:0); }
-    return c/(P.length*N.length);
-}
-function _spearman(xs, ys){
-    function ranks(arr){
-        var idx=arr.map(function(_,i){return i;}).sort(function(a,b){return arr[a]-arr[b];});
-        var r=new Array(arr.length), i=0;
-        while(i<idx.length){ var j=i; while(j+1<idx.length && arr[idx[j+1]]===arr[idx[i]]) j++;
-            var avg=(i+j)/2+1; for(var k=i;k<=j;k++) r[idx[k]]=avg; i=j+1; }
-        return r;
-    }
-    if(xs.length<3) return null;
-    var rx=ranks(xs), ry=ranks(ys), n=xs.length, mx=0, my=0;
-    for(var i=0;i<n;i++){ mx+=rx[i]; my+=ry[i]; } mx/=n; my/=n;
-    var cov=0, vx=0, vy=0;
-    for(var i=0;i<n;i++){ cov+=(rx[i]-mx)*(ry[i]-my); vx+=(rx[i]-mx)*(rx[i]-mx); vy+=(ry[i]-my)*(ry[i]-my); }
-    return (vx>0&&vy>0)?cov/Math.sqrt(vx*vy):null;
-}
-function computeValidationBenchmark(){
-    var metrics=[
-        {label:'DPS',          flip:false, get:function(s){return typeof s.dps==='number'?s.dps:null;}},
-        {label:'Peak IKE',     flip:false, get:function(s){return typeof s.peak_ike_tj==='number'?s.peak_ike_tj:(typeof s.peak_ike==='number'?s.peak_ike:null);}},
-        {label:'Peak wind',    flip:false, get:function(s){return typeof s.peak_wind_kt==='number'?s.peak_wind_kt:null;}},
-        {label:'Min pressure', flip:true,  get:function(s){return typeof s.min_pressure_hpa==='number'?s.min_pressure_hpa:null;}},
-    ];
-    var storms=[];
-    Object.keys(COMPILED_SCORES).forEach(function(sid){
-        var s=COMPILED_SCORES[sid], ai=s&&s.actual_impact;
-        if(ai && typeof ai.counties_declared==='number') storms.push(s);
-    });
-    if(storms.length<8) return null;
-    var rows=[], major=null;
-    metrics.forEach(function(m){
-        var vals=[], labs=[];
-        storms.forEach(function(s){ var ai=s.actual_impact; if(ai && ('major_disaster' in ai)){ var v=m.get(s); if(v==null) return; vals.push(m.flip?-v:v); labs.push(ai.major_disaster?1:0); } });
-        var xs=[], ys=[];
-        storms.forEach(function(s){ var v=m.get(s); if(v==null) return; xs.push(m.flip?-v:v); ys.push(s.actual_impact.counties_declared); });
-        rows.push({label:m.label, auc:_aucPairs(vals,labs), rho:_spearman(xs,ys)});
-        if(major==null) major={n:labs.length, pos:labs.filter(function(x){return x;}).length};
-    });
-    return {rows:rows, nCounties:storms.length, major:major};
-}
-function renderValidationBenchmark(){
-    var el=document.getElementById('validationStats'); if(!el) return;
-    var b=null; try{ b=computeValidationBenchmark(); }catch(e){}
-    if(!b || !b.major || b.major.pos===b.major.n || b.major.pos===0){ el.innerHTML=''; return; }
-    var rowsHtml=b.rows.map(function(r){
-        var lead = r.label==='DPS';
-        return '<tr style="'+(lead?'font-weight:700;color:#0e7490':'')+'">'
-            +'<td style="padding:1px 8px 1px 0">'+escapeHtml(r.label)+'</td>'
-            +'<td style="text-align:right;font-variant-numeric:tabular-nums">'+(r.auc!=null?r.auc.toFixed(2):'–')+'</td>'
-            +'<td style="text-align:right;font-variant-numeric:tabular-nums;padding-left:16px">'+(r.rho!=null?r.rho.toFixed(2):'–')+'</td></tr>';
-    }).join('');
-    el.innerHTML =
-        '<div style="font-weight:700;margin-bottom:.25rem;color:#0e7490">◔ Does DPS predict real impact? <span style="font-weight:500;opacity:.7">vs. conventional metrics</span></div>'
-        +'<table style="border-collapse:collapse;width:100%;max-width:330px"><thead><tr style="opacity:.6">'
-        +'<th style="text-align:left;font-weight:600">Metric</th>'
-        +'<th style="text-align:right;font-weight:600">Major-disaster AUC</th>'
-        +'<th style="text-align:right;font-weight:600;padding-left:16px">Footprint ρ</th></tr></thead><tbody>'
-        +rowsHtml+'</tbody></table>'
-        +'<div style="margin-top:.35rem;opacity:.72">Higher = better. DPS leads on both — it weighs storm size, duration and surge, not just peak intensity. '
-        +'AUC vs FEMA major-disaster declarations ('+b.major.pos+' of '+b.major.n+'); rank correlation vs counties declared (n='+b.nCounties+'). Curated U.S. sample — small, but the ranking is consistent.</div>';
 }
 
 function renderChart(data){
