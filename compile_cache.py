@@ -1196,6 +1196,19 @@ def compile():
     print(f"\nCompiled {len(compiled_storms)} storms in {elapsed:.1f}s")
     print(f"Output: {output_path} ({size_kb:.0f} KB)")
 
+    # Refresh the methodology page's "How well does DPS predict damage?" section
+    # (benchmark table + scatter) from the bundle we just wrote, so its figures
+    # never drift from the live scores. Best-effort — never fail the bake over it.
+    try:
+        import subprocess as _sp
+        import sys as _sys
+        _gen = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts", "gen_validation_section.py")
+        if os.path.exists(_gen):
+            _r = _sp.run([_sys.executable, _gen], capture_output=True, text=True, timeout=60)
+            print((_r.stdout or _r.stderr).strip() or "[validation-section] (no output)")
+    except Exception as e:
+        print(f"[validation-section] regen skipped (non-fatal): {e}")
+
     # Summary table
     print(f"\n{'Storm':<12} {'Basin':<14} {'DPS':>5} {'Peak':>5} {'Rain':>5} {'Level':<10}")
     print("-" * 65)
