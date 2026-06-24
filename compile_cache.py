@@ -352,6 +352,37 @@ def detect_landfall_events(snapshots):
     return events
 
 
+def storm_made_land_contact(snapshots, min_count=2, min_wind_ms=33.0):
+    """
+    True if the storm tracked over/near a coastal region at hurricane intensity
+    (>= min_wind_ms) for at least min_count fixes.
+
+    This is a robust "it actually hit land" signal that does NOT depend on the
+    ocean->coast transition in detect_landfall_events. That detector misses
+    storms which form INSIDE a coarse coastal box and hug the coast continuously
+    without ever crossing open water first — most West-Pacific typhoons spin up
+    inside the (very large) Philippines/China boxes, so the transition never
+    fires and they record zero landfalls despite obvious Taiwan/China/Luzon
+    strikes. The no-landfall dampener keys off this instead of the event count so
+    genuine landfallers (Gaemi, Yagi, Kong-Rey, Ragasa, Krathon) are no longer
+    penalised, while true open-ocean recurvers (which never enter a box at
+    hurricane force) still are.
+    """
+    hits = 0
+    for s in snapshots:
+        if (s.get("max_wind_ms", 0) or 0) < min_wind_ms:
+            continue
+        lat = s.get("lat", 0)
+        lon = s.get("lon", 0)
+        for lat_min, lat_max, lon_min, lon_max, _ in COASTAL_REGIONS:
+            if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
+                hits += 1
+                break
+        if hits >= min_count:
+            return True
+    return False
+
+
 def has_orographic_rainfall_potential(snapshots, basin):
     """
     Check if storm track passes close enough to mountains to trigger
@@ -853,7 +884,13 @@ def apply_basin_dps_adjustment(cum_dpi, basin, snapshots,
         #    Apply a 0.60 dampener when the storm never made a significant
         #    landfall. This is applied LAST so it dampens the full score
         #    (base × sub-basin + RI + LF + ORO).
-        if landfall_count == 0:
+        #
+        #    "No landfall" is judged by storm_made_land_contact (near a coast at
+        #    hurricane intensity), NOT the ocean->coast event count — the event
+        #    detector misses WP typhoons that spin up inside the coarse coastal
+        #    boxes and were wrongly halving genuine Taiwan/China/Luzon strikes
+        #    (Gaemi, Yagi, Kong-Rey, Ragasa, Krathon).
+        if landfall_count == 0 and not storm_made_land_contact(snapshots):
             adjusted_dps *= 0.60
             adjustment_notes.append("×0.60(no-landfall)")
 
@@ -911,8 +948,10 @@ def apply_basin_dps_adjustment(cum_dpi, basin, snapshots,
         #    basin is enormous and most storms recurve harmlessly into
         #    open ocean — without this, every basin Cat 5 (Linda 1997,
         #    Patricia briefly in 2015 at peak intensity, etc.) scores
-        #    in the high 90s even with no realized impact.
-        if landfall_count == 0:
+        #    in the high 90s even with no realized impact. Gated on
+        #    storm_made_land_contact (not the event count) for the same
+        #    reason as WP — see that block.
+        if landfall_count == 0 and not storm_made_land_contact(snapshots):
             adjusted_dps *= 0.60
             adjustment_notes.append("×0.60(no-landfall)")
 
