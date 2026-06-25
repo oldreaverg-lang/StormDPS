@@ -626,16 +626,23 @@ def compute_exposure_factor(landfall_events):
                           key=lambda e: e.get("max_wind_ms", 0) or 0)
     strongest_region = strongest_event.get("region", "Coast")
 
-    # If the strongest landfall is on US mainland, use max exposure weight
-    # across US mainland landfalls (traditional approach — Harvey, Ian, etc.)
+    # If the strongest landfall is on US mainland, pick the US landfall with the
+    # greatest economic-weight × intensity — the most impactful strike, not merely
+    # the highest-value coast the storm ever brushed. (Old code used max weight
+    # alone, which mislabeled multi-landfall storms: Katrina read "SW Florida"
+    # off its Cat-1 Miami crossing instead of "New Orleans" off its catastrophic
+    # LA landfall; Zeta read "Mid-Atlantic" instead of its LA landfall.)
     if strongest_region in US_MAINLAND_REGIONS:
+        best_rank = -1.0
         best_weight = 0.0
         best_region = "Coast"
         for event in landfall_events:
             region = event.get("region", "Coast")
             if region in US_MAINLAND_REGIONS:
                 weight = COASTAL_EXPOSURE_WEIGHTS.get(region, 0.20)
-                if weight > best_weight:
+                rank = weight * (event.get("max_wind_ms", 0) or 0)
+                if rank > best_rank:
+                    best_rank = rank
                     best_weight = weight
                     best_region = region
         exposure_factor = best_weight * EXPOSURE_CAP
