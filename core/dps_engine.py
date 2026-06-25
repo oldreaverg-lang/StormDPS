@@ -80,16 +80,17 @@ def compute_storm_dps(
         _wind_kt_to_category,
     )
 
-    # 1. Cumulative DPI — peak + duration + breadth (no 100 cap; see cumulative_dpi.py v6)
+    # 1. Basin detection (needed up front so the cumulative DPI can apply
+    #    per-basin breadth/duration tuning — the Atlantic footprint boost).
+    basin = detect_basin(snapshots)
+
+    # 2. Cumulative DPI — peak + duration + breadth (no 100 cap; see cumulative_dpi.py v6)
     cum_result = compute_cumulative_dpi(
-        snapshots, storm_name=storm_name, storm_year=storm_year
+        snapshots, storm_name=storm_name, storm_year=storm_year, basin=basin
     )
 
-    # 2. Landfall detection (needed for most downstream factors)
+    # 3. Landfall detection (needed for most downstream factors)
     landfall_events = detect_landfall_events(snapshots)
-
-    # 3. Basin detection
-    basin = detect_basin(snapshots)
 
     # 4. Population exposure (R3)
     exposure_factor, exposure_region = compute_exposure_factor(landfall_events)

@@ -68,6 +68,24 @@ DPI_THREAT_THRESHOLD = 25.0  # Min DPI to count as "meaningful threat"
 DURATION_CAP = 0.10        # Max duration bonus (fraction of peak)  [v6: reduced from 0.15 to widen score spread]
 BREADTH_CAP = 0.10         # Max breadth bonus (fraction of peak)  [v6: reduced from 0.15 to widen score spread]
 
+# Per-basin breadth/duration tuning. Atlantic landfalling storms routinely spread
+# across many states (Isaias, Idalia, Debby) where the geographic footprint drove
+# the federal disaster response far more than peak intensity did; the default caps
+# under-credited that, leaving them as low-DPS / high-FEMA-county-footprint
+# outliers. The Atlantic boost (lower coastal-hours gate + higher breadth/duration
+# caps) tightens that validation (Spearman ρ vs counties 0.66→0.68). It is scoped
+# to the Atlantic ONLY: raising these globally re-inflated the West Pacific and
+# pushed the already-over-scored Fung-Wong higher, for no benefit on a US/FEMA
+# chart WP storms don't even appear on. Other basins keep the original values.
+_BASIN_CUM_TUNING = {
+    "ATLANTIC": {"threshold": 12.0, "duration_cap": 0.20, "breadth_cap": 0.25},
+}
+_DEFAULT_CUM_TUNING = {
+    "threshold": DPI_THREAT_THRESHOLD,
+    "duration_cap": DURATION_CAP,
+    "breadth_cap": BREADTH_CAP,
+}
+
 # [F7] Per-zone weights for duration/breadth accumulation.
 # Caribbean island and near-miss hours count at a fraction of US mainland hours
 # for a US-centric DPS score. This prevents long Caribbean tracks (Matthew, Irma)
@@ -305,6 +323,7 @@ def compute_cumulative_dpi(
     snapshots: List[Dict],
     storm_name: str = "Unknown",
     storm_year: int = 2024,
+    basin: Optional[str] = None,
 ) -> CumulativeDPIResult:
     """
     Compute cumulative DPI from a series of storm snapshots.
@@ -313,10 +332,16 @@ def compute_cumulative_dpi(
         snapshots: List of snapshot dicts from preload_bundle.json
         storm_name: Display name
         storm_year: Year for era adjustments
+        basin: Basin key (e.g. "ATLANTIC"); selects per-basin breadth/duration
+            tuning (see _BASIN_CUM_TUNING). None → default tuning.
 
     Returns:
         CumulativeDPIResult with cumulative score and breakdown
     """
+    _tune = _BASIN_CUM_TUNING.get(basin, _DEFAULT_CUM_TUNING)
+    _threshold = _tune["threshold"]
+    _duration_cap = _tune["duration_cap"]
+    _breadth_cap = _tune["breadth_cap"]
     if not snapshots:
         return CumulativeDPIResult(
             cum_dpi=0, cum_category="None", peak_dpi=0, peak_timestamp="",
@@ -398,7 +423,7 @@ def compute_cumulative_dpi(
     coastal_count = 0
 
     for i, s in enumerate(dpi_series):
-        if s["dpi"] < DPI_THREAT_THRESHOLD or not s["near_coast"]:
+        if s["dpi"] < _threshold or not s["near_coast"]:
             continue
 
         coastal_count += 1
@@ -433,7 +458,7 @@ def compute_cumulative_dpi(
     # Zone weighting (F7) has already been folded into duration_integral,
     # so no separate econ_density_factor multiplication is needed.
     excess_duration = max(0.0, duration_integral - T_REF_HOURS)
-    duration_factor = min(DURATION_CAP, excess_duration / (T_REF_HOURS * 3.0))
+    duration_factor = min(_duration_cap, excess_duration / (T_REF_HOURS * 3.0))
 
     # ── Breadth Factor ──
     # Large storms (high IKE) tracking along coast for extended periods
@@ -455,7 +480,7 @@ def compute_cumulative_dpi(
 
     coastal_time_norm = min(1.0, weighted_coastal_hours / COASTAL_REF_HOURS)  # [F7]
     breadth_raw = ike_norm * coastal_time_norm * 0.20
-    breadth_factor = min(BREADTH_CAP, breadth_raw)
+    breadth_factor = min(_breadth_cap, breadth_raw)
 
     # ── Cumulative DPI ──
     # [v6] Do NOT cap at 100 here — let the raw score reflect the storm's full

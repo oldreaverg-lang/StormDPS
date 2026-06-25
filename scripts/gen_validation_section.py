@@ -170,7 +170,8 @@ def build_section(bundle):
 {SVG}
             <figcaption style="font-size:0.85rem;opacity:0.7;margin-top:0.5rem">Each dot is a U.S. storm (2015&ndash;present) with FEMA records. Higher DPS tracks a wider federal disaster footprint (Spearman &rho; = {dps_rho:.2f}). Curated sample, n = {n} &mdash; small, but the ranking is consistent across both measures.</figcaption>
         </figure>
-        <p>This is a deliberately honest test, not a victory lap: the sample is small and U.S.-only, the FEMA-declaration outcome is itself imperfect, and DPS still misses the exposure- and rainfall-driven damage discussed above. But on the question it is built to answer &mdash; <em>which storm carries more destructive power</em> &mdash; it out-predicts every conventional single-number metric.</p>'''
+        <p>The dots furthest from the line are the honest edge cases, and they reflect a property of the <em>outcome</em> metric, not a flaw in DPS. Above the line sit weak-but-wide systems &mdash; <a href="/storm/AL092020" class="inline">Isaias</a>, Debby &mdash; whose multi-state footprint (and the county-by-county federal response it triggered) far outran their modest intensity. Below it sit compact, ferocious storms &mdash; Harvey, Milton &mdash; that concentrated historic rainfall and wind on relatively few counties. "Counties declared" rewards geographic spread; DPS measures destructive power; the two diverge exactly where you would expect.</p>
+        <p>This is a deliberately honest test, not a victory lap: the sample is small and U.S.-only, the FEMA-declaration outcome is itself imperfect, and DPS still misses some exposure- and rainfall-driven damage. But on the question it is built to answer &mdash; <em>which storm carries more destructive power</em> &mdash; it out-predicts every conventional single-number metric.</p>'''
 
     summary = {"n": n, "n_major": n_major,
                "bench": [(nm, round(a, 3), round(r, 3)) for nm, a, r in bench]}
