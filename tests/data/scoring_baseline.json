@@ -697,7 +697,7 @@
 "AL122017": {
 "category": 4,
 "dps": 59.74879999999999,
-"dps_label": "Extreme"
+"dps_label": "Severe"
 },
 "AL122018": {
 "category": 0,
@@ -842,7 +842,7 @@
 "AL152017": {
 "category": 5,
 "dps": 85.60630234922645,
-"dps_label": "Catastrophic"
+"dps_label": "Devastating"
 },
 "AL152018": {
 "category": 0,

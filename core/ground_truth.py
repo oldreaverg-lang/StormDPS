@@ -129,6 +129,18 @@ _REGISTRY: dict[str, GroundTruth] = {
         fema_major_disaster=True,
         sources=["NHC TCR AL112017 (Cangialosi et al. 2018)"],
     ),
+    # Rainfall anchor: without an observed total, the kinematic estimator put
+    # Maria at ~2940 mm / 116 in (absurd). The NHC TCR maximum storm-total over
+    # Puerto Rico was 37.90 in at Caguas. Anchoring it replaces the runaway
+    # estimate with the authoritative observed value on the next bake.
+    "AL152017": GroundTruth(
+        storm_id="AL152017",
+        name="Maria",
+        year=2017,
+        peak_rainfall_in=37.90,
+        peak_rainfall_location="Caguas, Puerto Rico",
+        sources=["NHC TCR AL152017 (Pasch et al. 2018)"],
+    ),
     "AL092022": GroundTruth(
         storm_id="AL092022",
         name="Ian",

@@ -77,6 +77,17 @@ STALL_REF_HOURS = 48.0        # Harvey stalled ~120h; 48h is a strong stall even
 MOISTURE_REF_TJ = 100.0       # IKE reference for moisture proxy
 MOISTURE_REF_R34_NM = 150.0   # Reference r34 for rain shield size
 
+# Display cap for the kinematic rainfall ESTIMATE (mm). The stall-hour heuristic
+# is only a display fallback for storms with no observed/IMERG/curated total, and
+# it can run away on certain tracks (Maria 2017 → ~2940 mm / 116 in). Bound it to
+# a physically defensible ceiling — an UNMEASURED storm cannot credibly claim more
+# than the wettest TCs we have actually measured. Observed totals bypass this
+# entirely (dps_engine overrides the estimate with the curated value, uncapped, so
+# Harvey 60 in / Lane 58 in are unaffected), and warning_score/level derive from
+# the stall/terrain/basin factors — not this total — so capping it is display-only
+# and does NOT move DPS or IAS.
+RAINFALL_EST_CAP_MM = 760.0   # ~30 in
+
 # Terrain enhancement zones — rough bounding boxes for elevated terrain
 # that causes orographic rainfall amplification when storms track inland
 TERRAIN_ZONES = [
@@ -423,6 +434,11 @@ def compute_rainfall_warning(
 
     # Apply terrain enhancement to rainfall estimate
     estimated_total_mm *= max_terrain_enhancement
+
+    # Bound the kinematic estimate (see RAINFALL_EST_CAP_MM). Display-only safety
+    # net for anchor-less storms; observed/curated totals override this later in
+    # dps_engine, uncapped.
+    estimated_total_mm = min(estimated_total_mm, RAINFALL_EST_CAP_MM)
 
     # ── FACTOR 4: RIVER BASIN COMPOUND FLOODING (0-15 pts) ──
     # Check if stall/slow periods occur over major river basins where
