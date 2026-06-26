@@ -339,12 +339,17 @@
         .storm-title-reset{background:none;border:1px solid var(--border);color:var(--text-dim);width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:.85rem;transition:all .15s;flex-shrink:0;font-family:inherit;line-height:1}
         .storm-title-reset:hover{background:rgba(196,40,28,.08);border-color:rgba(196,40,28,.35);color:#b3261e}
         .storm-title-rank{font-size:.72rem;font-weight:700;color:var(--primary);background:rgba(32,84,147,.15);border:1px solid rgba(32,84,147,.3);padding:2px 8px;border-radius:4px;white-space:nowrap;letter-spacing:.01em}
-        /* Share control — sits right of the title group, left of the reset ✕ */
-        .storm-title-share{margin-left:auto;display:inline-flex;align-items:center;gap:.3rem;background:rgba(32,84,147,.1);border:1px solid rgba(32,84,147,.3);color:var(--primary);height:26px;padding:0 .65rem;border-radius:13px;cursor:pointer;font-size:.72rem;font-weight:700;font-family:inherit;letter-spacing:.02em;transition:all .15s;flex-shrink:0;line-height:1;white-space:nowrap}
+        /* Analyst toggle — first of the right-hand control cluster (carries the
+           margin-left:auto), then Share, then the reset ✕. Subtle pill when off;
+           applyAnalystMode() paints it cyan inline when on. */
+        .storm-title-analyst{margin-left:auto;display:inline-flex;align-items:center;height:26px;padding:0 .65rem;border:1px solid var(--border);background:none;color:var(--text-dim);border-radius:13px;cursor:pointer;font-size:.7rem;font-weight:700;font-family:inherit;letter-spacing:.02em;transition:all .15s;flex-shrink:0;line-height:1;white-space:nowrap}
+        .storm-title-analyst:hover{border-color:var(--primary);color:var(--primary)}
+        /* Share control — sits right of the analyst toggle, left of the reset ✕ */
+        .storm-title-share{display:inline-flex;align-items:center;gap:.3rem;background:rgba(32,84,147,.1);border:1px solid rgba(32,84,147,.3);color:var(--primary);height:26px;padding:0 .65rem;border-radius:13px;cursor:pointer;font-size:.72rem;font-weight:700;font-family:inherit;letter-spacing:.02em;transition:all .15s;flex-shrink:0;line-height:1;white-space:nowrap}
         .storm-title-share:hover{background:rgba(32,84,147,.2);border-color:var(--primary)}
         .storm-title-share svg{display:block}
         .storm-title-share.copied{background:rgba(21,128,61,.1);border-color:rgba(21,128,61,.4);color:#15803d}
-        @media(max-width:600px){.storm-title-share .share-label{display:none}.storm-title-share{padding:0;width:26px;justify-content:center;border-radius:50%}}
+        @media(max-width:600px){.storm-title-share .share-label{display:none}.storm-title-share{padding:0;width:26px;justify-content:center;border-radius:50%}.storm-title-analyst{padding:0 .5rem;font-size:.65rem}}
 
         /* Collapsible map legend */
         .map-legend-toggle{position:absolute;bottom:8px;left:8px;z-index:501;background:rgba(255,255,255,.93);backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:var(--radius);padding:.25rem .45rem;cursor:pointer;font-size:.65rem;color:var(--text-muted);font-weight:600;display:none;align-items:center;gap:.25rem;transition:all .15s;font-family:inherit}
@@ -665,6 +670,11 @@
             <span class="storm-title-meta" id="stormTitleMeta"></span>
             <span class="storm-title-cat" id="stormTitleCat"></span>
             <span class="storm-title-rank" id="stormTitleRank"></span>
+            <!-- Analyst mode toggle — relocated here from the map. Opt-in master switch
+                 for meteorologist-facing panels (dominant-hazard headline, forecast-
+                 uncertainty band, observed-vs-modeled surge validation). OFF by default;
+                 persisted per-browser. -->
+            <button class="storm-title-analyst" id="analystToggleBtn" onclick="toggleAnalystMode()" title="Analyst mode — adds the dominant-hazard headline, forecast-uncertainty band, and observed-vs-modeled surge validation for meteorologists. Off by default; your choice is remembered.">Analyst: Off</button>
             <button class="storm-title-share" id="stormShareBtn" onclick="shareStorm(this)" title="Share this storm"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"/><path d="M16 6l-4-4-4 4"/><path d="M12 2v13"/></svg><span class="share-label">Share</span></button>
             <button class="storm-title-reset" onclick="resetToWelcome()" title="New search">&#10005;</button>
         </div>
@@ -748,12 +758,9 @@
                      always on for every storm; see renderMap auto-enable. -->
                 <div id="satelliteSlider" style="display:none"></div>
                 <button class="map-legend-toggle" id="windDirToggleBtn" style="bottom:38px;left:8px;display:flex" onclick="toggleWindDirLayer()" title="Animated wind-flow direction (storm-parametric)">Wind flow: Off</button>
-                <button class="map-legend-toggle" id="observedToggleBtn" style="bottom:68px;left:8px;display:none" onclick="toggleObservedLayer()" title="Observed peak storm surge at NOAA tide gauges (and buoy wind/waves where available)">Observed surge: On</button>
-                <!-- Analyst mode: opt-in master switch for meteorologist-facing layers
-                     (forecast-uncertainty band, observed-vs-modeled validation, hazard
-                     breakdown). OFF by default so the public snapshot view is never
-                     altered for casual visitors. Persisted per-browser. -->
-                <button class="map-legend-toggle" id="analystToggleBtn" style="top:8px;right:8px;bottom:auto;left:auto;display:flex" onclick="toggleAnalystMode()" title="Analyst mode — adds forecast-uncertainty, observed-vs-modeled validation, and hazard-breakdown layers for meteorologists. Off by default; your choice is remembered.">Analyst: Off</button>
+                <button class="map-legend-toggle" id="observedToggleBtn" style="bottom:68px;left:8px;display:none" onclick="toggleObservedLayer()" title="Observed peak storm surge at NOAA tide gauges (and buoy wind/waves where available)">Observed surge: Off</button>
+                <!-- Analyst toggle relocated off the map into the storm-title bar (by the
+                     score cards); see #analystToggleBtn there. -->
                 <div class="map-legend" id="mapLegend" style="display:none;">
                     <div style="font-weight:600;margin-bottom:2px;color:#22272d;">Wind Speed</div>
                     <div class="legend-item"><div class="legend-swatch" style="background:#ff4da6"></div>Cat 5 (&ge;157 mph)</div>
@@ -4570,7 +4577,7 @@ function renderRainfallChart(data,rainData){
 // (purple) are additive when available. Click a marker for the observed value.
 window._observedData=null;
 window._observedLayer=null;
-window._observedVisible=true;
+window._observedVisible=false;  // off by default — gauges/buoys shown only when the user opts in
 
 async function fetchAndRenderObserved(data, stormId){
     const points=data.map(d=>({lat:d.lat,lon:d.lon,timestamp:d.timestamp}));
