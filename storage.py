@@ -179,6 +179,12 @@ def storage_summary() -> dict:
     for key, path in {
         "dps_cache": DPS_CACHE_DIR,
         "track_cache": TRACK_CACHE_DIR,
+        # Per-storm track-data caches — the ones that drive storm-page load
+        # (SST / rainfall / observed gauge peaks). Previously omitted from this
+        # summary, leaving their warmth invisible to monitoring.
+        "sst_track_cache": SST_TRACK_CACHE_DIR,
+        "rainfall_track_cache": RAINFALL_TRACK_CACHE_DIR,
+        "observed_track_cache": OBSERVED_TRACK_CACHE_DIR,
         "satellite_cache": SATELLITE_CACHE_DIR,
         "wind_cache": WIND_CACHE_DIR,
         "pressure_cache": PRESSURE_CACHE_DIR,
