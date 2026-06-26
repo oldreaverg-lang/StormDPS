@@ -10,7 +10,11 @@
 // v4: pre-cache the long-form SEO pages (/methodology, /historic-storms,
 // /data, /faq, /about) so they're available offline; bump evicts v3 caches
 // that still held the pre-SSR index.html + pre-drawer mobile assets.
-const CACHE_NAME = 'stormdps-v5';
+// v6: compiled_bundle.json is fetched WITHOUT a cache-buster and served
+// cache-first, so a re-bake is invisible to returning visitors until the cache
+// is evicted. Bump on every bundle re-bake. This one ships the rainfall-
+// estimator cap + Maria's observed-rainfall anchor (was showing 116 in).
+const CACHE_NAME = 'stormdps-v6';
 const STATIC_ASSETS = [
   '/',
   '/frontend/index.html',
