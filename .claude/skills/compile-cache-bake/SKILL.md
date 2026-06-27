@@ -13,22 +13,43 @@ After editing any of: `core/dps_engine.py`, `core/ike.py`, `core/cumulative_dpi.
 
 ## Steps
 
-1. From the repo root:
+1. **One command** (preferred) from the repo root:
    ```
-   python compile_cache.py
+   python scripts/rebake.py
    ```
-   Writes `frontend/compiled_bundle.json` and `frontend/preload_bundle.json`.
-2. Verify structural invariants before committing:
+   This chains the whole ritual: `compile_cache.py` (rebakes
+   `frontend/compiled_bundle.json` and, via its own hooks, refreshes the
+   methodology validation section + `sitemap.xml`) → `tests/gen_scoring_baseline.py`
+   (re-freezes the golden-master baseline so the drift-lock test passes) → bumps
+   `frontend/sw.js` `CACHE_NAME` (so returning visitors get the new bundle — it's
+   fetched cache-first, else stale). It prints the git commands and does NOT push.
+
+   To run a step alone, just run that script directly (e.g. `python compile_cache.py`).
+   NB the bake reads `preload_bundle.json` and writes `compiled_bundle.json` only.
+2. Verify structural invariants. `pytest` may be absent in the embedded Python, so
+   either `pytest tests/test_compiled_bundle.py tests/test_scoring_baseline.py -q`
+   or inline-check: storm_count == len(storms); every storm has a numeric `dps` in
+   [0,100]; `actual_impact` count did NOT drop; no duplicate storms.
+3. Spot-check: Katrina/Ian/Irma high, weak systems low; Maria rainfall ~38 in.
+4. **Commit the bundle from native Windows git (PowerShell `git -C`), not the bash
+   mount** — `compiled_bundle.json` exceeds the mount's safe-read size (~50 KB) and
+   can be silently truncated. For normal-sized source edits use `github-safe-push`.
    ```
-   pytest tests/test_compiled_bundle.py -q
-   ```
-   (storm_count matches len(storms); every storm has a numeric `dps` in [0,100]; identity fields present.)
-3. Spot-check known storms: high for Katrina/Ian, low for weak systems. Active storms are scored client-side, so confirm baked presets still agree with the engine within the expected ~1-4 pt tolerance.
-4. **Commit the bundle from native Windows git, not the sandbox.** `compiled_bundle.json` and `preload_bundle.json` exceed the mount's safe-read size (~50 KB) and can be silently truncated if read through the mount:
-   ```
-   git add frontend/compiled_bundle.json frontend/preload_bundle.json
+   git add frontend/compiled_bundle.json frontend/methodology.html \
+           frontend/sitemap.xml tests/data/scoring_baseline.json frontend/sw.js
    git commit -m "Rebake compiled DPS bundle"
-   git push
+   git push origin main
    ```
-   For normal-sized source edits, use the `github-safe-push` skill instead.
 5. After the push deploys, run the `deploy-verify` skill.
+
+## Reliability notes (2026-06-26)
+
+The full bake was hardened so it can't silently degrade the bundle:
+- **Dedup is genesis-fingerprint based** (`_genesis_fingerprint`), so IBTrACS-SID
+  duplicates of AL/EP storms are dropped even when the local catalog cache is
+  absent (which makes `_auto_detect_meta` return the SID instead of the name).
+  Previously a local bake leaked 19 duplicate storms.
+- **Fail-closed on names and FEMA `actual_impact`**: the bake reads the prior
+  bundle first and carries forward any storm name or `actual_impact` block this run
+  can't reproduce (no catalog → SID-name; a flaky OpenFEMA fetch → fewer storms).
+  A bake therefore never reduces name or impact coverage.

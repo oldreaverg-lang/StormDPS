@@ -1088,6 +1088,23 @@ def _auto_detect_meta(storm_id, snapshots):
     return {"name": storm_id, "year": year, "cat": cat}
 
 
+def _genesis_fingerprint(snapshots):
+    """A storm's identity fingerprint = (genesis time-to-the-hour, lat, lon).
+    Two records that share this are the same physical storm. Used to drop the
+    IBTrACS-SID duplicate of an AL/EP storm even when the catalog cache is absent
+    at bake time (so _auto_detect_meta can't recover the name for name-based
+    dedup — the failure mode that leaked 19 duplicate storms)."""
+    if not snapshots:
+        return None
+    s0 = snapshots[0]
+    lat = s0.get("lat")
+    lon = s0.get("lon")
+    ts = s0.get("timestamp") or ""
+    if lat is None or lon is None or not ts:
+        return None
+    return (str(ts)[:13], round(lat, 1), round(lon, 1))
+
+
 def compile():
     t0 = time.time()
 
@@ -1101,17 +1118,47 @@ def compile():
     storms_raw = raw.get("storms", {})
     print(f"Found {len(storms_raw)} storms in bundle")
 
-    # Track AL storm name+year to skip IBTrACS duplicates
+    # Read the PRIOR compiled bundle once, fail-closed: a bake must never lose
+    # data it previously had. Two things the bake can't always recompute offline:
+    #   * storm NAMES — without the IBTrACS catalog cache, _auto_detect_meta falls
+    #     back to the SID (e.g. "2024244N09137" instead of "Yagi"); carry the prior
+    #     name forward in that case.
+    #   * FEMA actual_impact — a flaky OpenFEMA fetch can return a subset; preserve
+    #     prior blocks the fetch didn't return.
+    _prior_names = {}
+    _prev_impact = {}
+    try:
+        if output_path.exists():
+            with open(output_path) as _pf:
+                _prior_storms = json.load(_pf).get("storms", {})
+            for _sid, _e in _prior_storms.items():
+                if not isinstance(_e, dict):
+                    continue
+                _nm = _e.get("name")
+                if _nm and str(_nm) != _sid:
+                    _prior_names[_sid] = _nm
+                if _e.get("actual_impact"):
+                    _prev_impact[_sid] = _e["actual_impact"]
+            print(f"Prior bundle: {len(_prior_names)} names, {len(_prev_impact)} actual_impact carried forward if needed")
+    except Exception as e:
+        print(f"[prior-bundle] read failed (non-fatal): {e}")
+
+    # Track AL storm name+year (and genesis fingerprints) to skip IBTrACS dupes.
     al_name_years = set()
+    al_genesis = set()
     for sid, meta in STORM_META.items():
         al_name_years.add(f"{meta['name'].upper()}_{meta['year']}")
 
-    # Pre-scan: gather name+year for all AL-format storms so we skip their IBTrACS SID duplicates
+    # Pre-scan: gather name+year AND genesis fingerprints for all AL/EP storms so
+    # we skip their IBTrACS SID duplicates even when the name can't be detected.
     for storm_id, snapshots in storms_raw.items():
-        if storm_id.startswith("AL"):
-            meta = STORM_META.get(storm_id) or _auto_detect_meta(storm_id, snapshots)
-            nyk = f"{meta['name'].upper()}_{meta['year']}"
-            al_name_years.add(nyk)
+        if storm_id.startswith("AL") or storm_id.startswith("EP"):
+            if storm_id.startswith("AL"):
+                meta = STORM_META.get(storm_id) or _auto_detect_meta(storm_id, snapshots)
+                al_name_years.add(f"{meta['name'].upper()}_{meta['year']}")
+            fp = _genesis_fingerprint(snapshots)
+            if fp:
+                al_genesis.add(fp)
 
     compiled_storms = {}
 
@@ -1127,13 +1174,25 @@ def compile():
             meta = STORM_META[storm_id]
         else:
             meta = _auto_detect_meta(storm_id, snapshots)
-            # Skip IBTrACS SID entries if the same name+year exists from an AL entry
-            # (Only applies to non-AL IDs like "2022266N12294")
+            # Skip IBTrACS SID entries that duplicate an AL/EP storm. First by
+            # genesis fingerprint (robust even when the name can't be detected),
+            # then by name+year (catches cases the fingerprint can't, e.g. tracks
+            # that differ slightly between sources).
             if not storm_id.startswith("AL") and not storm_id.startswith("EP"):
+                fp = _genesis_fingerprint(snapshots)
+                if fp and fp in al_genesis:
+                    print(f"  Skipping {storm_id} — genesis duplicate of an AL/EP storm")
+                    continue
                 nyk = f"{meta['name'].upper()}_{meta['year']}"
                 if nyk in al_name_years:
                     print(f"  Skipping {storm_id} ({meta['name']} {meta['year']}) — already have AL version")
                     continue
+        # Name detection fell back to the SID (no catalog cache) — carry forward
+        # the real name from the prior bundle so a local bake doesn't regress
+        # e.g. "Yagi" to "2024244N09137".
+        if str(meta.get("name")) == storm_id and storm_id in _prior_names:
+            meta = dict(meta)
+            meta["name"] = _prior_names[storm_id]
         name = meta["name"]
         year = meta["year"]
         cat = meta["cat"]
@@ -1178,20 +1237,29 @@ def compile():
         "raw_snapshots": storms_raw,
     }
 
-    # Enrich with observed ground truth (curated damage + FEMA declarations)
-    # BEFORE writing, so a rebake never silently drops the actual_impact block.
-    # Fail-open: a rebake must still succeed offline / if the sources are down.
+    # Enrich with observed ground truth (curated damage + FEMA declarations).
+    # FAIL-CLOSED: a flaky/partial OpenFEMA fetch must NEVER reduce coverage — we
+    # carry forward any block this run doesn't return (a transient fetch once
+    # dropped 21 of 35 storms). _prev_impact was read from the prior bundle up top.
+    _impact = {}
     try:
         import asyncio as _aio
         import build_actual_impact as _bai
         _targets = {sid: {"name": s.get("name"), "year": s.get("year")}
                     for sid, s in compiled_storms.items()}
-        _impact = _aio.run(_bai.gather_impact(_targets))
-        for sid, imp in _impact.items():
-            compiled_storms[sid]["actual_impact"] = imp
-        print(f"Enriched {len(_impact)} storms with observed impact (curated + FEMA)")
+        _impact = _aio.run(_bai.gather_impact(_targets)) or {}
     except Exception as e:
-        print(f"[actual_impact] enrichment skipped (non-fatal): {e}")
+        print(f"[actual_impact] fetch failed — falling back to prior bundle: {e}")
+    _fresh = _preserved = 0
+    for sid in compiled_storms:
+        if _impact.get(sid):
+            compiled_storms[sid]["actual_impact"] = _impact[sid]
+            _fresh += 1
+        elif sid in _prev_impact:
+            compiled_storms[sid]["actual_impact"] = _prev_impact[sid]
+            _preserved += 1
+    print(f"actual_impact: {_fresh} fresh from fetch, {_preserved} preserved from prior bundle "
+          f"({_fresh + _preserved} total)")
 
     # Write output
     with open(output_path, "w") as f:
