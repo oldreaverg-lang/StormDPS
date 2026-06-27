@@ -1216,6 +1216,18 @@ def compile():
     except Exception as e:
         print(f"[validation-section] regen skipped (non-fatal): {e}")
 
+    # Refresh frontend/sitemap.xml from the bundle we just wrote, so the storm
+    # URL list never drifts from the live catalog. Best-effort.
+    try:
+        import subprocess as _sp
+        import sys as _sys
+        _smap = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts", "gen_sitemap.py")
+        if os.path.exists(_smap):
+            _r = _sp.run([_sys.executable, _smap], capture_output=True, text=True, timeout=60)
+            print((_r.stdout or _r.stderr).strip() or "[sitemap] (no output)")
+    except Exception as e:
+        print(f"[sitemap] regen skipped (non-fatal): {e}")
+
     # Summary table
     print(f"\n{'Storm':<12} {'Basin':<14} {'DPS':>5} {'Peak':>5} {'Rain':>5} {'Level':<10}")
     print("-" * 65)
