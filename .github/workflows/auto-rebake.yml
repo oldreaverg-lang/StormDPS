@@ -1,0 +1,80 @@
+name: auto-rebake
+
+# Data-accuracy self-heal (Phase 3). Periodically re-bakes the historical bundle
+# so late-arriving FEMA disaster declarations (and any committed IMERG/curated
+# data) flow into the live scores without anyone running the bake by hand. It
+# opens a PR ONLY when scores / storm set / rainfall / FEMA impact actually move
+# (a bake re-stamps the timestamp every run, which we ignore). Merging the PR is
+# the one human step — and it deploys to production, so the diff is worth a look.
+#
+# IMERG rainfall is NOT fetched here (needs Earthdata creds); this run refreshes
+# FEMA (public) + whatever data is committed. Run on demand from the Actions tab.
+
+on:
+  schedule:
+    - cron: "0 7 * * 1"   # weekly, Monday 07:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  rebake:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # need HEAD blob for the substantive diff
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Rebake bundle
+        run: python compile_cache.py
+
+      - name: Detect substantive change
+        id: diff
+        run: |
+          if python scripts/bundle_diff.py > diff.txt 2>&1; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "--- bundle_diff ---"; cat diff.txt
+
+      - name: Re-freeze baseline + bump SW cache
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          python tests/gen_scoring_baseline.py
+          python - <<'PYEOF'
+          import re, pathlib
+          p = pathlib.Path("frontend/sw.js"); t = p.read_text(encoding="utf-8")
+          m = re.search(r"const CACHE_NAME = 'stormdps-v(\d+)';", t)
+          if m:
+              n = int(m.group(1)) + 1
+              p.write_text(t.replace(m.group(0), f"const CACHE_NAME = 'stormdps-v{n}';"), encoding="utf-8")
+              print(f"SW CACHE_NAME -> stormdps-v{n}")
+          PYEOF
+
+      - name: Open / update pull request
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "stormdps-rebake[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -B auto-rebake
+          git add frontend/compiled_bundle.json frontend/methodology.html \
+                  frontend/sitemap.xml tests/data/scoring_baseline.json frontend/sw.js
+          git commit -m "Auto-rebake: refresh historical scores & impact"
+          git push -f origin auto-rebake
+          BODY=$(printf 'Scheduled re-bake found data changes (typically late FEMA disaster declarations).\n\n```\n%s\n```\n\n**Merging deploys to production** — review the score/impact diff first. If nothing looks right, just close this PR.' "$(cat diff.txt)")
+          gh pr create --base main --head auto-rebake \
+            --title "Auto-rebake: refreshed scores / impact" \
+            --body "$BODY" \
+            || echo "PR already open for auto-rebake — force-push updated its diff."
