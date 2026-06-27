@@ -53,12 +53,21 @@ jobs:
           python tests/gen_scoring_baseline.py
           python - <<'PYEOF'
           import re, pathlib
-          p = pathlib.Path("frontend/sw.js"); t = p.read_text(encoding="utf-8")
-          m = re.search(r"const CACHE_NAME = 'stormdps-v(\d+)';", t)
-          if m:
-              n = int(m.group(1)) + 1
-              p.write_text(t.replace(m.group(0), f"const CACHE_NAME = 'stormdps-v{n}';"), encoding="utf-8")
-              print(f"SW CACHE_NAME -> stormdps-v{n}")
+          # Bump sw.js CACHE_NAME and index.html BUNDLE_VERSION together so the new
+          # bundle reaches returning visitors (SW evict) and the versioned URL's
+          # immutable cache can't serve a stale copy.
+          for path, pat, repl in [
+              ("frontend/sw.js", r"const CACHE_NAME = 'stormdps-v(\d+)';",
+               lambda n: f"const CACHE_NAME = 'stormdps-v{n}';"),
+              ("frontend/index.html", r"const BUNDLE_VERSION = (\d+);",
+               lambda n: f"const BUNDLE_VERSION = {n};"),
+          ]:
+              p = pathlib.Path(path); t = p.read_text(encoding="utf-8")
+              m = re.search(pat, t)
+              if m:
+                  n = int(m.group(1)) + 1
+                  p.write_text(t.replace(m.group(0), repl(n)), encoding="utf-8")
+                  print(f"{path}: bumped to {n}")
           PYEOF
 
       - name: Open / update pull request
@@ -70,7 +79,8 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -B auto-rebake
           git add frontend/compiled_bundle.json frontend/methodology.html \
-                  frontend/sitemap.xml tests/data/scoring_baseline.json frontend/sw.js
+                  frontend/sitemap.xml tests/data/scoring_baseline.json \
+                  frontend/sw.js frontend/index.html
           git commit -m "Auto-rebake: refresh historical scores & impact"
           git push -f origin auto-rebake
           BODY=$(printf 'Scheduled re-bake found data changes (typically late FEMA disaster declarations).\n\n```\n%s\n```\n\n**Merging deploys to production** — review the score/impact diff first. If nothing looks right, just close this PR.' "$(cat diff.txt)")

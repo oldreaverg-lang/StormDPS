@@ -934,19 +934,29 @@ async def serve_security_txt():
 from storage import COMPILED_BUNDLE_FILE as _VOLUME_COMPILED_BUNDLE
 
 @app.get("/frontend/compiled_bundle.json")
-async def serve_compiled_bundle():
+async def serve_compiled_bundle(request: Request):
+    # A VERSIONED request (?v=N, sent by the SPA and bumped on every bake) is safe
+    # to cache immutably — a new bundle always arrives under a new ?v=, so a cached
+    # copy can never go stale. This lets the browser (and Cloudflare, once a cache
+    # rule is added for this path) serve the ~287 KB bundle from cache instead of
+    # hammering the origin on every first-time visit during a traffic spike.
+    # Unversioned/direct hits keep the short, safe TTL.
+    if request.query_params.get("v"):
+        cache = "public, max-age=31536000, immutable"
+    else:
+        cache = "public, max-age=300, s-maxage=900"
     if _VOLUME_COMPILED_BUNDLE.exists():
         return FileResponse(
             _VOLUME_COMPILED_BUNDLE,
             media_type="application/json",
-            headers={"Cache-Control": "public, max-age=300, s-maxage=900"},
+            headers={"Cache-Control": cache},
         )
     baked = FRONTEND_DIR / "compiled_bundle.json"
     if baked.exists():
         return FileResponse(
             baked,
             media_type="application/json",
-            headers={"Cache-Control": "public, max-age=300, s-maxage=900"},
+            headers={"Cache-Control": cache},
         )
     raise HTTPException(status_code=404, detail="compiled_bundle.json not found")
 

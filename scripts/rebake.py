@@ -47,14 +47,30 @@ def _bump_sw() -> None:
     print(f"[sw] CACHE_NAME -> stormdps-v{nxt}")
 
 
+def _bump_bundle_version() -> None:
+    """Bump frontend/index.html BUNDLE_VERSION so the versioned bundle URL changes
+    and its immutable cache can't serve a stale copy after the bake."""
+    idx = ROOT / "frontend" / "index.html"
+    txt = idx.read_text(encoding="utf-8")
+    m = re.search(r"const BUNDLE_VERSION = (\d+);", txt)
+    if not m:
+        print("[index] BUNDLE_VERSION pattern not found — bump frontend/index.html by hand")
+        return
+    nxt = int(m.group(1)) + 1
+    idx.write_text(txt.replace(m.group(0), f"const BUNDLE_VERSION = {nxt};"), encoding="utf-8")
+    print(f"[index] BUNDLE_VERSION -> {nxt}")
+
+
 def main() -> int:
     _run("compile_cache.py")
     _run("tests/gen_scoring_baseline.py")
     _bump_sw()
+    _bump_bundle_version()
     print("\n" + "=" * 64)
     print("Re-bake complete. Review the diff, then commit with NATIVE git:")
     print("  git add frontend/compiled_bundle.json frontend/methodology.html \\")
-    print("          frontend/sitemap.xml tests/data/scoring_baseline.json frontend/sw.js")
+    print("          frontend/sitemap.xml tests/data/scoring_baseline.json \\")
+    print("          frontend/sw.js frontend/index.html")
     print('  git commit -m "Rebake compiled DPS bundle"')
     print("  git push origin main")
     print("=" * 64)
