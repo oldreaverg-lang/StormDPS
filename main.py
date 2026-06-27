@@ -15,6 +15,7 @@ API docs:
 import asyncio
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
@@ -81,6 +82,13 @@ async def lifespan(app: FastAPI):
         follow_redirects=True,
     )
     logger.info("[STARTUP] Shared httpx.AsyncClient created (max_connections=200, pool_timeout=10s)")
+
+    # --- STARTUP: liveness heartbeat store ---
+    # Background loops stamp last-success timestamps here; /health/selfcheck reads
+    # them so a dead ingest/refresh loop becomes observable (and alertable) instead
+    # of failing silently. The process start time doubles as an implicit first
+    # heartbeat so a fresh deploy isn't flagged before the loops' first iteration.
+    app.state.health = {"_started": time.time()}
 
     # --- STARTUP: restore persisted active-storms snapshot (synchronous) ---
     # Populates the in-memory active-storms cache from the persistent volume so
@@ -218,8 +226,12 @@ async def lifespan(app: FastAPI):
             try:
                 result = await refresh_current_season(app.state.http_client)
                 logger.info(f"[SEASON] current-season ingest: {result}")
+                app.state.health["season_ingest"] = {"last_ok": time.time(), "detail": str(result)[:200]}
             except Exception as e:
                 logger.warning(f"[SEASON] ingest loop iteration failed (non-fatal): {e}")
+                _s = app.state.health.setdefault("season_ingest", {})
+                _s["last_error"] = str(e)[:200]
+                _s["last_error_at"] = time.time()
             await asyncio.sleep(season_ingest_h * 3600)
 
     app.state.season_ingest_task = asyncio.create_task(ingest_current_season_loop())
@@ -412,6 +424,69 @@ async def storage_health():
     """Return persistent volume usage breakdown for monitoring."""
     from storage import storage_summary
     return storage_summary()
+
+
+# Loops are expected to heartbeat at least this often (their interval is 1h; this
+# allows a couple of missed cycles + a deploy before we call them dead).
+_LOOP_STALE_SECONDS = 3 * 3600
+
+
+@app.get("/health/selfcheck")
+async def health_selfcheck():
+    """Active self-check for unattended operation. Returns 200 when healthy, 503
+    otherwise, so an external scheduler (the GitHub healthcheck workflow) can poll
+    it and alert on failure. Checks the core data artifact and that the background
+    automation loops are still heartbeating; data-source flakiness is reported but
+    advisory (transient feed blips must not page)."""
+    now = time.time()
+    health = getattr(app.state, "health", {}) or {}
+    started = health.get("_started", now)
+    checks: dict = {}
+    failures: list = []
+
+    # 1) Core data artifact: the compiled bundle must load and be populated.
+    try:
+        from seo import _read_compiled_bundle
+        n = len(_read_compiled_bundle().get("storms", {}))
+        checks["bundle"] = {"ok": n >= 100, "storms": n}
+        if n < 100:
+            failures.append(f"bundle has only {n} storms")
+    except Exception as e:
+        checks["bundle"] = {"ok": False, "error": str(e)[:200]}
+        failures.append(f"bundle unreadable: {str(e)[:120]}")
+
+    # 2) Background loops: alert if a loop hasn't succeeded within the window.
+    #    The process start counts as an implicit heartbeat (deploy grace).
+    for name in ("season_ingest", "active_dps"):
+        st = health.get(name, {})
+        last = max(st.get("last_ok", 0), started)
+        age = now - last
+        ok = age < _LOOP_STALE_SECONDS
+        checks[name] = {
+            "ok": ok,
+            "age_min": round(age / 60, 1),
+            "detail": st.get("detail"),
+            "last_error": st.get("last_error"),
+        }
+        if not ok:
+            failures.append(f"{name} loop stale ({age / 60:.0f} min, no success)")
+
+    # 3) Data sources: advisory only — list degraded feeds, don't page on them.
+    try:
+        from services.source_health import SourceHealthMonitor
+        srcs = SourceHealthMonitor.instance().summary().get("sources", [])
+        degraded = [s.get("name") for s in srcs
+                    if isinstance(s, dict) and s.get("is_healthy") is False]
+        checks["sources"] = {"ok": True, "degraded": degraded, "tracked": len(srcs)}
+    except Exception as e:
+        checks["sources"] = {"ok": True, "error": str(e)[:200]}
+
+    ok = not failures
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=200 if ok else 503,
+        content={"ok": ok, "failures": failures, "checks": checks, "ts": int(now)},
+    )
 
 
 # ---------------------------------------------------------------------------

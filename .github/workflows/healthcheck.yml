@@ -1,0 +1,38 @@
+name: healthcheck
+
+# Unattended-operation alarm. Polls the production self-check endpoint on a
+# schedule; if the site is down or a background loop has gone stale, the job
+# FAILS, which sends the usual GitHub Actions failure email — reusing the
+# notification channel the maintainer already receives, with no extra service,
+# account, or email credentials to manage.
+#
+# Run it manually any time from the Actions tab ("Run workflow").
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"   # every 6 hours (GitHub cron is best-effort)
+  workflow_dispatch: {}
+
+jobs:
+  selfcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe stormdps.com /health/selfcheck
+        run: |
+          set -o pipefail
+          url="https://stormdps.com/health/selfcheck?cb=${GITHUB_RUN_ID}"
+          # One retry to ride out a transient blip / cold worker before paging.
+          for attempt in 1 2; do
+            code=$(curl -fsS -o body.json -w "%{http_code}" --max-time 30 "$url" || echo "000")
+            echo "attempt $attempt -> HTTP $code"
+            [ "$code" = "200" ] && break
+            [ "$attempt" = "1" ] && { echo "retrying in 30s..."; sleep 30; }
+          done
+          echo "--- /health/selfcheck body ---"
+          cat body.json 2>/dev/null | head -c 4000 || true
+          echo
+          if [ "$code" != "200" ]; then
+            echo "::error::stormdps.com self-check failed (HTTP $code). See the body above for which checks failed."
+            exit 1
+          fi
+          echo "stormdps.com healthy."

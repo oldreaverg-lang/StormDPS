@@ -2547,20 +2547,29 @@ async def refresh_active_dps_loop(app_state, interval_seconds: int = 3600):
         try:
             await asyncio.sleep(interval_seconds)
             active_ids = await _collect_active_storm_ids(app_state)
-            if not active_ids:
-                continue
-            sem = asyncio.Semaphore(2)
+            if active_ids:
+                sem = asyncio.Semaphore(2)
 
-            async def _one(sid: str):
-                async with sem:
-                    await _warm_one_dps(sid, force=True)
+                async def _one(sid: str):
+                    async with sem:
+                        await _warm_one_dps(sid, force=True)
 
-            await asyncio.gather(*[_one(sid) for sid in active_ids], return_exceptions=True)
-            logger.info(f"[DPS WARM] hourly active refresh: {len(active_ids)} storms")
+                await asyncio.gather(*[_one(sid) for sid in active_ids], return_exceptions=True)
+                logger.info(f"[DPS WARM] hourly active refresh: {len(active_ids)} storms")
+            # Heartbeat even with zero active storms — an empty result is a healthy
+            # iteration, not a dead loop (read by /health/selfcheck).
+            _h = getattr(app_state, "health", None)
+            if isinstance(_h, dict):
+                _h["active_dps"] = {"last_ok": time.time(), "detail": f"{len(active_ids)} active"}
         except asyncio.CancelledError:
             logger.info("[DPS WARM] refresh loop cancelled")
             raise
         except Exception as e:
+            _h = getattr(app_state, "health", None)
+            if isinstance(_h, dict):
+                _e = _h.setdefault("active_dps", {})
+                _e["last_error"] = str(e)[:200]
+                _e["last_error_at"] = time.time()
             logger.warning(f"[DPS WARM] refresh loop error (will retry): {e}")
 
 
