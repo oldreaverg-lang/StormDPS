@@ -210,6 +210,8 @@ _RE_OG_DESCRIPTION = _meta_re("property", "og:description")
 _RE_OG_URL = _meta_re("property", "og:url")
 _RE_TWITTER_TITLE = _meta_re("name", "twitter:title")
 _RE_TWITTER_DESCRIPTION = _meta_re("name", "twitter:description")
+_RE_OG_IMAGE = _meta_re("property", "og:image")
+_RE_TWITTER_IMAGE = _meta_re("name", "twitter:image")
 _RE_CANONICAL = re.compile(
     r'<link\b(?=[^>]*\brel=["\']canonical["\'])[^>]*>',
     re.IGNORECASE,
@@ -687,10 +689,19 @@ def render_storm_page(storm_id: str) -> str:
         og_title = title
         article_jsonld = ""
 
+    # Per-storm OG share card when we have a real baked score; otherwise keep the
+    # static logo (the /og endpoint would 302 to it anyway, but pointing straight
+    # at the logo avoids relying on scrapers following redirects).
+    if storm and isinstance(storm.get("dps"), (int, float)):
+        og_image = f"{_BASE_URL}/og/storm/{safe_id}.png"
+    else:
+        og_image = f"{_BASE_URL}/frontend/logo-512.png"
+
     title_e = html.escape(title)
     description_e = html.escape(description, quote=True)
     og_title_e = html.escape(og_title, quote=True)
     canonical_e = html.escape(canonical, quote=True)
+    og_image_e = html.escape(og_image, quote=True)
 
     # All substitutions use lambdas so the replacement is treated as a literal
     # string, not a regex template. Otherwise any backslash sequence in user-
@@ -720,6 +731,12 @@ def render_storm_page(storm_id: str) -> str:
     )
     out = _RE_TWITTER_DESCRIPTION.sub(
         lambda _m: f'<meta name="twitter:description" content="{description_e}">', out, count=1
+    )
+    out = _RE_OG_IMAGE.sub(
+        lambda _m: f'<meta property="og:image" content="{og_image_e}">', out, count=1
+    )
+    out = _RE_TWITTER_IMAGE.sub(
+        lambda _m: f'<meta name="twitter:image" content="{og_image_e}">', out, count=1
     )
 
     # If this URL uses an IBTrACS SID rather than an ATCF ID, tell crawlers

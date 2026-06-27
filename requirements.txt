@@ -18,6 +18,10 @@ numpy==2.2.3
 pydantic==2.10.6
 pydantic-settings==2.7.1
 
+# --- Image generation (per-storm Open Graph share cards — og_card.py; fail-open
+#     so a missing/incompatible build degrades to the static logo) ---
+Pillow>=10.4,<13
+
 # --- CORS / Security ---
 python-dotenv==1.0.1
 python-multipart==0.0.20

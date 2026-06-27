@@ -24,7 +24,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -569,6 +569,31 @@ async def serve_storm_page(storm_id: str):
     return HTMLResponse(
         content=html_out,
         headers={"Cache-Control": "public, max-age=300, s-maxage=900"},
+    )
+
+
+@app.get("/og/storm/{storm_id}.png")
+async def serve_storm_og_image(storm_id: str):
+    """Per-storm Open Graph share card (1200x630 PNG) for social previews.
+    Fail-open: any problem (bad id, unknown storm, missing Pillow/fonts, live
+    storm with no baked score) falls back to the static logo so a shared link
+    always renders *something*."""
+    logo_fallback = RedirectResponse(url="/frontend/logo-512.png", status_code=302)
+    if not _STORM_ID_RE.match(storm_id):
+        return logo_fallback
+    try:
+        from seo import lookup_storm as _lookup_storm
+        import og_card as _og_card
+        storm = _lookup_storm(storm_id)
+        png = _og_card.render_storm_card_png(storm_id, storm) if storm else None
+    except Exception:
+        png = None
+    if not png:
+        return logo_fallback
+    return Response(
+        content=png,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=86400, s-maxage=86400"},
     )
 
 
