@@ -430,6 +430,14 @@ async def storage_health():
 # allows a couple of missed cycles + a deploy before we call them dead).
 _LOOP_STALE_SECONDS = 3 * 3600
 
+# Data feeds whose SUSTAINED failure breaks the core product (live storm tracks,
+# forecast cones, the historical catalog) and should therefore PAGE. Everything
+# else SourceHealthMonitor tracks (SST, GFS, AI forecasts, NWS alerts, overlays)
+# is enrichment — its failure degrades but doesn't break the site, so it stays
+# advisory. A source is only "unhealthy" after reliability <=0.5 or >=5 consecutive
+# failures, so this can't fire on a transient blip or an untested (0-call) feed.
+_CRITICAL_SOURCES = {"jtwc_bdeck", "nhc_active", "nhc_forecast", "ibtracs", "hurdat2"}
+
 
 @app.get("/health/selfcheck")
 async def health_selfcheck():
@@ -471,13 +479,24 @@ async def health_selfcheck():
         if not ok:
             failures.append(f"{name} loop stale ({age / 60:.0f} min, no success)")
 
-    # 3) Data sources: advisory only — list degraded feeds, don't page on them.
+    # 3) Data sources: a sustained failure on a CRITICAL feed pages; everything
+    #    else stays advisory (reported but doesn't fail the check).
     try:
         from services.source_health import SourceHealthMonitor
         srcs = SourceHealthMonitor.instance().summary().get("sources", [])
-        degraded = [s.get("name") for s in srcs
-                    if isinstance(s, dict) and s.get("is_healthy") is False]
-        checks["sources"] = {"ok": True, "degraded": degraded, "tracked": len(srcs)}
+        critical_down, degraded = [], []
+        for s in srcs:
+            if not isinstance(s, dict) or s.get("is_healthy") is not False:
+                continue
+            (critical_down if s.get("name") in _CRITICAL_SOURCES else degraded).append(s.get("name"))
+        checks["sources"] = {
+            "ok": not critical_down,
+            "critical_down": critical_down,
+            "degraded": degraded,
+            "tracked": len(srcs),
+        }
+        for nm in critical_down:
+            failures.append(f"critical data source '{nm}' failing (sustained)")
     except Exception as e:
         checks["sources"] = {"ok": True, "error": str(e)[:200]}
 
