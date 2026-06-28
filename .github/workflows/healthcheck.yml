@@ -19,20 +19,26 @@ jobs:
     steps:
       - name: Probe stormdps.com /health/selfcheck
         run: |
-          set -o pipefail
+          # Warm the worker first — Railway can cold-start at low-traffic hours, and
+          # a cold start + first bundle parse can exceed a tight timeout. The
+          # warm-up request soaks that up so the real probe measures health, not boot.
+          curl -s -o /dev/null --max-time 45 "https://stormdps.com/health?cb=${GITHUB_RUN_ID}" || true
+
           url="https://stormdps.com/health/selfcheck?cb=${GITHUB_RUN_ID}"
-          # One retry to ride out a transient blip / cold worker before paging.
-          for attempt in 1 2; do
-            code=$(curl -fsS -o body.json -w "%{http_code}" --max-time 30 "$url" || echo "000")
-            echo "attempt $attempt -> HTTP $code"
+          # Retry over a few minutes so a cold worker or a momentary blip recovers
+          # and only a SUSTAINED problem pages (no -f: it garbles %{http_code}).
+          code=000
+          for attempt in 1 2 3; do
+            code=$(curl -sS -o body.json -w "%{http_code}" --max-time 45 "$url" || echo "000")
+            echo "attempt $attempt -> HTTP ${code}"
             [ "$code" = "200" ] && break
-            [ "$attempt" = "1" ] && { echo "retrying in 30s..."; sleep 30; }
+            [ "$attempt" != "3" ] && { echo "retrying in 60s..."; sleep 60; }
           done
           echo "--- /health/selfcheck body ---"
           cat body.json 2>/dev/null | head -c 4000 || true
           echo
           if [ "$code" != "200" ]; then
-            echo "::error::stormdps.com self-check failed (HTTP $code). See the body above for which checks failed."
+            echo "::error::stormdps.com self-check failed 3x over ~2.5 min (last HTTP ${code}). Sustained — worth investigating; see body above."
             exit 1
           fi
           echo "stormdps.com healthy."
