@@ -5207,12 +5207,10 @@ function enableHistoricOverlays(data) {
         window._windState.prefetchStarted = false;
     }
 
-    // Unhide the overlay-control panel. initSatelliteLayer normally does this
-    // when wiring up active-storm satellite frames, but it bails early for
-    // historic storms, leaving every overlay button invisible even though
-    // we've enabled them programmatically.
-    const panel = document.getElementById('satelliteSlider');
-    if (panel) panel.style.display = 'block';
+    // Panel visibility is user-controlled via the Advanced view toggle
+    // (advOverlayPanel). The satellite frame scrubber (satelliteSlider)
+    // stays hidden for historic storms — GIBS archive only covers ~14 days,
+    // so there are no frames to scrub.
 
     // Hide the overlays that aren't meaningful for historic storms (satellite
     // imagery / IR only covers ~14 days of GIBS archive; pressure + precip
@@ -6694,6 +6692,16 @@ function renderMap(data){
     // Delay so the map container's ResizeObserver has a chance to reflow
     // before the Holland B image overlay computes its geographic bounds.
     setTimeout(() => { try { toggleWindfieldLayer(); } catch(e) {} }, 250);
+    // Advanced view: if the overlay panel is open, re-wire layers for the
+    // newly loaded storm (satellite stack for active, ERA5 subset for
+    // historic). Closed panel = zero extra work, default view untouched.
+    setTimeout(() => { try {
+        const _adv = document.getElementById('advOverlayPanel');
+        if (_adv && getComputedStyle(_adv).display !== 'none') {
+            if (window._isActiveStorm) initSatelliteLayer(data);
+            else enableHistoricOverlays(data);
+        }
+    } catch(e) { console.warn('[ADV] storm-switch overlay wiring failed:', e); } }, 300);
 
     // Forecast track overlay for active storms
     if(window._isActiveStorm){
@@ -7172,6 +7180,22 @@ function toggleAdvancedView() {
     panel.style.display = show ? 'flex' : 'none';
     if (btn) btn.innerHTML = show ? 'Advanced view &#9660;' : 'Advanced view &#9654;';
     try { localStorage.setItem('stormdps_advview', show ? '1' : '0'); } catch (e) {}
+    // Lazy layer wiring — layers only initialize when the panel is first
+    // opened, so the default view does zero extra work. Active storms boot
+    // the satellite/overlay stack (initSatelliteLayer enables the other
+    // buttons when frames arrive); historic storms get the ERA5 wind +
+    // windfield subset via enableHistoricOverlays (defined for this purpose
+    // but never wired to a caller until now — LOOSE_ENDS_AUDIT.md A1).
+    if (show && window.stormData && window.stormData.length) {
+        try {
+            const st = window._satelliteState;
+            if (window._isActiveStorm) {
+                if (!st || !st.layer) initSatelliteLayer(window.stormData);
+            } else {
+                enableHistoricOverlays(window.stormData);
+            }
+        } catch (e) { console.warn('[ADV] overlay wiring failed:', e); }
+    }
 }
 // Restore the persisted choice on boot (panel markup precedes this script).
 try { if (localStorage.getItem('stormdps_advview') === '1') toggleAdvancedView(); } catch (e) {}
