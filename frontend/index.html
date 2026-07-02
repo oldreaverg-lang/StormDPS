@@ -4708,6 +4708,8 @@ window._satelliteState = {
     layerLabel: '',     // human-readable product label (e.g. "GeoColor", "Band 13 IR")
     visible: true,      // satellite layer show/hide toggle
     sessionToken: 0,    // bumped on each initSatelliteLayer; stale awaits bail out
+    _pendingLayer: null, // back-buffer tileLayer loading the next frame (double-buffered swap)
+    _swapToken: 0,       // bumped per swap; stale 'load' callbacks bail out
 };
 
 // NOTE: lat/lon → satellite mapping now lives server-side (see
@@ -4735,7 +4737,38 @@ function setSatelliteFrame(idx) {
     // Rebuild tile URL with the new ts in path
     const modeQ = st.irMode ? '?mode=ir' : '';
     const newUrl = `${API_BASE}/satellite/tile/${st.satellite}/${ts}/{z}/{x}/{y}.png${modeQ}`;
-    st.layer.setUrl(newUrl);
+    // ── Double-buffered frame swap ──
+    // layer.setUrl() clears every tile and refetches, flashing gray basemap
+    // between frames (animation read as frame → gray → frame → gray). Instead:
+    // load the new frame in a back-buffer tileLayer while the CURRENT frame
+    // stays on screen, and only retire the old layer once the new one's
+    // tiles report 'load'. Rapid scrubbing cancels superseded swaps via
+    // _swapToken, so at most two tile layers ever exist.
+    if (st.visible && currentMap && st.layer._map) {
+        if (st._pendingLayer) {
+            try { currentMap.removeLayer(st._pendingLayer); } catch (e) {}
+            st._pendingLayer = null;
+        }
+        const next = L.tileLayer(newUrl, Object.assign({}, st.layer.options));
+        st._pendingLayer = next;
+        const mySwap = ++st._swapToken;
+        next.once('load', () => {
+            if (st._swapToken !== mySwap || st._pendingLayer !== next) {
+                try { currentMap.removeLayer(next); } catch (e) {}
+                return;
+            }
+            try { if (st.layer && st.layer !== next) currentMap.removeLayer(st.layer); } catch (e) {}
+            st.layer = next;
+            st._pendingLayer = null;
+            // User may have hit "Satellite: Off" mid-swap — honor it.
+            if (!st.visible) { try { currentMap.removeLayer(next); } catch (e) {} }
+        });
+        next.addTo(currentMap);
+    } else {
+        // Layer hidden or not on the map — no visible flicker possible;
+        // the cheap in-place URL swap is fine.
+        st.layer.setUrl(newUrl);
+    }
     const lbl = document.getElementById('satelliteFrameLabel');
     if (lbl) lbl.textContent = formatSatelliteFrameLabel(ts);
     const slider = document.getElementById('satelliteSliderInput');
@@ -4803,6 +4836,13 @@ window.toggleSatelliteVisibility = function() {
         }
     } else {
         currentMap.removeLayer(st.layer);
+        // Also cancel any in-flight double-buffered swap so its 'load'
+        // callback can't re-add imagery after the user hid the layer.
+        st._swapToken = (st._swapToken || 0) + 1;
+        if (st._pendingLayer) {
+            try { currentMap.removeLayer(st._pendingLayer); } catch (e) {}
+            st._pendingLayer = null;
+        }
         if (btn) {
             btn.textContent    = 'Satellite: Off';
             btn.style.background  = 'rgba(100,116,139,.18)';
@@ -4866,6 +4906,13 @@ function teardownSatelliteLayer(opts) {
         try { currentMap.removeLayer(st.layer); } catch(e) {}
     }
     st.layer = null;
+    // Cancel any in-flight double-buffered frame swap so its 'load' callback
+    // can't resurrect a layer after teardown.
+    st._swapToken = (st._swapToken || 0) + 1;
+    if (st._pendingLayer && currentMap) {
+        try { currentMap.removeLayer(st._pendingLayer); } catch(e) {}
+    }
+    st._pendingLayer = null;
     // When only swapping modes (IR toggle), keep the frame index and satellite
     // name so initSatelliteLayer can refetch for the same session without
     // disturbing the timeline scrubber or the other overlays.
