@@ -14,7 +14,7 @@
 // cache-first, so a re-bake is invisible to returning visitors until the cache
 // is evicted. Bump on every bundle re-bake. This one ships the rainfall-
 // estimator cap + Maria's observed-rainfall anchor (was showing 116 in).
-const CACHE_NAME = 'stormdps-v6';
+const CACHE_NAME = 'stormdps-v9';
 const STATIC_ASSETS = [
   '/',
   '/frontend/index.html',

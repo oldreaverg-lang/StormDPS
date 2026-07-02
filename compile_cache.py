@@ -962,25 +962,32 @@ def apply_basin_dps_adjustment(cum_dpi, basin, snapshots,
             adjusted_dps *= 0.60
             adjustment_notes.append("×0.60(no-landfall)")
 
-    # Compression curve — now per-basin (v10).
+    # Compression curve — C1 saturating exponential (v12, 2026-07 audit).
     #
-    # Atlantic was calibrated under (T=60, S=4) and the score distribution
-    # across major Atlantic storms (Katrina ~93, Maria ~86, Harvey ~83) was
-    # deliberately tuned to that spread. WP's bonus stack (sub-basin × 1.10-
-    # 1.20 + RI + multi-LF + orographic + rainfall-footprint) saturates the
-    # Atlantic curve at 99 for every major typhoon (WP_DPS_AUDIT.md §3),
-    # which motivated the v7-audit retune to (T=70, S=2.5). Pulling T and S
-    # from coeffs lets each basin keep its own hand-tuned compression
-    # without spilling cross-basin side-effects.
+    #     f(x) = T + (99 - T) * (1 - exp(-(x - T) / (99 - T)))   for x > T
     #
-    # Atlantic (T=60, S=4):    raw  80 → 78     raw 120 → 91     raw 155 → 99 (capped)
-    # Other basins (T=70, 2.5): raw  80 → 78     raw 150 → 84     raw 205 → 99 (capped)
+    # Replaces the per-basin sqrt curve `T + S*sqrt(x-T)` + min(99) clamp,
+    # which had two defects (docs/audits/ATLANTIC_RI_COMPRESSION_AUDIT.md):
+    #   1. EXPANSION zone: for T < x < T+S² the sqrt curve INFLATED scores
+    #      (Atlantic raw 61 displayed as 64) with a near-vertical slope at T,
+    #      so live storms crossing T showed erratic, inflated jumps.
+    #   2. The hard min(99) clamp tied all extreme storms at exactly 99,
+    #      destroying ranking at the top of the leaderboard.
+    # The exponential is C1 at T (slope exactly 1 — no kink, no expansion),
+    # strictly monotone (all rankings preserved bit-for-bit), approaches 99
+    # asymptotically (never reached — "no storm is a perfect 100" now falls
+    # out of the math instead of a clamp), and has NO fitted constants: the
+    # curve is fully determined by the basin's compression_T. compression_S
+    # is retired (kept in coeffs for history).
+    #
+    # Anchor shifts vs the old curve (all within ±2.1, ranks unchanged):
+    #   Katrina 95.9→94.0   Irma 93.4→92.5   Ian 91.8→91.3   Sandy 87.0→86.9
+    #   Harvey 84.3→83.8    expansion-zone storms deflate (Idalia 73.4→69.8)
     import math as _m
     _T = float(coeffs.get("compression_T", 70.0))
-    _S = float(coeffs.get("compression_S", 2.5))
     if adjusted_dps > _T:
-        adjusted_dps = _T + _S * _m.sqrt(adjusted_dps - _T)
-    adjusted_dps = min(adjusted_dps, 99.0)  # Hard ceiling (no storm is "perfect 100")
+        _span = 99.0 - _T
+        adjusted_dps = _T + _span * (1.0 - _m.exp(-(adjusted_dps - _T) / _span))
 
     return adjusted_dps, coeffs["name"], ", ".join(adjustment_notes)
 

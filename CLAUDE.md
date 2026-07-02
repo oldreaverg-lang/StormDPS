@@ -23,6 +23,23 @@
 1. **Read tool** (`C:\Users\Ryan\APPS\...`) — always complete
 2. **GitHub API** — fetch a known-good commit, patch in memory
 
+**⚠️ 2026-07-01 addendum — the mount also serves STALE/CHIMERA reads.** After
+editing a file with the Edit/Write tools, the Bash mount can serve a hybrid:
+new content but the OLD byte length — silently cutting off the file's tail
+(observed on files as small as 15 KB, and on `compile_cache.py` where the
+truncation ate the `if __name__` block, making `python compile_cache.py` a
+silent no-op). Consequences:
+- **Never run repo scripts via Bash that read-modify-write repo files**
+  (`scripts/rebake.py`'s sw.js/index.html version bump read a truncated
+  index.html through the mount and WROTE THE TRUNCATED FILE BACK to the real
+  filesystem — destroyed the tail of frontend/index.html; recovered via the
+  GitHub-API pattern). Run `rebake.py` from native PowerShell only.
+- **Never gh_push a file that was edited in the same session** — gh_push reads
+  through the mount and can push the chimera. Push via native PowerShell git,
+  or verify the pushed blob SHA against the local bytes afterward.
+- Bash IS safe for: read-only analysis of files not edited this session,
+  network calls, and code copied to /tmp first.
+
 **Recovery pattern:**
 ```python
 info = gh('GET', f'/contents/{path}?ref={good_sha}')
