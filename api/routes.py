@@ -404,7 +404,14 @@ _ACTIVE_TRACK_TTL_S = 5400  # 90 minutes
 #           duration_factor and breadth_factor actually fire. See
 #           EP_DPS_AUDIT.md for the full analysis + storm-by-storm
 #           before/after.
-_DPS_CACHE_VERSION = "v11-ep-basin"
+# v12-exp-landrel (2026-07-02): C1 exponential compression curve replaces
+#           sqrt+clamp (ATLANTIC_RI_COMPRESSION_AUDIT.md), and the engine
+#           now emits `rainfall_land_relevant` so the flood banner can
+#           distinguish rainfall volume from flood exposure (open-ocean
+#           fish storms no longer show a red flood warning). Bump forces
+#           on-demand recomputes so cached active-storm entries pick up
+#           both changes.
+_DPS_CACHE_VERSION = "v12-exp-landrel"
 
 # Cache for global IBTrACS catalog to avoid repeated large downloads/parses.
 # We also persist a json cache file so restarts can reuse the catalog quickly.
