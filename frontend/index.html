@@ -4757,6 +4757,24 @@ function setSatelliteFrame(idx) {
                 try { currentMap.removeLayer(next); } catch (e) {}
                 return;
             }
+            // Frame-emptiness check: GIBS has occasional gaps, and the newest
+            // frames may not be published yet — the tile proxy serves 1×1
+            // transparent sentinels for both. Swapping to an all-sentinel
+            // frame is what made the animation flash gray. If NO tile in the
+            // back-buffer carries real imagery, hold the current frame on
+            // screen and say so on the frame label instead.
+            let real = 0, total = 0;
+            for (const k in next._tiles) {
+                const t = next._tiles[k]; total++;
+                if (t.el && t.el.naturalWidth > 1) real++;
+            }
+            if (total > 0 && real === 0) {
+                try { currentMap.removeLayer(next); } catch (e) {}
+                st._pendingLayer = null;
+                const lbl2 = document.getElementById('satelliteFrameLabel');
+                if (lbl2) lbl2.textContent = formatSatelliteFrameLabel(ts) + ' — no imagery yet';
+                return;
+            }
             try { if (st.layer && st.layer !== next) currentMap.removeLayer(st.layer); } catch (e) {}
             st.layer = next;
             st._pendingLayer = null;
