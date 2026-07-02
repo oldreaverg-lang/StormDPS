@@ -775,7 +775,10 @@
                      Pressure/Precip/Satellite are redundant with the side
                      charts. Windfield (Holland B colored gradient) is now
                      always on for every storm; see renderMap auto-enable. -->
-                <div id="satelliteSlider" style="display:none"></div>
+                <!-- (removed) empty #satelliteSlider stub — the real scrubber
+                     now lives inside #advOverlayPanel; the duplicate id made
+                     getElementById wire the empty stub instead. -->
+
                 <button class="map-legend-toggle" id="windDirToggleBtn" style="bottom:38px;left:8px;display:flex" onclick="toggleWindDirLayer()" title="Animated wind-flow direction (storm-parametric)">Wind flow: Off</button>
                 <button class="map-legend-toggle" id="observedToggleBtn" style="bottom:68px;left:8px;display:none" onclick="toggleObservedLayer()" title="Observed peak storm surge at NOAA tide gauges (and buoy wind/waves where available)">Observed surge: Off</button>
                 <button class="map-legend-toggle" id="advViewToggleBtn" style="bottom:98px;left:8px;display:flex" onclick="toggleAdvancedView()" title="Advanced view — satellite imagery, infrared, wind field, wind particles, pressure and precipitation overlays">Advanced view &#9654;</button>
