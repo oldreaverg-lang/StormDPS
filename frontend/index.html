@@ -128,7 +128,7 @@
    inline styles keep working; only values changed. Cat1–5 / TS / TD
    colors are semantic (track + chart encodings on dark panels) — keep.
    Contrast: --text-muted 8.6:1, --text-dim 5.9:1 on --bg-card (AA). */
-:root{--primary:#205493;--primary-hover:#16406f;--bg-dark:#eceef0;--bg-card:#ffffff;--bg-card-hover:#f2f4f6;--bg-input:#f7f8fa;--text-main:#1b1f24;--text-muted:#404b57;--text-dim:#5c6873;--border:#d4d9de;--border-hover:#a9b3bc;--success:#0f7b51;--danger:#c4281c;--cat1:#60a5fa;--cat2:#34d399;--cat3:#fbbf24;--cat4:#f97316;--cat5:#ef4444;--ts:#818cf8;--td:#94a3b8;--radius:3px;--radius-lg:5px}
+:root{--primary:#205493;--primary-hover:#16406f;--bg-dark:#eceef0;--bg-card:#ffffff;--bg-card-hover:#f2f4f6;--bg-input:#f7f8fa;--text-main:#1b1f24;--text-muted:#404b57;--text-dim:#5c6873;--border:#d4d9de;--border-hover:#a9b3bc;--success:#0f7b51;--danger:#c4281c;--cat1:#60a5fa;--cat2:#34d399;--cat3:#fbbf24;--cat4:#f97316;--cat5:#ef4444;--ts:#818cf8;--td:#64748b;--radius:3px;--radius-lg:5px}
         *{box-sizing:border-box;margin:0;padding:0}body{font-family:'Public Sans',-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg-dark);color:var(--text-main);height:100vh;overflow:hidden}
         /* Full light unification: map + charts now share the global light
            theme — panels inherit --bg-card #fff etc., the Leaflet basemap is
@@ -159,7 +159,7 @@
         .input-group{display:flex;flex-direction:column;gap:.3rem}.input-group label{font-size:.9rem;font-weight:500;color:var(--text-muted)}
         input,select{background:var(--bg-input);border:1px solid var(--border);color:var(--text-main);padding:.5rem .65rem;border-radius:var(--radius);font-size:.95rem;font-family:inherit;outline:none;transition:border-color .2s;width:100%}input:focus,select:focus{border-color:var(--primary)}input::placeholder{color:var(--text-dim)}
         .btn{display:flex;align-items:center;justify-content:center;gap:.4rem;padding:.5rem .85rem;border-radius:var(--radius);border:none;font-size:.95rem;font-weight:600;font-family:inherit;cursor:pointer;transition:all .15s}.btn-primary{background:var(--primary);color:#fff}.btn-primary:hover{background:var(--primary-hover)}.btn-secondary{background:transparent;color:var(--text-muted);border:1px solid var(--border)}.btn-secondary:hover{border-color:var(--border-hover);color:var(--text-main)}.btn:disabled{opacity:.4;cursor:not-allowed}.btn:active:not(:disabled){transform:scale(.97)}.btn-block{width:100%}
-        .preset-grid{display:flex;flex-direction:column;gap:.3rem}.preset-chip{display:flex;align-items:center;gap:.5rem;padding:.4rem .55rem;border-radius:var(--radius);background:var(--bg-input);border:1px solid var(--border);cursor:pointer;transition:all .2s;font-size:.9rem}.preset-chip:hover{border-color:var(--primary);background:var(--bg-card-hover)}.preset-chip.selected{border-color:var(--primary);background:rgba(32,84,147,.1)}.preset-chip.selected .chip-name{color:var(--primary)}.preset-chip.selected .chip-meta{color:var(--text-muted)}.cat-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}.chip-name{font-weight:600;color:var(--text-main)}.chip-meta{color:var(--text-dim);font-size:.67rem;margin-left:auto}
+        .preset-grid{display:flex;flex-direction:column;gap:.3rem}.preset-chip{display:flex;align-items:center;gap:.5rem;padding:.4rem .55rem;border-radius:var(--radius);background:var(--bg-input);border:1px solid var(--border);cursor:pointer;transition:all .2s;font-size:.9rem}.preset-chip:hover{border-color:var(--primary);background:var(--bg-card-hover)}.preset-chip.selected{border-color:var(--primary);background:rgba(32,84,147,.1)}.preset-chip.selected .chip-name{color:var(--primary)}.preset-chip.selected .chip-meta{color:var(--text-muted)}.cat-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}.chip-name{font-weight:600;color:var(--text-main)}.chip-meta{color:var(--text-dim);font-size:.72rem;margin-left:auto}
         .accordion{display:flex;flex-direction:column;gap:.35rem;min-height:470px}.accordion-section{border:1px solid var(--border-hover);border-left:3px solid var(--border-hover);border-radius:var(--radius);overflow:hidden;background:var(--bg-card);flex-shrink:0}.accordion-section.open{border-left-color:var(--primary)}.accordion-header{display:flex;align-items:center;justify-content:space-between;padding:.55rem .65rem;cursor:pointer;user-select:none;transition:background .15s;font-size:.88rem;font-weight:600;color:var(--text-main)}.accordion-header:hover{background:var(--bg-card-hover)}.accordion-arrow{transition:transform .2s;font-size:.65rem;color:var(--text-muted)}.accordion-section.open .accordion-arrow{transform:rotate(90deg)}.accordion-body{display:none;padding:.35rem .5rem .5rem;border-top:1px solid var(--border)}.accordion-section.open .accordion-body{display:block}.accordion-header .acc-count{font-weight:500;font-size:.68rem;color:var(--text-muted);background:rgba(0,0,0,.06);padding:.1rem .35rem;border-radius:999px;margin-left:auto;margin-right:.4rem}
         .main-content{padding:.5rem .65rem;display:flex;flex-direction:column;gap:.4rem;overflow-y:auto;overflow-x:hidden;height:calc(100vh - 49px)}
         .error-bar{background:rgba(196,40,28,.06);border:1px solid rgba(196,40,28,.3);color:#b3261e;padding:.65rem .85rem;border-radius:var(--radius);font-size:.95rem;display:none}.error-bar.visible{display:block;animation:fadeIn .3s}
@@ -169,18 +169,18 @@
         .viz-area{display:none;flex:1;gap:.5rem;min-height:0;overflow:hidden}.viz-area.visible{display:flex;animation:fadeIn .4s}.map-panel{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;position:relative;flex:1.2;min-height:0}#map{width:100%;height:100%}.charts-stack{display:flex;flex-direction:column;gap:.4rem;flex:1;min-height:0;overflow:auto}.chart-panel{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;position:relative;flex:1;padding:.5rem;display:flex;flex-direction:column;min-height:0}.chart-panel canvas{flex:1;min-height:0}
         .chart-tabbed{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;position:relative;flex:1;display:flex;flex-direction:column;min-height:220px}
         .chart-tabs{display:flex;border-bottom:1px solid var(--border);padding:0 .5rem;gap:0;flex-shrink:0}
-        .chart-tab{background:none;border:none;color:var(--text-dim);font-size:.75rem;font-weight:600;padding:.35rem .55rem;cursor:pointer;border-bottom:2px solid transparent;transition:color .2s,border-color .2s;text-transform:uppercase;letter-spacing:.04em}
+        .chart-tab{background:none;border:none;color:var(--text-dim);font-size:.8rem;font-weight:600;padding:.4rem .6rem;cursor:pointer;border-bottom:2px solid transparent;transition:color .2s,border-color .2s,background .2s;text-transform:uppercase;letter-spacing:.04em}
         .chart-tab:hover{color:var(--text-secondary)}
-        .chart-tab.active{color:var(--primary);border-bottom-color:var(--primary)}
+        .chart-tab.active{color:var(--primary);border-bottom-color:var(--primary);background:rgba(32,84,147,.07);border-radius:var(--radius) var(--radius) 0 0}
         .chart-tab.sst-loading{position:relative}.chart-tab.sst-loading::after{content:'';display:inline-block;width:8px;height:8px;border:1.5px solid rgba(32,84,147,.3);border-radius:50%;border-top-color:var(--primary);animation:spin .8s linear infinite;margin-left:6px;vertical-align:middle}
         .chart-tab-body{flex:1;position:relative;padding:.4rem;min-height:0;overflow:hidden}
         .chart-tab-pane{display:none;width:100%;height:100%;position:absolute;top:0;left:0;padding:.4rem;box-sizing:border-box}
         .chart-tab-pane.active{display:block;position:relative}
         .chart-tab-pane canvas{width:100%!important;height:100%!important}
         .scrubber-bar{display:none;align-items:center;gap:.4rem;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:.3rem .6rem;flex-shrink:0}.scrubber-bar.visible{display:flex;animation:fadeIn .3s}
-        .scrubber-bar input[type="range"]{flex:1;-webkit-appearance:none;background:transparent;border:none;padding:0;height:20px;cursor:pointer}.scrubber-bar input[type="range"]::-webkit-slider-track{height:5px;background:rgba(32,84,147,.22);border-radius:3px}.scrubber-bar input[type="range"]:hover::-webkit-slider-track{background:rgba(32,84,147,.35)}.scrubber-bar input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;background:var(--primary);border-radius:50%;margin-top:-5.5px;cursor:pointer;box-shadow:0 0 0 2px rgba(32,84,147,.25),0 0 10px rgba(32,84,147,.5);transition:box-shadow .15s}.scrubber-bar input[type="range"]:hover::-webkit-slider-thumb{box-shadow:0 0 0 3px rgba(32,84,147,.35),0 0 14px rgba(32,84,147,.6)}.scrubber-bar input[type="range"]::-moz-range-track{height:5px;background:rgba(32,84,147,.22);border-radius:3px;border:none}.scrubber-bar input[type="range"]::-moz-range-thumb{width:16px;height:16px;background:var(--primary);border-radius:50%;border:2px solid rgba(32,84,147,.4);cursor:pointer}
+        .scrubber-bar input[type="range"]{flex:1;-webkit-appearance:none;background:transparent;border:none;padding:0;height:20px;cursor:pointer}.scrubber-bar input[type="range"]::-webkit-slider-track{height:6px;background:rgba(32,84,147,.22);border-radius:3px}.scrubber-bar input[type="range"]:hover::-webkit-slider-track{background:rgba(32,84,147,.35)}.scrubber-bar input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;background:var(--primary);border-radius:50%;margin-top:-7px;cursor:pointer;box-shadow:0 0 0 2px rgba(32,84,147,.25),0 0 10px rgba(32,84,147,.5);transition:box-shadow .15s}.scrubber-bar input[type="range"]:hover::-webkit-slider-thumb{box-shadow:0 0 0 3px rgba(32,84,147,.35),0 0 14px rgba(32,84,147,.6)}.scrubber-bar input[type="range"]::-moz-range-track{height:5px;background:rgba(32,84,147,.22);border-radius:3px;border:none}.scrubber-bar input[type="range"]::-moz-range-thumb{width:20px;height:20px;background:var(--primary);border-radius:50%;border:2px solid rgba(32,84,147,.4);cursor:pointer}
         .scrubber-time{font-size:.82rem;font-weight:700;color:var(--text-main);min-width:100px;text-align:center;font-variant-numeric:tabular-nums;letter-spacing:-.01em}.scrubber-ike{font-size:.78rem;font-weight:700;color:var(--primary);min-width:60px;text-align:right;font-variant-numeric:tabular-nums}
-        .map-legend{position:absolute;bottom:8px;left:8px;z-index:500;background:rgba(255,255,255,.93);backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:var(--radius);padding:.35rem .5rem;display:flex;flex-direction:column;gap:.15rem;font-size:.65rem;color:var(--text-muted);max-height:50%;overflow-y:auto}.legend-item{display:flex;align-items:center;gap:.25rem}.legend-swatch{width:14px;height:6px;border-radius:2px;flex-shrink:0}
+        .map-legend{position:absolute;bottom:8px;left:8px;z-index:500;background:rgba(255,255,255,.93);backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:var(--radius);padding:.35rem .5rem;display:flex;flex-direction:column;gap:.15rem;font-size:.72rem;color:var(--text-muted);max-height:50%;overflow-y:auto}.legend-item{display:flex;align-items:center;gap:.25rem}.legend-swatch{width:14px;height:6px;border-radius:2px;flex-shrink:0}
         .leaflet-popup-content-wrapper{background:rgba(255,255,255,.97);color:var(--text-main);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.4)}.leaflet-popup-tip{background:rgba(255,255,255,.97);border:1px solid var(--border)}.leaflet-popup-content{margin:8px 12px;line-height:1.5}
         .welcome-state{flex:1;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--text-dim)}.welcome-state.hidden{display:none}.welcome-icon{font-size:2.5rem;margin-bottom:.75rem;opacity:.5}.welcome-text{font-size:.9rem;font-weight:500;max-width:300px;line-height:1.6}
         /* Larger H1 in the welcome state so it (not the footer) wins LCP.
@@ -189,7 +189,7 @@
            than the 1.6rem H1. A bigger heading + decoded hero image are
            the natural primary candidates above the fold. */
         .welcome-title{font-size:2.1rem;line-height:1.1}
-        .site-footer{font-size:.62rem;line-height:1.45;color:var(--text-dim);padding:.6rem .8rem;margin-top:.5rem}
+        .site-footer{font-size:.7rem;line-height:1.5;color:var(--text-dim);padding:.6rem .8rem;margin-top:.5rem}
         .quick-start{display:flex;flex-direction:column;gap:.5rem;margin-top:1.2rem;align-items:center}
         .quick-start-label{font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--text-dim);margin-bottom:.2rem}
         .quick-start-row{display:flex;gap:.5rem;flex-wrap:wrap;justify-content:center}
@@ -352,12 +352,13 @@
         @media(max-width:600px){.storm-title-share .share-label{display:none}.storm-title-share{padding:0;width:26px;justify-content:center;border-radius:50%}.storm-title-analyst{padding:0 .5rem;font-size:.65rem}}
 
         /* Collapsible map legend */
-        .map-legend-toggle{position:absolute;bottom:8px;left:8px;z-index:501;background:rgba(255,255,255,.93);backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:var(--radius);padding:.25rem .45rem;cursor:pointer;font-size:.65rem;color:var(--text-muted);font-weight:600;display:none;align-items:center;gap:.25rem;transition:all .15s;font-family:inherit}
+        .map-legend-toggle{position:absolute;bottom:8px;left:8px;z-index:501;background:rgba(255,255,255,.93);backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:var(--radius);padding:.3rem .55rem;cursor:pointer;font-size:.72rem;color:var(--text-muted);font-weight:600;display:none;align-items:center;gap:.25rem;transition:all .15s;font-family:inherit}
+        .map-legend-toggle:hover{border-color:var(--primary)}
         .map-legend-toggle:hover{background:rgba(255,255,255,.97);color:var(--text-main)}
         .map-legend.legend-collapsed{display:none!important}
 
         /* Breakdown bar hint */
-        .breakdown-hint{font-size:.55rem;color:var(--text-dim);text-align:center;margin-top:2px;opacity:0;transition:opacity .3s;letter-spacing:.02em}
+        .breakdown-hint{font-size:.65rem;color:var(--text-dim);text-align:center;margin-top:2px;opacity:0;transition:opacity .3s;letter-spacing:.02em}
         .stat-card:hover .breakdown-hint{opacity:1}
 
         @keyframes spin{to{transform:rotate(360deg)}}@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
@@ -462,6 +463,15 @@
         .dps-hero-card.severity-severe{border-color:#b8860b!important;background:#fdf9ec!important}
         .dps-hero-card.severity-moderate{border-color:#2e8540!important;background:#eff7f1!important}
         .dps-hero-card.severity-minor{border-color:#2c608a!important;background:#eff4fa!important}
+        /* IAS/ERS cards: same NWS-style severity treatment as the DPS hero card.
+           Card chrome must encode SEVERITY, not metric identity — a green frame
+           around "97 Extreme Risk" reads as "safe". Classes applied in JS via
+           setCardSeverity(). */
+        .stat-card.sev-catastrophic{border-color:#c4281c;border-left:4px solid #c4281c;background:#fcefee}
+        .stat-card.sev-extreme{border-color:#d54309;border-left:4px solid #d54309;background:#fdf3ec}
+        .stat-card.sev-severe{border-color:#b8860b;border-left:4px solid #b8860b;background:#fdf9ec}
+        .stat-card.sev-moderate{border-color:#2e8540;border-left:4px solid #2e8540;background:#eff7f1}
+        .stat-card.sev-minor{border-color:#2c608a;border-left:4px solid #2c608a;background:#eff4fa}
 
         #statHeroDPS{transition:color .4s,transform .3s;font-variant-numeric:tabular-nums}
         /* Dominant-hazard headline: hidden by default; revealed only in Analyst mode. */
@@ -490,20 +500,12 @@
         .dps-trend.trend-ri{animation:riPulse .8s ease-in-out infinite}
         .dps-trend-label{font-size:.55rem;letter-spacing:.05em;text-transform:uppercase;opacity:.85;margin-top:1px}
 
-        /* Rainfall text marquee ticker (CNN/ESPN style) */
-        .rainfall-text-scroll{flex:1;overflow:hidden;position:relative;display:flex;align-items:center}
-        .stall-bar-text{display:inline-block;white-space:nowrap;animation:marquee 40s linear infinite}
-        @keyframes marquee{
-            0%{transform:translateX(100%)}
-            100%{transform:translateX(-100%)}
-        }
-        /* Pause animation on hover */
-        .rainfall-text-scroll:hover .stall-bar-text{animation-play-state:paused}
-        /* Respect reduced-motion (WCAG 2.2.2): stop the scroll and let the
-           full alert text wrap so nothing is clipped or moving. */
+        /* Rainfall flood alert — static, wrapping text. Was a CNN-style marquee:
+           scrolling text failed WCAG 2.2.2, clipped mid-sentence, and made the
+           highest-stakes copy on the page the hardest to read. */
+        .rainfall-text-scroll{flex:1;display:flex;align-items:center}
+        .stall-bar-text{display:inline-block;white-space:normal}
         @media (prefers-reduced-motion: reduce){
-            .stall-bar-text{animation:none;white-space:normal;transform:none}
-            .rainfall-text-scroll{overflow:visible}
             /* Stop non-essential looping motion (pulses/pings/glows). Loading
                spinners are left as functional progress indicators. */
             .active-header .live-badge,.active-dot::after,.stall-risk-extreme,
@@ -688,20 +690,20 @@
                      official intensity-forecast error. -->
                 <div id="dpsForecastBand"></div>
                 <div class="score-context" id="dpsContext"></div>
-                <div class="breakdown-wrap" onclick="this.classList.toggle('open')"><div class="breakdown-bar" id="breakdownDPS"></div><div class="breakdown-panel" id="panelDPS"></div></div><div class="breakdown-hint">Tap or hover for details</div>
+                <div class="breakdown-wrap" onclick="this.classList.toggle('open')"><div class="breakdown-bar" id="breakdownDPS"></div><div class="breakdown-panel" id="panelDPS"></div></div><div class="breakdown-hint">Score breakdown — tap or hover</div>
             </div>
             <!-- Peak Snapshot card removed — redundant with DPS hero card -->
             <div id="snapshotCard" style="display:none"><span id="snapshotLabel"></span><span id="snapshotTip"></span><div id="snapshotTabs"></div><div id="statPeakDPS"></div><div id="statDPSLabel"></div><div id="breakdownSnap"></div><div id="panelSnap"></div></div>
-            <div class="stat-card" style="border-color:#f97316;background:rgba(249,115,22,.03)"><div class="stat-label">Impact Area<span class="tip" data-tip="IAS: A 0-100 score measuring how geography and rainfall amplify actual impact. Combines continental shelf surge amplification (55%) and rainfall/stall threat (45%).">?</span></div><div class="stat-value" id="statPeakIAS" style="color:var(--text-main);">-</div><div class="stat-sub" id="statIASLabel">-</div><div class="score-context" id="iasContext"></div><div class="breakdown-wrap" onclick="this.classList.toggle('open')"><div class="breakdown-bar" id="breakdownIAS"></div><div class="breakdown-panel" id="panelIAS"></div></div><div class="breakdown-hint">Tap or hover for details</div></div>
-            <div class="stat-card" style="border-color:#10b981;background:rgba(16,185,129,.03)"><div class="stat-label">Economic Risk<span class="tip" data-tip="ERS: A 0-100 score measuring economic exposure along the storm's path. Combines coastal economic value with threat reach (storm size x intensity).">?</span></div><div class="stat-value" id="statPeakERS" style="color:var(--text-main);">-</div><div class="stat-sub" id="statERSLabel">-</div><div class="ers-forecast" id="ersForecastLine" style="display:none;font-size:.7rem;font-weight:600;color:#fbbf24;line-height:1.35;margin-top:.1rem"></div><div class="score-context" id="ersContext"></div><div class="breakdown-wrap" onclick="this.classList.toggle('open')"><div class="breakdown-bar" id="breakdownERS"></div><div class="breakdown-panel" id="panelERS"></div></div><div class="breakdown-hint">Tap or hover for details</div></div>
-            <div class="stat-card" id="actualImpactCard" style="display:none;border-color:#7c3aed;background:rgba(124,58,237,.03)"><div class="stat-label">Actual Impact<span class="tip" data-tip="What the storm actually did, from independent records: total damage (StormDPS curated dataset) and the federal disaster response (FEMA OpenFEMA — counties declared, major-disaster status). This is observed ground truth, shown alongside the DPS prediction.">?</span></div><div class="stat-value" id="statActualImpact" style="color:var(--text-main);">-</div><div class="stat-sub" id="statActualImpactSub">-</div><div class="score-context" id="actualImpactContext"></div></div>
+            <div class="stat-card" id="iasCard"><div class="stat-label">Impact Area<span class="tip" data-tip="IAS: A 0-100 score measuring how geography and rainfall amplify actual impact. Combines continental shelf surge amplification (55%) and rainfall/stall threat (45%).">?</span></div><div class="stat-value" id="statPeakIAS" style="color:var(--text-main);">-</div><div class="stat-sub" id="statIASLabel">-</div><div class="score-context" id="iasContext"></div><div class="breakdown-wrap" onclick="this.classList.toggle('open')"><div class="breakdown-bar" id="breakdownIAS"></div><div class="breakdown-panel" id="panelIAS"></div></div><div class="breakdown-hint">Score breakdown — tap or hover</div></div>
+            <div class="stat-card" id="ersCard"><div class="stat-label">Economic Risk<span class="tip" data-tip="ERS: A 0-100 score measuring economic exposure along the storm's path. Combines coastal economic value with threat reach (storm size x intensity).">?</span></div><div class="stat-value" id="statPeakERS" style="color:var(--text-main);">-</div><div class="stat-sub" id="statERSLabel">-</div><div class="ers-forecast" id="ersForecastLine" style="display:none;font-size:.72rem;font-weight:600;color:#b45309;line-height:1.35;margin-top:.1rem"></div><div class="score-context" id="ersContext"></div><div class="breakdown-wrap" onclick="this.classList.toggle('open')"><div class="breakdown-bar" id="breakdownERS"></div><div class="breakdown-panel" id="panelERS"></div></div><div class="breakdown-hint">Score breakdown — tap or hover</div></div>
+            <div class="stat-card" id="actualImpactCard" style="display:none"><div class="stat-label">Actual Impact<span class="tip" data-tip="What the storm actually did, from independent records: total damage (StormDPS curated dataset) and the federal disaster response (FEMA OpenFEMA — counties declared, major-disaster status). This is observed ground truth, shown alongside the DPS prediction.">?</span></div><div class="stat-value" id="statActualImpact" style="color:var(--text-main);">-</div><div class="stat-sub" id="statActualImpactSub">-</div><div class="score-context" id="actualImpactContext"></div></div>
         </div>
-        <div id="rainfallBar" class="stall-bar" style="display:none;border-color:rgba(239,68,68,.3);background:rgba(239,68,68,.06)">
+        <div id="rainfallBar" class="stall-bar" style="display:none;border-color:rgba(239,68,68,.3);background:rgba(239,68,68,.06)" role="status">
             <span class="stall-bar-icon" style="font-size:1.1rem">&#127783;&#65039;</span>
+            <span class="stall-bar-score" id="rainfallBarScore" style="color:#b3261e;white-space:nowrap"></span>
             <div class="rainfall-text-scroll">
                 <span class="stall-bar-text" id="rainfallBarText" style="color:#b3261e;font-size:.78rem;line-height:1.4"></span>
             </div>
-            <span class="stall-bar-score" id="rainfallBarScore" style="color:#b3261e"></span>
         </div>
         <div id="stallRiskBar" class="stall-bar">
             <span class="stall-bar-icon" id="stallBarIcon"></span>
@@ -709,7 +711,7 @@
             <span class="stall-bar-score" id="stallBarScore"></span>
         </div>
         <div id="scrubberBar" class="scrubber-bar">
-            <span style="font-size:.65rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-dim);white-space:nowrap">Storm Timeline</span>
+            <span style="font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-dim);white-space:nowrap">Storm Timeline</span>
             <button class="btn btn-secondary" onclick="toggleAnimation()" id="scrubPlay" style="padding:.35rem .7rem;gap:.4rem;font-size:.8rem;font-weight:600;"><svg id="scrubPlayIcon" width="14" height="14" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg><span id="scrubPlayLabel">Play animation</span></button>
             <span class="speed-label">Speed:</span><select id="speedSelect" style="width:65px;font-size:.75rem;padding:.3rem .4rem;background:var(--bg-input);border:1px solid var(--border);color:var(--text-main);border-radius:var(--radius);cursor:pointer;" onchange="setSpeed(this.value)"><option value="2000">0.5x</option><option value="1000" selected>1x</option><option value="500">2x</option><option value="250">4x</option></select>
             <span class="scrubber-time" id="scrubTime">--</span>
@@ -1254,7 +1256,7 @@ function renderBreakdownBar(barId, panelId, segments, score) {
     const fillPct = Math.max(2, Math.min(100, score || 100));
     const total = segments.reduce((s, g) => s + g.value, 0) || 1;
     bar.innerHTML = segments.map((seg, i) =>
-        `<div class="breakdown-seg" style="width:${Math.max(0.5, seg.value / total * fillPct)}%;background:${seg.color}" data-seg="${i}"></div>`
+        `<div class="breakdown-seg" style="width:${Math.max(0.5, seg.value / total * fillPct)}%;background:${seg.color}" data-seg="${i}" title="${seg.label}: ${seg.display}${seg.pct ? ' (' + seg.pct + ')' : ''}"></div>`
     ).join('') + (fillPct < 100 ? `<div class="breakdown-empty" style="width:${100-fillPct}%"></div>` : '');
     // Build panel rows
     panel.innerHTML = segments.map(seg =>
@@ -1265,6 +1267,17 @@ function renderBreakdownBar(barId, panelId, segments, score) {
         `<div class="breakdown-panel-pct">${seg.pct}</div>` +
         `</div>`
     ).join('');
+}
+
+// Card chrome encodes SEVERITY (same 5-tier NWS-style palette as the DPS hero
+// card), never metric identity — a green border around an extreme score reads
+// as "safe". Applied to the IAS and ERS cards on every render.
+function setCardSeverity(cardId, score) {
+    const el = document.getElementById(cardId);
+    if (!el) return;
+    el.className = el.className.replace(/\bsev-\w+/g, '').trim();
+    const cls = score >= 80 ? 'sev-catastrophic' : score >= 60 ? 'sev-extreme' : score >= 40 ? 'sev-severe' : score >= 20 ? 'sev-moderate' : 'sev-minor';
+    el.classList.add(cls);
 }
 
 // Snapshot card tab state
@@ -1713,13 +1726,13 @@ const PRESETS=[
 ];
 
 function catColor(c){return['var(--td)','var(--cat1)','var(--cat2)','var(--cat3)','var(--cat4)','var(--cat5)'][c]||'var(--td)'}
-function ikeColor(ike){if(ike>200)return'#ef4444';if(ike>120)return'#f97316';if(ike>60)return'#fbbf24';if(ike>30)return'#34d399';if(ike>10)return'#60a5fa';if(ike>2)return'#818cf8';return'#94a3b8'}
+function ikeColor(ike){if(ike>200)return'#ef4444';if(ike>120)return'#f97316';if(ike>60)return'#fbbf24';if(ike>30)return'#34d399';if(ike>10)return'#60a5fa';if(ike>2)return'#818cf8';return'#64748b'}
 // Surge Destructive Potential (Powell & Reinhold 2007) from IKE_TS via their
 // Eq (4). Mirrors core/ike_coaps.py sdp_from_ike_ts/sdp_label so the chart and
 // API agree. 0-6 scale, interpreted like Saffir-Simpson (most destructive > 5).
 function sdpFromIke(ikeTs){if(!ikeTs||ikeTs<=0)return 0;const r=Math.sqrt(ikeTs);return Math.max(0,Math.min(5.99,0.676+0.43*r-0.0176*Math.pow(r-6.5,2)))}
 function sdpLabel(s){if(s>=5)return'Extreme';if(s>=4)return'Very High';if(s>=3)return'High';if(s>=2)return'Moderate';if(s>=1)return'Low';return'Minimal'}
-function dpsColor(score){if(score>=80)return'#ef4444';if(score>=60)return'#f97316';if(score>=40)return'#fbbf24';if(score>=20)return'#34d399';if(score>=10)return'#60a5fa';return'#94a3b8'}
+function dpsColor(score){if(score>=80)return'#ef4444';if(score>=60)return'#f97316';if(score>=40)return'#fbbf24';if(score>=20)return'#34d399';if(score>=10)return'#60a5fa';return'#64748b'}
 // On-LIGHT severity ramp for score TEXT (hero DPS/IAS/ERS numbers) on the
 // white cards. dpsColor()'s bright values were tuned for dark panels and wash
 // out on white (amber #fbbf24 was ~1.5:1 — failed WCAG AA). These are the same
@@ -2468,6 +2481,7 @@ function applyStallRiskToIAS(data, stallRisk) {
     document.getElementById('statPeakIAS').textContent = peakIasObj.score;
     document.getElementById('statPeakIAS').style.color = dpsTextColor(peakIasObj.score);
     document.getElementById('statIASLabel').textContent = peakIasObj.label + ' Impact' + (peakIasObj._stallBoosted ? ' (Stall \u26a0)' : '');
+    setCardSeverity('iasCard', peakIasObj.score);
     const iasCtx = document.getElementById('iasContext');
     if (iasCtx) iasCtx.textContent = getIASContext(peakIasObj.score);
 
@@ -3929,6 +3943,7 @@ function renderAll(stormId,data){
     document.getElementById('statPeakIAS').textContent=peakIasObj.score;
     document.getElementById('statPeakIAS').style.color=dpsTextColor(peakIasObj.score);
     document.getElementById('statIASLabel').textContent=peakIasObj.label + ' Impact';
+    setCardSeverity('iasCard', peakIasObj.score);
 
     window._observedPeakErs = peakErsObj.score;
     var _ersFcLine = document.getElementById('ersForecastLine'); if (_ersFcLine) _ersFcLine.style.display = 'none';
@@ -3936,6 +3951,7 @@ function renderAll(stormId,data){
     document.getElementById('statPeakERS').style.color=dpsTextColor(peakErsObj.score);
     const nriTag = peakErsObj.nriActive ? ' (NRI)' : '';
     document.getElementById('statERSLabel').textContent=peakErsObj.label + ' Risk' + nriTag + (peakErsObj.zone ? ' · '+peakErsObj.zone : '');
+    setCardSeverity('ersCard', peakErsObj.score);
 
     // Hero DPS — Destructive Power Score (0-100)
     // Use pre-compiled score if available; otherwise compute from DPS+IAS+ERS
@@ -4040,8 +4056,15 @@ function renderAll(stormId,data){
     // Rainfall Red Bar Warning
     const rainBar = document.getElementById('rainfallBar');
     if (compiled && compiled.rainfall_anomalous) {
-        document.getElementById('rainfallBarText').textContent = deAuthorize(compiled.rainfall_level + ': ' + compiled.rainfall_text);
-        document.getElementById('rainfallBarScore').textContent = Math.round(compiled.rainfall_warning) + '/100';
+        const _rw = Math.round(compiled.rainfall_warning);
+        // Score and label travel together ("Flood risk 76/100"), leading the
+        // alert, instead of a bare "76/100" floating at the far right.
+        document.getElementById('rainfallBarScore').textContent = 'Flood risk ' + _rw + '/100 —';
+        // A weak-wind storm can still be a flood monster (Douglas 2026: DPS 4,
+        // flood 83). Say so explicitly instead of letting a red banner sit
+        // unexplained beside a "Minimal" score card.
+        const _reconcile = (heroDPS < 40 && _rw >= 60) ? 'Wind threat is low, but flooding is the danger. ' : '';
+        document.getElementById('rainfallBarText').textContent = deAuthorize(_reconcile + compiled.rainfall_level + ': ' + compiled.rainfall_text);
         rainBar.style.display = 'flex';
         rainBar.classList.toggle('rain-extreme', compiled.rainfall_warning >= 60);
     } else {
