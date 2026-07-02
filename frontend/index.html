@@ -817,7 +817,7 @@
                     <div class="legend-item"><div class="legend-swatch" style="background:#fbbf24;width:12px;height:3px;border-radius:1px"></div>Moderate (&gt;60 TJ)</div>
                     <div class="legend-item"><div class="legend-swatch" style="background:#60a5fa;width:12px;height:3px;border-radius:1px"></div>Low (&le;60 TJ)</div>
                     <div style="margin-top:3px;font-weight:600;color:#22272d;">Score Bands</div>
-                    <div class="legend-item"><div class="legend-swatch" style="background:var(--cat5);border-radius:50%;width:10px;height:10px"></div>Catastrophic (80-100)</div>
+                    <div class="legend-item"><div class="legend-swatch" style="background:var(--cat5);border-radius:50%;width:10px;height:10px"></div>Devastating / Historic (80-100)</div>
                     <div class="legend-item"><div class="legend-swatch" style="background:var(--cat4);border-radius:50%;width:10px;height:10px"></div>Extreme (60-79)</div>
                     <div class="legend-item"><div class="legend-swatch" style="background:var(--cat3);border-radius:50%;width:10px;height:10px"></div>Severe (40-59)</div>
                     <div class="legend-item"><div class="legend-swatch" style="background:var(--cat2);border-radius:50%;width:10px;height:10px"></div>Moderate (20-39)</div>
@@ -7117,12 +7117,12 @@ function _ssCategoryFromMs(ms) {
 }
 
 function _dpsBandLabel(score) {
+    // Delegate to the canonical band scheme (getDPSBand) — this function
+    // previously carried its own stale 5-band scale, so the storm card said
+    // "LOW" while the hero card said "Minimal" for the same score. core/dpi.py:
+    // bands must stay in lockstep so no surface disagrees.
     if (score == null) return '';
-    if (score >= 80) return 'CATASTROPHIC';
-    if (score >= 60) return 'EXTREME';
-    if (score >= 40) return 'SEVERE';
-    if (score >= 20) return 'MODERATE';
-    return 'LOW';
+    return getDPSBand(score).toUpperCase();
 }
 
 window.updateStormCard = function(snap) {
