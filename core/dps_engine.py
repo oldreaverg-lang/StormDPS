@@ -66,7 +66,7 @@ def compute_storm_dps(
     """
     # Imports are deferred to keep the module load cheap and to avoid a circular
     # dependency with compile_cache.py (which imports from this module).
-    from core.cumulative_dpi import compute_cumulative_dpi, categorize_dpi
+    from core.cumulative_dpi import compute_cumulative_dpi, categorize_dpi, _is_near_coast
     from core.rainfall_warning import compute_rainfall_warning
     from compile_cache import (
         detect_landfall_events,
@@ -310,6 +310,18 @@ def compute_storm_dps(
         "rainfall_anomalous": rain_result.is_anomalous,
         "rainfall_stall_hours": rain_result.total_stall_hours,
         "rainfall_est_mm": rain_result.estimated_total_mm,
+        # Land relevance for the flood banner. warning_score measures rainfall
+        # VOLUME potential (stall hours / observed totals) and is location-
+        # blind — a stalled open-ocean fish storm can post 60+ with nobody
+        # under the rain (Douglas EP042026: flood 67 mid-Pacific). The
+        # frontend uses this flag to frame the banner as "rainfall potential"
+        # instead of a flood warning when the observed track never nears
+        # land; the forecast handler re-escalates client-side if the OFCL
+        # track approaches exposed coastline.
+        "rainfall_land_relevant": bool(landfall_events) or any(
+            _is_near_coast(s.get("lat", 0) or 0, s.get("lon", 0) or 0)
+            for s in snapshots
+        ),
         # Quick peak stats
         "peak_wind_ms": round(peak_wind, 1),
         "peak_wind_kt": round(peak_wind / 0.514444, 0) if peak_wind else 0,

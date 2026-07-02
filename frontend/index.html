@@ -1069,7 +1069,7 @@ async function ensureCompiledBundle(stormId, stormName, stormYear) {
 // Bundle cache version — bumped on every bake (by scripts/rebake.py) so the
 // versioned URL changes and the server can serve it immutably without ever
 // handing back a stale copy after a deploy. Keep in step with sw.js CACHE_NAME.
-const BUNDLE_VERSION = 9;
+const BUNDLE_VERSION = 10;
 async function loadPreloadBundle() {
     // Try multiple paths: Railway serves at /frontend/, GitHub Pages at relative path
     const pathDir = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1);
@@ -1739,6 +1739,41 @@ function renderForecastDpsBand(band) {
 // protective-action directive — even from a stale cached/compiled bundle written
 // before the wording was fixed. Rewrite any legacy "Evacuate ..." marquee text to
 // deferral language. (Fresh computes already use the deferral wording at source.)
+// Rainfall banner renderer. mode 'warning' = red flood alert; 'potential' =
+// muted slate framing for storms whose OBSERVED track never nears land —
+// the score measures rainfall volume, and volume without exposure is not a
+// flood warning (Douglas EP042026: 67/100 as a mid-Pacific fish storm).
+// Standalone so the forecast handler can re-escalate to 'warning' when the
+// OFCL track approaches exposed coastline.
+function _renderRainBanner(mode, suffix) {
+    const d = window._rainBannerData;
+    const bar = document.getElementById('rainfallBar');
+    if (!d || !bar) return;
+    const scoreEl = document.getElementById('rainfallBarScore');
+    const textEl = document.getElementById('rainfallBarText');
+    if (mode === 'warning') {
+        window._rainBannerMuted = false;
+        const reconcile = (d.heroDPS < 40 && d.rw >= 60) ? 'Wind threat is low, but flooding is the danger. ' : '';
+        scoreEl.textContent = 'Flood risk ' + d.rw + '/100 —';
+        textEl.textContent = deAuthorize(reconcile + d.level + ': ' + d.text + (suffix || ''));
+        bar.style.borderColor = 'rgba(239,68,68,.3)';
+        bar.style.background = 'rgba(239,68,68,.06)';
+        scoreEl.style.color = '#b3261e';
+        textEl.style.color = '#b3261e';
+        bar.classList.toggle('rain-extreme', d.rw >= 60);
+    } else {
+        window._rainBannerMuted = true;
+        scoreEl.textContent = 'Rainfall potential ' + d.rw + '/100 —';
+        textEl.textContent = 'This storm carries ' + String(d.level || '').toLowerCase() + '-level rainfall, but its track is over open ocean with no observed land threat. The score reflects rainfall volume, not flood exposure.';
+        bar.style.borderColor = 'rgba(100,116,139,.35)';
+        bar.style.background = 'rgba(100,116,139,.07)';
+        scoreEl.style.color = '#475569';
+        textEl.style.color = '#475569';
+        bar.classList.remove('rain-extreme');
+    }
+    bar.style.display = 'flex';
+}
+
 function deAuthorize(t) {
     return (t || '')
         .replace(/Evacuate immediately\.?/gi,
@@ -4125,17 +4160,16 @@ function renderAll(stormId,data){
     const rainBar = document.getElementById('rainfallBar');
     if (compiled && compiled.rainfall_anomalous) {
         const _rw = Math.round(compiled.rainfall_warning);
-        // Score and label travel together ("Flood risk 76/100"), leading the
-        // alert, instead of a bare "76/100" floating at the far right.
-        document.getElementById('rainfallBarScore').textContent = 'Flood risk ' + _rw + '/100 —';
-        // A weak-wind storm can still be a flood monster (Douglas 2026: DPS 4,
-        // flood 83). Say so explicitly instead of letting a red banner sit
-        // unexplained beside a "Minimal" score card.
-        const _reconcile = (heroDPS < 40 && _rw >= 60) ? 'Wind threat is low, but flooding is the danger. ' : '';
-        document.getElementById('rainfallBarText').textContent = deAuthorize(_reconcile + compiled.rainfall_level + ': ' + compiled.rainfall_text);
-        rainBar.style.display = 'flex';
-        rainBar.classList.toggle('rain-extreme', compiled.rainfall_warning >= 60);
+        window._rainBannerData = { rw: _rw, level: compiled.rainfall_level, text: compiled.rainfall_text, heroDPS: heroDPS };
+        // Land-relevance gate (fails open to 'warning' for cached bundles
+        // that predate the flag): a storm whose observed track never nears
+        // land gets "rainfall potential" framing instead of a flood warning.
+        // The forecast handler re-escalates if the OFCL track approaches
+        // exposed coast — so an approaching storm still warns loudly.
+        _renderRainBanner(compiled.rainfall_land_relevant !== false ? 'warning' : 'potential');
     } else {
+        window._rainBannerData = null;
+        window._rainBannerMuted = false;
         rainBar.style.display = 'none';
         rainBar.classList.remove('rain-extreme');
     }
@@ -6744,7 +6778,17 @@ function renderMap(data){
                 // ── Forecast-driven Economic Risk ──
                 // Score the projected track and surface it on the ERS card
                 // (forward-looking; never overwrites observed-to-date ERS).
-                try { displayForecastERS(computeForecastERS(fc.forecast_track, true)); } catch(e) {}
+                try {
+                    const _fcErs = computeForecastERS(fc.forecast_track, true);
+                    displayForecastERS(_fcErs);
+                    // Fish-storm banner de-escalation used the OBSERVED track
+                    // only. If the forecast track reaches exposed coastline
+                    // (forecast ERS found a scored zone), restore the full
+                    // red flood warning — approaching storms must warn.
+                    if (window._rainBannerMuted && _fcErs && _fcErs.score >= 10) {
+                        _renderRainBanner('warning', ' Forecast track approaches land.');
+                    }
+                } catch(e) {}
 
                 // Draw forecast cone
                 if(fc.cone_polygon&&fc.cone_polygon.length>2){
