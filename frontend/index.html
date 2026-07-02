@@ -791,7 +791,7 @@
                     <div class="adv-row"><button id="satToggleBtn" class="adv-toggle" onclick="toggleSatelliteVisibility()" disabled title="Loads when a storm with satellite coverage is displayed">Satellite: Off</button></div>
                     <div class="adv-row"><button id="irToggleBtn" class="adv-toggle" onclick="toggleIRMode()" disabled title="Switch satellite imagery between visible and infrared">Infrared: Off</button></div>
                     <div class="adv-row"><button id="windfieldToggleBtn" class="adv-toggle" onclick="toggleWindfieldLayer()" disabled title="Holland B wind-field overlay">Windfield: Off</button></div>
-                    <div class="adv-row"><button id="windToggleBtn" class="adv-toggle" onclick="toggleWindLayer()" disabled title="Wind particle overlay">Wind: Off</button><input type="range" id="windOpacityInput" class="adv-opacity" min="10" max="95" value="55" oninput="setWindOpacity(this.value)" title="Wind layer opacity"><span id="windOpacityLabel" class="adv-opacity-lbl">55%</span></div>
+                    <div class="adv-row"><button id="windToggleBtn" class="adv-toggle" onclick="toggleWindLayer()" disabled title="Wind particle overlay">Wind: Off</button><input type="range" id="windOpacityInput" class="adv-opacity" min="10" max="95" value="70" oninput="setWindOpacity(this.value)" title="Wind layer opacity"><span id="windOpacityLabel" class="adv-opacity-lbl">70%</span></div>
                     <div class="adv-row"><button id="pressureToggleBtn" class="adv-toggle" onclick="togglePressureLayer()" disabled title="MSLP field, isobars, and station obs">Pressure: Off</button><input type="range" id="pressureOpacityInput" class="adv-opacity" min="10" max="95" value="55" oninput="setPressureOpacity(this.value)" title="Pressure layer opacity"><span id="pressureOpacityLabel" class="adv-opacity-lbl">55%</span></div>
                     <div class="adv-row"><button id="precipToggleBtn" class="adv-toggle" onclick="togglePrecipLayer()" disabled title="Precipitation rate + cloud cover">Precip: Off</button><input type="range" id="precipOpacityInput" class="adv-opacity" min="10" max="95" value="75" oninput="setPrecipOpacity(this.value)" title="Precipitation layer opacity"><span id="precipOpacityLabel" class="adv-opacity-lbl">75%</span></div>
                     <div id="satelliteSlider" class="adv-sat-slider" style="display:none">
@@ -799,7 +799,7 @@
                         <input type="range" id="satelliteSliderInput" min="0" max="0" value="0" oninput="onSatelliteFrameScrub(this.value)" title="Scrub satellite frames">
                         <div id="satelliteFrameLabel" class="adv-sat-frame"></div>
                     </div>
-                    <div id="windLegend" class="adv-legend" style="display:none"><div class="adv-legend-title">Wind speed</div><div class="adv-legend-bar" style="background:linear-gradient(90deg,#3b82f6,#22d3ee,#a3e635,#facc15,#f97316,#ef4444,#ec4899)"></div><div class="adv-legend-lbls"><span>calm</span><span>extreme</span></div></div>
+                    <div id="windLegend" class="adv-legend" style="display:none"><div class="adv-legend-title">Wind speed</div><div class="adv-legend-bar" style="background:linear-gradient(90deg,#6366f1,#0891b2,#16a34a,#ca8a04,#ea580c,#dc2626,#9d174d)"></div><div class="adv-legend-lbls"><span>light</span><span>storm peak</span></div></div>
                     <div id="pressureLegend" class="adv-legend" style="display:none"><div class="adv-legend-title">Sea-level pressure</div><div class="adv-legend-bar" style="background:linear-gradient(90deg,rgb(0,0,60),rgb(30,80,200),rgb(148,224,252),rgb(248,250,252),rgb(249,155,50),rgb(127,29,29))"></div><div class="adv-legend-lbls"><span>900 mb</span><span>1048 mb</span></div></div>
                     <div id="precipLegend" class="adv-legend" style="display:none"><div class="adv-legend-title">Precip rate (mm/h)</div><div class="adv-legend-bar" style="background:linear-gradient(90deg,#bfdbfe,#60a5fa,#2563eb,#facc15,#f97316,#e11d48)"></div><div class="adv-legend-lbls"><span>0.1</span><span>50+</span></div></div>
                 </div>
@@ -5613,11 +5613,13 @@ async function _windDirDraw(idx) {
     st.layer = L.velocityLayer({
         displayValues: false, data: payload,
         maxVelocity: 70, velocityScale: 0.011, particleAge: 60,
-        lineWidth: 1.1, particleMultiplier: 0.0012,
-        colorScale: ['#3b82f6', '#22d3ee', '#a3e635', '#facc15', '#f97316', '#ef4444', '#ec4899'],
+        lineWidth: 1.6, particleMultiplier: 0.0014,
+        // Same 600-weight ramp as the ERA5 wind layer — the old pale
+        // blue/cyan low-speed stops vanished over water.
+        colorScale: ['#6366f1','#0891b2','#16a34a','#ca8a04','#ea580c','#dc2626','#9d174d'],
     }).addTo(currentMap);
     try { st.layer.setZIndex && st.layer.setZIndex(240); } catch (e) {}
-    try { const c = st.layer._canvasLayer && st.layer._canvasLayer._canvas; if (c) c.style.opacity = '0.6'; } catch (e) {}
+    try { const c = st.layer._canvasLayer && st.layer._canvasLayer._canvas; if (c) c.style.opacity = '0.75'; } catch (e) {}
 }
 
 window.setWindDirFrameByIdx = function (stormIdx) {
@@ -5813,15 +5815,27 @@ async function _setWindFrameNow(satelliteTs) {
         // here is usually a no-op since the user clicked the toggle a
         // moment ago and the script has had time to land.
         try { await loadLeafletVelocity(); } catch (e) { console.warn('[WIND] leaflet-velocity load failed:', e); return; }
+        // Scale the colormap to THIS storm's intensity instead of a fixed
+        // 60 m/s hurricane ceiling — under the old mapping a 18 m/s TS's
+        // entire wind field sat in the bottom sixth of the ramp (pale blue
+        // and cyan: invisible over blue ocean and pale satellite water).
+        // Now the storm's own peak sits ~90% up the ramp, so the field
+        // differentiates instead of rendering monochrome.
+        let _peakMs = 0;
+        try { (window.stormData || []).forEach(d => { if ((d.max_wind_ms || 0) > _peakMs) _peakMs = d.max_wind_ms; }); } catch (e) {}
+        const _vmax = Math.max(22, Math.min(70, _peakMs * 1.1 || 60));
         st.layer = L.velocityLayer({
             displayValues: false,
             data: payload,
-            maxVelocity: 60,        // m/s — saturates the colormap at hurricane wind
+            maxVelocity: _vmax,     // m/s — storm-scaled colormap ceiling
             velocityScale: 0.010,
             particleAge: 56,
-            lineWidth: 1.0,
-            particleMultiplier: 0.0011,
-            colorScale: ['#3b82f6','#22d3ee','#a3e635','#facc15','#f97316','#ef4444','#ec4899'],
+            lineWidth: 1.8,
+            particleMultiplier: 0.0016,
+            // 600-weight hues only — every stop reads against both the light
+            // basemap and satellite imagery. The old ramp opened with pale
+            // blue/cyan that vanished over water.
+            colorScale: ['#6366f1','#0891b2','#16a34a','#ca8a04','#ea580c','#dc2626','#9d174d'],
         }).addTo(currentMap);
         try { st.layer.setZIndex && st.layer.setZIndex(250); } catch(e) {}
         // leaflet-velocity ignores `opacity` in its options — soften the
@@ -5829,7 +5843,7 @@ async function _setWindFrameNow(satelliteTs) {
         // Pulls current value from the DIM slider so the user's last choice
         // sticks across hours.
         const _opIn = document.getElementById('windOpacityInput');
-        const _op   = _opIn ? (parseInt(_opIn.value, 10) / 100) : 0.55;
+        const _op   = _opIn ? (parseInt(_opIn.value, 10) / 100) : 0.70;
         try {
             const cvs = st.layer._canvasLayer && st.layer._canvasLayer._canvas;
             if (cvs) cvs.style.opacity = String(_op);
