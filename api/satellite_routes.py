@@ -283,8 +283,10 @@ async def satellite_tile(
 
     path = _tile_path(satellite, ts, z, x, y, mode)
     if path.exists():
+        # Tiles are keyed by frame timestamp and never change once written —
+        # let browsers and the Cloudflare edge keep them effectively forever.
         return FileResponse(path, media_type="image/png",
-                            headers={"Cache-Control": "public, max-age=86400"})
+                            headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
     # "Known miss" sentinel: GIBS already told us this tile doesn't exist for
     # this frame (e.g. ocean tiles at night, off-disk corners). Short-circuit
@@ -318,8 +320,9 @@ async def satellite_tile(
             except OSError as e:
                 logger.warning(f"[SATELLITE] cache write failed for {path}: {e}")
             _maybe_evict()
+            # Same immutability as the disk-hit path: ts-keyed, never changes.
             return Response(content=r.content, media_type="image/png",
-                            headers={"Cache-Control": "public, max-age=86400"})
+                            headers={"Cache-Control": "public, max-age=31536000, immutable"})
         else:
             logger.debug(f"[SATELLITE] upstream {r.status_code} for {upstream}")
             # Definitive 404 → write a sentinel so we don't re-fetch for ~1h.
