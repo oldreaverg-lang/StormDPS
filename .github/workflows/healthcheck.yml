@@ -1,10 +1,19 @@
 name: healthcheck
 
 # Unattended-operation alarm. Polls the production self-check endpoint on a
-# schedule; if the site is down or a background loop has gone stale, the job
+# schedule; if the app is down or a background loop has gone stale, the job
 # FAILS, which sends the usual GitHub Actions failure email — reusing the
 # notification channel the maintainer already receives, with no extra service,
 # account, or email credentials to manage.
+#
+# 2026-07-02: probe the RAILWAY ORIGIN, not stormdps.com. Cloudflare's Bot
+# Fight Mode (free plan, cannot be bypassed by custom rules) started serving
+# managed challenges (HTTP 403 "Just a moment...") to GitHub's runner IPs on
+# ~2026-06-27, failing every run while the app was perfectly healthy. The
+# origin probe tests what this alarm is actually for — app up, loops fresh —
+# with no bot-detection layer in the path. A secondary NON-FATAL probe of
+# stormdps.com reports front-door reachability (any HTTP status counts as
+# reachable; a Cloudflare challenge still proves the edge + DNS are alive).
 #
 # Run it manually any time from the Actions tab ("Run workflow").
 
@@ -13,18 +22,21 @@ on:
     - cron: "0 */6 * * *"   # every 6 hours (GitHub cron is best-effort)
   workflow_dispatch: {}
 
+env:
+  ORIGIN: https://stormdps-production.up.railway.app
+
 jobs:
   selfcheck:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe stormdps.com /health/selfcheck
+      - name: Probe Railway origin /health/selfcheck
         run: |
           # Warm the worker first — Railway can cold-start at low-traffic hours, and
           # a cold start + first bundle parse can exceed a tight timeout. The
           # warm-up request soaks that up so the real probe measures health, not boot.
-          curl -s -o /dev/null --max-time 45 "https://stormdps.com/health?cb=${GITHUB_RUN_ID}" || true
+          curl -s -o /dev/null --max-time 45 "${ORIGIN}/health?cb=${GITHUB_RUN_ID}" || true
 
-          url="https://stormdps.com/health/selfcheck?cb=${GITHUB_RUN_ID}"
+          url="${ORIGIN}/health/selfcheck?cb=${GITHUB_RUN_ID}"
           # Retry over a few minutes so a cold worker or a momentary blip recovers
           # and only a SUSTAINED problem pages (no -f: it garbles %{http_code}).
           code=000
@@ -38,7 +50,19 @@ jobs:
           cat body.json 2>/dev/null | head -c 4000 || true
           echo
           if [ "$code" != "200" ]; then
-            echo "::error::stormdps.com self-check failed 3x over ~2.5 min (last HTTP ${code}). Sustained — worth investigating; see body above."
+            echo "::error::Railway origin self-check failed 3x over ~2.5 min (last HTTP ${code}). Sustained — worth investigating; see body above."
             exit 1
           fi
-          echo "stormdps.com healthy."
+          echo "origin healthy."
+
+      - name: Front-door reachability (stormdps.com, non-fatal)
+        run: |
+          # Bot Fight Mode may challenge datacenter IPs — any HTTP response
+          # (including a 403 challenge) proves DNS + Cloudflare edge are alive.
+          # Only a total connection failure is noted, and even that is NON-FATAL
+          # (the fatal signal above is the origin check).
+          code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 45 "https://stormdps.com/?cb=${GITHUB_RUN_ID}" || echo "000")
+          echo "stormdps.com -> HTTP ${code}"
+          if [ "$code" = "000" ]; then
+            echo "::warning::stormdps.com did not respond at all (DNS/edge issue?) — origin is healthy, so this is likely Cloudflare-side."
+          fi
