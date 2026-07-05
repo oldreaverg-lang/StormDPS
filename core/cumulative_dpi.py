@@ -47,7 +47,7 @@ import math
 import json
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass
 
@@ -218,13 +218,28 @@ def _get_zone_weight(coastal_zone: str) -> float:
 
 
 def _parse_timestamp(ts_str: str) -> datetime:
-    """Parse ISO timestamp from preload bundle."""
-    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
-        try:
-            return datetime.strptime(ts_str, fmt)
-        except ValueError:
-            continue
-    raise ValueError(f"Cannot parse timestamp: {ts_str}")
+    """Parse an ISO timestamp from the preload bundle or live track JSON.
+
+    Live b-deck snapshots serialize tz-aware ("2026-07-01T00:00:00+00:00");
+    baked bundles are naive ("2005-08-29T12:00:00"). Normalize to naive UTC
+    so downstream arithmetic can mix freely. (The old strptime list rejected
+    the tz suffix, so every LIVE storm silently fell back to count×6h track
+    hours and default 6h duration steps — Bavi 2026 audit.)
+    """
+    try:
+        dt = datetime.fromisoformat(ts_str)
+    except (TypeError, ValueError):
+        for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
+            try:
+                dt = datetime.strptime(ts_str, fmt)
+                break
+            except ValueError:
+                continue
+        else:
+            raise ValueError(f"Cannot parse timestamp: {ts_str}")
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
 
 
 def _estimate_region_from_coords(lat: float, lon: float) -> Optional[str]:

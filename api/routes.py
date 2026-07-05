@@ -411,7 +411,7 @@ _ACTIVE_TRACK_TTL_S = 5400  # 90 minutes
 #           fish storms no longer show a red flood warning). Bump forces
 #           on-demand recomputes so cached active-storm entries pick up
 #           both changes.
-_DPS_CACHE_VERSION = "v12-exp-landrel"
+_DPS_CACHE_VERSION = "v13-full-track"
 
 # Cache for global IBTrACS catalog to avoid repeated large downloads/parses.
 # We also persist a json cache file so restarts can reuse the catalog quickly.
@@ -2253,6 +2253,42 @@ def _load_dps_cache(storm_id: str) -> Optional[dict]:
     return data if isinstance(data, dict) else None
 
 
+def _dps_cache_needs_rearm(bundle: dict) -> bool:
+    """True when a cached bundle carries a DEFERRED no-landfall dampener but
+    the storm's last fix has aged past the freshness window.
+
+    compile_cache defers the retrospective ×0.60 fish-storm dampener while a
+    track is in progress (track_is_in_progress, 7-day window). But the hourly
+    force-refresh only covers storms still on the active list — its LAST
+    recompute happens while the final fix is hours old, so a dead WP/EP
+    fish storm's final (undampened) bundle would otherwise be served from
+    cache forever. Treating that bundle as a miss makes the next view
+    recompute: the track is now stale, the dampener re-applies, and the
+    corrected bundle overwrites the cache once.
+    """
+    try:
+        notes = bundle.get("adjustment_notes") or ""
+        if "no-LF dampener deferred" not in notes:
+            return False
+        ts = bundle.get("_last_fix_ts")
+        if not ts:
+            # Bundle predates the _last_fix_ts stamp — approximate with the
+            # last DPI timeseries entry (dpi>0 fixes only; close enough for a
+            # 7-day staleness check, and errs toward recomputing).
+            series = bundle.get("dpi_timeseries") or []
+            ts = (series[-1] or {}).get("t") if series else None
+        if not ts:
+            return True  # deferred note but unknown age → recompute to be safe
+        from datetime import datetime, timezone
+        dt = datetime.fromisoformat(str(ts))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        age_s = (datetime.now(timezone.utc) - dt).total_seconds()
+        return age_s >= 7 * 86400.0
+    except Exception:
+        return True  # malformed cache entry → recompute (fail toward correctness)
+
+
 def _invalidate_dps_cache(storm_id: str) -> None:
     """Mark a storm's cached DPS bundle stale so the next /dps call recomputes
     (e.g. after recording observed rainfall). On the Railway volume the app user
@@ -2318,7 +2354,12 @@ async def get_storm_dps(
     name: Optional[str] = Query(None, description="Display name (e.g. Katrina). Used for cumulative DPI era adjustments."),
     year: Optional[int] = Query(None, description="Year for era adjustments (defaults to storm_id year if ATCF)"),
     grid_resolution_km: float = Query(15.0, ge=1.0, le=50.0),
-    skip_points: int = Query(1, ge=0, le=10),
+    # skip_points=0: DPS must see the FULL synoptic track. The old default
+    # of 1 (every 2nd fix) dropped Bavi 2026's actual peak (145kt/913hPa →
+    # bundle said 140kt/919), doubled the RI estimator's apparent rate on
+    # the resulting 12-hourly spacing, and would halve future duration
+    # credit. IKE per-fix cost is absorbed by the /track cache.
+    skip_points: int = Query(0, ge=0, le=10),
     force: bool = Query(False, description="Bypass the DPS cache and recompute."),
 ):
     """
@@ -2332,10 +2373,11 @@ async def get_storm_dps(
     The returned dict matches the per-storm schema of compiled_bundle.json,
     so the frontend can use it identically for presets and ad-hoc storms.
     """
-    # 1) Cache hit
+    # 1) Cache hit — unless the bundle holds a deferred no-landfall dampener
+    # for a track that has since gone stale (see _dps_cache_needs_rearm).
     if not force:
         cached = _load_dps_cache(storm_id)
-        if cached:
+        if cached and not _dps_cache_needs_rearm(cached):
             return JSONResponse(content=cached)
 
     # 2) Fetch snapshots via the unified track endpoint (which itself caches IKE).
@@ -2366,16 +2408,19 @@ async def get_storm_dps(
     if not engine_snaps:
         raise HTTPException(status_code=404, detail=f"No snapshots available for {storm_id}")
 
-    # Resolve name + year. For ATCF IDs (AL122005) we can derive year from the ID.
+    # Resolve name + year. For ATCF IDs (AL122005, WP092026) derive year from the ID.
     derived_year = year
-    if derived_year is None and len(storm_id) == 8 and storm_id[:2].upper() in ("AL", "EP"):
+    if derived_year is None and len(storm_id) == 8 and storm_id[:2].upper() in (
+        "AL", "EP", "WP", "IO", "SH", "CP", "SP", "SI"
+    ):
         try:
             derived_year = int(storm_id[4:])
         except ValueError:
             derived_year = 0
     if derived_year is None:
         derived_year = 0
-    storm_name = name or storm_id
+    # Fall back to the catalog name so live bundles say "Bavi", not "WP092026".
+    storm_name = name or _lookup_storm_name_from_catalog(storm_id) or storm_id
 
     # 3) Compute via the unified engine (same code path as compile_cache.py)
     from core.dps_engine import compute_storm_dps
@@ -2391,6 +2436,9 @@ async def get_storm_dps(
         raise HTTPException(status_code=500, detail=f"DPS computation failed: {e}")
 
     bundle["_cache_version"] = _DPS_CACHE_VERSION
+    # Last observed fix (tracks are chronologically sorted) — lets the cache
+    # layer detect when a deferred no-landfall dampener must re-arm.
+    bundle["_last_fix_ts"] = engine_snaps[-1].get("timestamp") or None
     _save_dps_cache(storm_id, bundle)
     return JSONResponse(content=bundle)
 
@@ -2438,9 +2486,16 @@ async def _warm_one_dps(storm_id: str, *, force: bool = False) -> str:
     if not force:
         fp = _dps_cache_path(storm_id)
         if fp.exists():
-            return "cached"
+            # Recompute anyway when the cached bundle is unreadable (e.g.
+            # post-invalidation "stale" marker) or carries a deferred
+            # no-landfall dampener for a now-stale track.
+            cached = _load_dps_cache(storm_id)
+            if cached is not None and not _dps_cache_needs_rearm(cached):
+                return "cached"
     try:
-        track_results = await get_storm_track(storm_id, grid_resolution_km=15.0, skip_points=1)
+        # skip_points=0 — must match get_storm_dps so the warm loop and the
+        # request path compute from the same full-resolution track.
+        track_results = await get_storm_track(storm_id, grid_resolution_km=15.0, skip_points=0)
     except Exception as e:
         logger.warning(f"[DPS WARM] track fetch failed for {storm_id}: {e}")
         return "failed"
@@ -2458,7 +2513,9 @@ async def _warm_one_dps(storm_id: str, *, force: bool = False) -> str:
         return "no_snapshots"
 
     derived_year = 0
-    if len(storm_id) == 8 and storm_id[:2].upper() in ("AL", "EP"):
+    if len(storm_id) == 8 and storm_id[:2].upper() in (
+        "AL", "EP", "WP", "IO", "SH", "CP", "SP", "SI"
+    ):
         try:
             derived_year = int(storm_id[4:])
         except ValueError:
@@ -2473,7 +2530,7 @@ async def _warm_one_dps(storm_id: str, *, force: bool = False) -> str:
             compute_storm_dps,
             storm_id=storm_id,
             snapshots=engine_snaps,
-            storm_name=storm_id,
+            storm_name=_lookup_storm_name_from_catalog(storm_id) or storm_id,
             storm_year=int(derived_year),
         )
     except Exception as e:
@@ -2481,6 +2538,7 @@ async def _warm_one_dps(storm_id: str, *, force: bool = False) -> str:
         return "failed"
 
     bundle["_cache_version"] = _DPS_CACHE_VERSION
+    bundle["_last_fix_ts"] = engine_snaps[-1].get("timestamp") or None
     _save_dps_cache(storm_id, bundle)
     return "computed"
 
@@ -2903,7 +2961,7 @@ async def get_preload_bundle():
 @router.post("/preload/generate", dependencies=[Depends(require_admin)])
 async def generate_preload_bundle(
     grid_resolution_km: float = Query(15.0, ge=1.0, le=50.0),
-    skip_points: int = Query(1, ge=0, le=10),
+    skip_points: int = Query(0, ge=0, le=10),  # 0 = full track; matches /track, /dps, startup warm
 ):
     """
     Pre-compute and cache IKE data for all preset storms that are not

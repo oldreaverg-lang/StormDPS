@@ -383,6 +383,50 @@ def storm_made_land_contact(snapshots, min_count=2, min_wind_ms=33.0):
     return False
 
 
+def track_is_in_progress(snapshots, max_age_days: float = 7.0) -> bool:
+    """
+    True if the track's most recent fix is fresh enough that the storm is
+    plausibly still active (within max_age_days of now — mirrors the
+    routes-layer _track_is_historical threshold).
+
+    Used to DEFER the retrospective no-landfall dampener for live storms.
+    That penalty encodes "this storm never realized its potential over its
+    lifetime", which is unknowable mid-track: Bavi 2026 sat at Cat 5 with a
+    JTWC forecast through the Marianas while the dampener read its
+    landfall-free PAST, halved the score to 39.6 "Moderate", and would then
+    have jumped +33 overnight when the first fixes entered the coastal box.
+    Completed storms are unaffected — every baked/historical track's latest
+    fix is long past the freshness window, so the dampener applies exactly
+    as before once a storm's track goes stale without land contact.
+
+    Fail-closed: missing/unparseable timestamps → False (treated as
+    historical → dampener behavior unchanged).
+    """
+    from datetime import datetime, timezone
+
+    if not snapshots:
+        return False
+    ts = None
+    for snap in reversed(snapshots):
+        raw = snap.get("timestamp") if isinstance(snap, dict) else None
+        if not raw:
+            continue
+        if isinstance(raw, datetime):
+            ts = raw
+            break
+        try:
+            ts = datetime.fromisoformat(str(raw))
+            break
+        except ValueError:
+            continue
+    if ts is None:
+        return False
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    age_s = (datetime.now(timezone.utc) - ts).total_seconds()
+    return age_s < max_age_days * 86400.0
+
+
 def has_orographic_rainfall_potential(snapshots, basin):
     """
     Check if storm track passes close enough to mountains to trigger
@@ -803,11 +847,36 @@ def apply_basin_dps_adjustment(cum_dpi, basin, snapshots,
     RI_MAX_SCALE_MS_PER_24H = 45.0  # ~87 kt/24h — near the physical ceiling
     ri_bonus = 0
     if coeffs["ri_bonus"] > 0 and len(snapshots) >= 2:
+        # Scale each step's gain to a 24h-equivalent using the REAL spacing
+        # between fixes when timestamps parse; fall back to the historical
+        # 6-hourly assumption (×4) otherwise. The fixed ×4 doubled the
+        # apparent rate on 12-hourly (thinned live) tracks and halved it on
+        # 3-hourly data. dt is floored at 3h so sub-synoptic inputs can't
+        # amplify a single-step blip beyond ×8.
+        from datetime import datetime as _dt
+
+        def _snap_ts(s):
+            raw = s.get("timestamp") if isinstance(s, dict) else None
+            if isinstance(raw, _dt):
+                return raw
+            if not raw:
+                return None
+            try:
+                return _dt.fromisoformat(str(raw))
+            except ValueError:
+                return None
+
         max_24h_gain = 0
         for i in range(1, len(snapshots)):
             wind_prev = snapshots[i - 1].get("max_wind_ms", 0) or 0
             wind_curr = snapshots[i].get("max_wind_ms", 0) or 0
-            gain_estimate = (wind_curr - wind_prev) * 4  # m/s per 24h
+            t0, t1 = _snap_ts(snapshots[i - 1]), _snap_ts(snapshots[i])
+            scale = 4.0  # legacy 6h assumption
+            if t0 is not None and t1 is not None and t1.tzinfo == t0.tzinfo:
+                dt_h = (t1 - t0).total_seconds() / 3600.0
+                if dt_h > 0:
+                    scale = 24.0 / max(dt_h, 3.0)
+            gain_estimate = (wind_curr - wind_prev) * scale  # m/s per 24h
             if gain_estimate > max_24h_gain:
                 max_24h_gain = gain_estimate
 
@@ -897,9 +966,17 @@ def apply_basin_dps_adjustment(cum_dpi, basin, snapshots,
         #    detector misses WP typhoons that spin up inside the coarse coastal
         #    boxes and were wrongly halving genuine Taiwan/China/Luzon strikes
         #    (Gaemi, Yagi, Kong-Rey, Ragasa, Krathon).
+        #
+        #    DEFERRED for in-progress tracks (Bavi 2026 audit): mid-track,
+        #    "never made landfall" is not yet a fact about the storm — it's a
+        #    fact about the clock. The dampener re-arms automatically once the
+        #    latest fix ages past the freshness window without land contact.
         if landfall_count == 0 and not storm_made_land_contact(snapshots):
-            adjusted_dps *= 0.60
-            adjustment_notes.append("×0.60(no-landfall)")
+            if track_is_in_progress(snapshots):
+                adjustment_notes.append("no-LF dampener deferred (active storm)")
+            else:
+                adjusted_dps *= 0.60
+                adjustment_notes.append("×0.60(no-landfall)")
 
     # Eastern Pacific-specific enhancements (v11, EP_DPS_AUDIT.md).
     # Mirrors the WP enhancement block — multi-landfall, orographic,
@@ -957,10 +1034,14 @@ def apply_basin_dps_adjustment(cum_dpi, basin, snapshots,
         #    Patricia briefly in 2015 at peak intensity, etc.) scores
         #    in the high 90s even with no realized impact. Gated on
         #    storm_made_land_contact (not the event count) for the same
-        #    reason as WP — see that block.
+        #    reason as WP — see that block. Deferred for in-progress
+        #    tracks, same rationale as the WP block.
         if landfall_count == 0 and not storm_made_land_contact(snapshots):
-            adjusted_dps *= 0.60
-            adjustment_notes.append("×0.60(no-landfall)")
+            if track_is_in_progress(snapshots):
+                adjustment_notes.append("no-LF dampener deferred (active storm)")
+            else:
+                adjusted_dps *= 0.60
+                adjustment_notes.append("×0.60(no-landfall)")
 
     # Compression curve — C1 saturating exponential (v12, 2026-07 audit).
     #

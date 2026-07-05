@@ -11,6 +11,13 @@ description: Rebake the pre-computed DPS bundle (frontend/compiled_bundle.json) 
 
 After editing any of: `core/dps_engine.py`, `core/ike.py`, `core/cumulative_dpi.py`, `compile_cache.py`, `core/ground_truth.py`, or the basin adjustment path / `frontend/basin_dps_coefficients.js`.
 
+**Timing caveat:** don't bake while a WP/EP storm with a <7-day-old track and no
+land contact is present in the preload data. `apply_basin_dps_adjustment` DEFERS
+the ×0.60 no-landfall dampener for in-progress tracks (`track_is_in_progress`),
+so baking mid-storm would freeze the undampened score into `compiled_bundle.json`
+until the next bake. Wait until the storm's last fix is >7 days old (the deferral
+expires on its own), or exclude the storm from the bake.
+
 ## Steps
 
 1. **One command** (preferred) from the repo root:
