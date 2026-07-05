@@ -148,13 +148,25 @@ COASTAL_BOXES = [
     # Placed before Japan so Saipan (15.2°N, 145.7°E) matches Mariana, not Japan.
     # Mirrors compile_cache.COASTAL_REGIONS. Without these, every WP storm
     # gets duration_factor=0, breadth_factor=0 (Sinlaku 2026 audit).
+    #
+    # [WP_DPS_AUDIT_V2 2026-07] Geometry tightened. The old Philippines box ran
+    # to 135E — ~800 km of open Philippine Sea — so open-ocean recurvers
+    # (Surigae 2021) accrued coastal hours and defeated the no-landfall
+    # dampener; the "Vietnam / Cambodia" box (20-25N / 115-122E) was drawn in
+    # the Taiwan Strait, nowhere near Vietnam. The Philippines is now split
+    # into latitude bands because its east coast slants from 126.6E (Mindanao)
+    # to 122.4E (Luzon): one rectangle either cuts Samar off or swallows the
+    # Philippine Sea corridor where near-misses pass.
     (13.0, 20.5, 144.0, 146.5, "Mariana Islands"),     # Guam, Saipan, Tinian, Rota
-    (5,    21,   120,   135,   "Philippines"),
-    (20,   25,   115,   122,   "Vietnam / Cambodia"),
-    (21,   26,   119,   123,   "Taiwan"),
-    (24,   45,   123,   145,   "Japan"),
-    (15,   25,   105,   122,   "Thailand / Laos"),
-    (15,   40,   105,   125,   "China"),
+    (4.5, 12.8, 116.9, 127.3, "Philippines"),          # Mindanao / Visayas / Samar
+    (12.8, 15.0, 119.5, 125.3, "Philippines"),         # Bicol / Catanduanes
+    (15.0, 18.8, 119.6, 122.9, "Philippines"),         # Luzon
+    (18.8, 21.2, 120.4, 122.4, "Philippines"),         # Batanes / Babuyan
+    (8.0, 21.8, 102.0, 110.4, "Vietnam / Cambodia"),   # actual Vietnam coast
+    (21.7, 25.5, 119.8, 122.2, "Taiwan"),
+    (24,   45.5, 122.5, 146,   "Japan"),
+    (5.0, 15.0, 98.0, 105.2, "Thailand / Laos"),       # Gulf of Thailand
+    (20,   41,   105.5, 123,   "China"),
     # --- Eastern Pacific ---
     # Added 2026-05-15 ahead of El Niño 2026 EP season. Without these
     # the EP basin had no coastal coverage; every EP storm got
@@ -187,6 +199,30 @@ class CumulativeDPIResult:
     storm_year: int
     # Per-snapshot DPI series for charting
     dpi_timeseries: List[Dict]
+
+
+def _plausible_ike_tj(snapshot: Dict) -> float:
+    """IKE for the cumulative layer, gated against impossible radii rows.
+
+    [WP_DPS_AUDIT_V2 2026-07] IBTrACS carries glitch rows where a 35-40 kt
+    tropical storm reports r34 of 290-350 nm — physically impossible gale
+    radii that produce identical ~196 TJ IKE spikes (Ragasa, Kong-Rey, Gaemi,
+    Doksuri, Haiyan, Rai all shared the exact value 196.31) and pin the
+    breadth factor at its cap. When the (vmax, r34) pair is implausible the
+    snapshot's IKE is clamped to 20 TJ — generous for any storm below
+    hurricane strength (the glitch rows' clean neighbors run 3-17 TJ).
+    """
+    ike = snapshot.get("ike_total_tj", 0) or 0
+    r34 = snapshot.get("r34_nm", 0) or 0
+    if not r34 or ike <= 20.0:
+        return ike
+    vmax = snapshot.get("max_wind_ms", 0) or 0
+    implausible = (
+        vmax < 17.5                        # no 34-kt wind exists at all
+        or (vmax < 25.7 and r34 > 150)     # <50 kt: 150 nm gale-radius ceiling
+        or (vmax < 33.0 and r34 > 250)     # <64 kt: 250 nm ceiling
+    )
+    return min(ike, 20.0) if implausible else ike
 
 
 def _is_near_coast(lat: float, lon: float) -> bool:
@@ -373,7 +409,7 @@ def compute_cumulative_dpi(
         ts = snap.get("timestamp", "")
         lat, lon = snap["lat"], snap["lon"]
         near_coast = _is_near_coast(lat, lon)
-        ike_tj = snap.get("ike_total_tj", 0) or 0
+        ike_tj = _plausible_ike_tj(snap)
 
         dpi_series.append({
             "timestamp": ts,
@@ -394,8 +430,19 @@ def compute_cumulative_dpi(
     # Peak IKE excludes extratropical snapshots (NATURE=ET / USA_STATUS=EX): the
     # post-tropical phase otherwise dominates the peak for recurving storms and
     # misrepresents the tropical-phase threat. Falls back to all if fully ET.
-    _trop = [s for s in dpi_series if not s.get("et")]
-    peak_ike = max((s["ike_tj"] for s in (_trop or dpi_series)), default=0)
+    #
+    # [WP_DPS_AUDIT_V2 2026-07] SUSTAINED peak: max of the 3-snapshot rolling
+    # mean, not the single-snapshot max. A wind field does not double for six
+    # hours and vanish — single-fix spikes are radii glitches, and the breadth
+    # factor was riding them straight to its cap.
+    _trop = [s for s in dpi_series if not s.get("et")] or dpi_series
+    _ikes = [s["ike_tj"] for s in _trop]
+    if len(_ikes) >= 3:
+        peak_ike = max(
+            sum(_ikes[i - 1:i + 2]) / 3.0 for i in range(1, len(_ikes) - 1)
+        )
+    else:
+        peak_ike = max(_ikes, default=0)
 
     if peak_dpi < 5:
         return CumulativeDPIResult(

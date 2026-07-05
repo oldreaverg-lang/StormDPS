@@ -257,13 +257,23 @@ COASTAL_REGIONS = [
     # Western Pacific
     # Mariana Islands (Guam, Saipan, Tinian, Rota) — US territory.
     # Placed before Japan so Saipan (~15.2°N, 145.7°E) matches here, not Japan.
+    #
+    # [WP_DPS_AUDIT_V2 2026-07] Geometry tightened — keep in lockstep with
+    # core/cumulative_dpi.COASTAL_BOXES. Old Philippines box reached 135E
+    # (~800 km offshore, defeating the no-landfall dampener for Surigae-class
+    # recurvers); old "Vietnam / Cambodia" box was drawn in the Taiwan Strait.
+    # Philippines is latitude-banded because its east coast slants from
+    # 126.6E (Mindanao) to 122.4E (Luzon).
     (13.0, 20.5, 144.0, 146.5, "Mariana Islands"),
-    (5, 21, 120, 135, "Philippines"),
-    (20, 25, 115, 122, "Vietnam / Cambodia"),
-    (21, 26, 119, 123, "Taiwan"),
-    (24, 45, 123, 145, "Japan"),
-    (15, 25, 105, 122, "Thailand / Laos"),
-    (15, 40, 105, 125, "China"),
+    (4.5, 12.8, 116.9, 127.3, "Philippines"),   # Mindanao / Visayas / Samar
+    (12.8, 15.0, 119.5, 125.3, "Philippines"),  # Bicol / Catanduanes
+    (15.0, 18.8, 119.6, 122.9, "Philippines"),  # Luzon
+    (18.8, 21.2, 120.4, 122.4, "Philippines"),  # Batanes / Babuyan
+    (8.0, 21.8, 102.0, 110.4, "Vietnam / Cambodia"),  # actual Vietnam coast
+    (21.7, 25.5, 119.8, 122.2, "Taiwan"),
+    (24, 45.5, 122.5, 146, "Japan"),
+    (5.0, 15.0, 98.0, 105.2, "Thailand / Laos"),  # Gulf of Thailand
+    (20, 41, 105.5, 123, "China"),
 ]
 
 
@@ -535,13 +545,21 @@ def determine_wp_sub_basin(snapshots):
         ("WP_JAPAN",        24.0,   45.5,    128.0,   146.0),
     ]
 
-    counts = {key: 0 for key, *_ in regions}
+    # [WP_DPS_AUDIT_V2 2026-07] Tally weighted by wind^2 instead of raw fix
+    # count. The unweighted tally measured where the track LOITERED, not where
+    # the storm was strong: 7 of the 8 baked WP storms classified as
+    # WP_PHILIPPINES (the big box sits across the main typhoon corridor), and
+    # Haiyan — the canonical Philippines catastrophe — classified as
+    # WP_VIETNAM off its dying inland fixes. wind^2 makes the label follow
+    # destructive presence in a region.
+    counts = {key: 0.0 for key, *_ in regions}
     for snapshot in snapshots:
         lat = snapshot.get("lat", 0)
         lon = snapshot.get("lon", 0)
+        w2 = (snapshot.get("max_wind_ms", 0) or 0) ** 2
         for key, lat_min, lat_max, lon_min, lon_max in regions:
             if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
-                counts[key] += 1
+                counts[key] += w2
 
     max_region = max(counts, key=counts.get)
     return max_region if counts[max_region] > 0 else "WP_GENERAL"

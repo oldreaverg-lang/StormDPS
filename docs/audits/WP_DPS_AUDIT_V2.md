@@ -68,7 +68,68 @@ Every anomalous "peak IKE ≈ 196.3 TJ" (Ragasa, Gaemi, Kong-Rey; Chan-Hom 197.5
 5. **R5 — Mortality belongs in IAS/ERS, not DPS.** ρ(deaths) ≈ 0 is partly by design (hazard→DPS; exposure/vulnerability→ERS/IAS). Ship the exposure integrator (WorldPop/GHSL × wind along track) as a visible IAS component for WP rather than distorting DPS to chase deaths. Kalmaegi's mortality (dense, vulnerable Cebu) is exactly this pathway.
 6. **R6 — Expand the WP validation set before any coefficient change.** 8 storms is too few and 2024–25-skewed. Add via IBTrACS: Haiyan 2013, Hagibis 2019, Mangkhut 2018, Doksuri 2023, Goni 2020, Rai 2021, Surigae 2021, Nanmadol 2022, Noru 2022, Saola 2023 (intensity-extreme + damage-heavy + fish-storm anchors).
 
-## 6. What NOT to do
+## 6. Tranche A — SHIPPED (2026-07-05)
+
+Implemented after expanding the validation set to 18 storms (10 added via the
+live /track pipeline: Haiyan, Hagibis, Mangkhut, Doksuri, Goni, Rai, Surigae,
+Nanmadol, Noru, Saola — see `scratch/wp_calibration.py`). On the full set the
+old formula collapsed to **ρ(damage) +0.176 / ρ(deaths) +0.073**, and Surigae
+(the fish storm the dampener was BUILT for) ranked #1 WP storm at 91.5 — the
+old Philippines box reached 135°E, so its open-ocean loitering counted as land
+contact.
+
+Shipped changes (current coefficient table retained):
+1. **R2 hygiene** — `_plausible_ike_tj` clamp (r34 gale-radius ceilings by
+   vmax) + sustained rolling-3 peak IKE in `compute_cumulative_dpi`.
+2. **Geometry** — Philippines latitude-banded (east coast slants 126.6E→
+   122.4E; bands: Mindanao/Visayas/Samar, Bicol, Luzon, Batanes), Vietnam box
+   moved from the Taiwan Strait to Vietnam, Japan/China/Taiwan/Thailand
+   tightened; `COASTAL_BOXES` and `COASTAL_REGIONS` now in lockstep.
+3. **R3-lite** — sub-basin tally weighted by wind² (Haiyan VIETNAM→
+   PHILIPPINES; Yagi→VIETNAM; Gaemi→TAIWAN).
+
+Results: **ρ(damage) +0.176 → +0.441**; Surigae 91.5→55.3 (×0.60 restored);
+Haiyan 87.8 top-2 with correct label; 50 Atlantic storms drift DOWN ≤2.2 from
+sustained-IKE; **Atlantic validation unchanged: AUC 0.84 / ρ 0.68**;
+actual_impact 35/35 preserved; 223 storms, 0 dropped.
+
+## 7. Tranche B — calibration learnings from sandbox S3–S5 (NOT shipped)
+
+The full R1 profile activation was prototyped (`scratch/wp_recal_harness.py`,
+stages S3–S5). What the iterations proved, so the next session doesn't
+re-learn it:
+
+- **Living legs double peak_dpi** (Kalmaegi 30→65, Ragasa 44.5→88) and are
+  the only lever that moves the Kalmaegi class. But naive activation
+  saturates finals at 90–97 — the compensating layer must be stripped in the
+  same change (basin mult →1.0, RI →0, compression T 70→~80).
+- **WP RI bonus must die, not shrink**: every WP major RIs, so any flat/
+  scaled RI is +7…+10 mush on all of them. Replace with a
+  **landfall-intensity bonus** (wind at land contact) — that is the Haiyan
+  discriminator.
+- **Rectangles cannot represent Japan/China coasts** — the "tight" Japan box
+  still spans 800 km of Philippine Sea, so a wind-at-land-box bonus rewarded
+  coastal loitering (Saola 94.4 on $0.58B). Tranche B requires extending
+  `core/land_proximity.py` with WP coastline waypoints (~120 points, PH/TW/
+  JP/CN/VN/KR/Marianas → wp_* region keys); distance-to-coast then drives
+  profile assignment, land contact, landfall detection, LFI, and coastal
+  hours uniformly — and `storm_surge`/`economic_vulnerability` auto-detect
+  picks WP profiles up for every surface, not just the engine.
+- **WP econ profiles need ~15% damping** vs US-anchored formulas or every
+  landfalling major reaches Katrina-class raw scores.
+- Draft WP profiles (8 coastal + 8 economic, first-iteration values) are in
+  `scratch/wp_recal_harness.py` — start from those, damp econ calibration
+  ×0.85.
+- Anchors for acceptance: Haiyan 93–96 (top), Yagi 85–90, Ragasa high-70s,
+  Kong-Rey low-60s, Kalmaegi 62–75, Surigae ≤45 post-dampener. Doksuri will
+  stay under-scored until rainfall/remnant integration (R5) — documented gap.
+- Reviewer advisories from the Tranche A ship: make the sustained-IKE rolling
+  window TIME-based (~18h) instead of 3-snapshot (3-hourly tracks currently
+  get a 9h window — small pro-3-hourly bias, Saola 118→112); displayed "Peak
+  IKE" on SSR/methodology now shows the sustained/clamped value (honest, but
+  visibly lower for glitch storms — Ragasa 196.3→96.2 TJ).
+
+## 8. What NOT to do
 
 - Do not ship V1/V2/V3-style tweaks alone — every combination measured worse than current on this set.
 - Do not re-tune sub-basin multipliers until labels come from landfalls (R3): the current table has never actually been exercised.
