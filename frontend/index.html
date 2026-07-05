@@ -3138,10 +3138,11 @@ function loadActiveStorm(id){
     fetchHistory();
 }
 
+let _activeRetryPending=false;
 async function fetchActiveStorms(){
     try{
         const controller=new AbortController();
-        const timeout=setTimeout(()=>controller.abort(),3000); // 3 second timeout
+        const timeout=setTimeout(()=>controller.abort(),8000); // 8s — deploy restarts + slow mobile links overran the old 3s
         const r=await fetch(`${API_BASE}/storms/active`,{signal:controller.signal});
         clearTimeout(timeout);
         if(!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -3153,8 +3154,25 @@ async function fetchActiveStorms(){
             loadActiveStorm(storms[0].id);
         }
     }catch(e){
-        console.warn('Active storms fetch failed:',e);
-        renderActiveStorms([]);
+        // A failed poll is NOT an all-clear. Blanking the list here rendered
+        // "No active tropical cyclones right now" during Super Typhoon Bavi's
+        // Guam approach whenever one request aborted (server restart, slow
+        // link). Keep the last-known chips on screen; only a SUCCESSFUL empty
+        // response may show the off-season message. If we have nothing yet,
+        // show an honest feed-error note instead, and retry soon rather than
+        // waiting out the 5-minute poll.
+        console.warn('Active storms fetch failed (keeping last known):',e);
+        if(!window._activeStorms||window._activeStorms.length===0){
+            const list=document.getElementById('activeStormsList');
+            if(list&&!list.querySelector('.active-chip')){
+                list.innerHTML='<div class="offseason-msg">Live storm feed temporarily unreachable — retrying…</div>';
+                _lastActiveStormsJson='';  // force repaint on next successful poll (dedup would skip an identical [])
+            }
+        }
+        if(!_activeRetryPending){
+            _activeRetryPending=true;
+            setTimeout(()=>{_activeRetryPending=false;fetchActiveStorms();},30000);
+        }
     }
 }
 
