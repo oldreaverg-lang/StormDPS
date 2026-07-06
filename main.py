@@ -994,6 +994,17 @@ class CachedStaticFiles(StaticFiles):
     async def get_response(self, path, scope):
         response = await super().get_response(path, scope)
         if response.status_code == 200:
+            # The service-worker script is the version gate for everything the
+            # SW itself caches (econ_zones.json, bundle, statics). It must
+            # ALWAYS be revalidated — a cached sw.js pins clients to an old
+            # CACHE_NAME and every runtime-cached asset stays frozen with it.
+            # (Bavi 2026: a 17h-old edge copy of sw.js held v11 after the v12
+            # ERS-zone bump.) NB Cloudflare's Browser Cache TTL override can
+            # still rewrite this for browsers; edge revalidation is what we
+            # need, and no-cache achieves that once the current entry expires.
+            if str(path).replace("\\", "/").endswith("sw.js"):
+                response.headers["Cache-Control"] = "no-cache, max-age=0, must-revalidate"
+                return response
             ext = Path(path).suffix.lower()
             cache = _STATIC_CACHE_BY_EXT.get(ext)
             if cache:
