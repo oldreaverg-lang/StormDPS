@@ -1937,6 +1937,72 @@ def _lookup_storm_name_from_catalog(storm_id: str) -> Optional[str]:
 # Unified track endpoint (auto-routes HURDAT2 vs IBTrACS)
 # ------------------------------------------------------------------
 
+def _densify_snapshots_3h(snapshots: list) -> list:
+    """Insert linearly-interpolated ~3-hourly midpoints into any gap > 4.5h.
+
+    Applied ONLY to live/current-season storms (see get_storm_track), so the
+    baked historical catalog stays at its native cadence — no re-bake, no
+    golden-master drift. Densifying the live track gives the DPS engine finer
+    duration/landfall-timing integration and the frontend smoother windfield +
+    animation. Midpoint fields are linear interpolations of the two bracketing
+    fixes (radii, wind, pressure, quadrants); forward direction is the
+    great-circle bearing along the segment. IKE is computed physically on each
+    resulting point downstream, so midpoints get real (not interpolated) IKE.
+    """
+    import math as _math
+    from models.hurricane import HurricaneSnapshot as _HS
+
+    def _lerp(a, b, f):
+        if a is None or b is None:
+            return a if b is None else b
+        return a + (b - a) * f
+
+    def _lerp_q(qa, qb, f):
+        if not qa or not qb:
+            return qa or qb
+        return {k: _lerp(qa.get(k), qb.get(k), f) for k in ("NE", "SE", "SW", "NW")}
+
+    def _bearing(a, b):
+        la1, lo1, la2, lo2 = map(_math.radians, (a.lat, a.lon, b.lat, b.lon))
+        dlon = lo2 - lo1
+        y = _math.sin(dlon) * _math.cos(la2)
+        x = _math.cos(la1) * _math.sin(la2) - _math.sin(la1) * _math.cos(la2) * _math.cos(dlon)
+        return _math.degrees(_math.atan2(y, x)) % 360.0
+
+    out: list = []
+    for i, s in enumerate(snapshots):
+        out.append(s)
+        if i + 1 >= len(snapshots):
+            break
+        a, b = s, snapshots[i + 1]
+        if a.timestamp is None or b.timestamp is None:
+            continue
+        gap_h = (b.timestamp - a.timestamp).total_seconds() / 3600.0
+        if gap_h <= 4.5:
+            continue  # already 3h-ish (or finer near landfall) — leave it
+        n = max(1, round(gap_h / 3.0) - 1)  # 6h→1 midpoint, 12h→3, ...
+        brng = _bearing(a, b)
+        for k in range(1, n + 1):
+            f = k / (n + 1)
+            out.append(_HS(
+                storm_id=a.storm_id, name=a.name,
+                timestamp=a.timestamp + (b.timestamp - a.timestamp) * f,
+                lat=_lerp(a.lat, b.lat, f), lon=_lerp(a.lon, b.lon, f),
+                max_wind_ms=_lerp(a.max_wind_ms, b.max_wind_ms, f),
+                min_pressure_hpa=_lerp(a.min_pressure_hpa, b.min_pressure_hpa, f),
+                rmw_m=_lerp(a.rmw_m, b.rmw_m, f),
+                r34_m=_lerp(a.r34_m, b.r34_m, f),
+                r50_m=_lerp(a.r50_m, b.r50_m, f),
+                r64_m=_lerp(a.r64_m, b.r64_m, f),
+                r34_quadrants_m=_lerp_q(a.r34_quadrants_m, b.r34_quadrants_m, f),
+                r50_quadrants_m=_lerp_q(a.r50_quadrants_m, b.r50_quadrants_m, f),
+                r64_quadrants_m=_lerp_q(a.r64_quadrants_m, b.r64_quadrants_m, f),
+                forward_speed_ms=_lerp(a.forward_speed_ms, b.forward_speed_ms, f),
+                forward_direction_deg=brng,
+            ))
+    return out
+
+
 @router.get("/storms/{storm_id}/track", response_model=list[IKEResponse])
 async def get_storm_track(
     storm_id: str,
@@ -2218,6 +2284,17 @@ async def get_storm_track(
             if i % (skip_points + 1) == 0:
                 sampled.append(snap)
         snapshots = sampled
+
+    # Densify LIVE/current-season tracks to ~3-hourly. Scoped to live storms
+    # (Bavi onward) so the baked historical catalog is untouched — no re-bake,
+    # no baseline drift. Feeds finer DPS integration + smoother windfield and
+    # animation for the storm people are actually watching. IKE below is then
+    # computed on the densified points.
+    if _is_live and len(snapshots) >= 2:
+        _n0 = len(snapshots)
+        snapshots = _densify_snapshots_3h(snapshots)
+        if len(snapshots) != _n0:
+            logger.info(f"[TRACK] {storm_id} densified {_n0}→{len(snapshots)} pts (3h, live)")
 
     # Compute IKE in parallel for all snapshots
     grid_resolution_m = grid_resolution_km * 1000
