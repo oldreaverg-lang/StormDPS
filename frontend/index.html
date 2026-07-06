@@ -2271,19 +2271,37 @@ function loadShelfRegions() {
 }
 loadShelfRegions();
 
-function getEconomicExposure(lat, lon, useNRI = false) {
+function getEconomicExposure(lat, lon, useNRI = false, r34nm = 0) {
+    // MIRROR of core/ike.get_economic_exposure — keep the two implementations
+    // in lockstep. Two passes: containment first (original semantics), then
+    // nearest zone within reach_nm = max(zone.depth_nm, min(0.6*r34, 90)).
+    // A storm center is a point but the damaging wind field is 100+ nm wide;
+    // pure containment scored Bavi 2026 "Open Ocean" while its eyewall
+    // brushed Guam from just outside the box.
     if(lat == null || lon == null) return { exposure: 0.10, vuln: 1.0, name: 'Unknown', depth_nm: 15 };
-    for(const z of ECON_ZONES) {
-        if(lat>=z.lat_min && lat<=z.lat_max && lon>=z.lon_min && lon<=z.lon_max) {
-            let exposure = z.exposure, vuln = z.vuln;
-            // For active storms, override with NRI-derived values (current resilience)
-            if(useNRI && NRI_ZONES && NRI_ZONES[z.name]) {
-                exposure = NRI_ZONES[z.name].exposure;
-                vuln = NRI_ZONES[z.name].vuln;
-            }
-            return { exposure, vuln, name: z.name, depth_nm: z.depth_nm };
+    const pick = (z) => {
+        let exposure = z.exposure, vuln = z.vuln;
+        // For active storms, override with NRI-derived values (current resilience)
+        if(useNRI && NRI_ZONES && NRI_ZONES[z.name]) {
+            exposure = NRI_ZONES[z.name].exposure;
+            vuln = NRI_ZONES[z.name].vuln;
         }
+        return { exposure, vuln, name: z.name, depth_nm: z.depth_nm };
+    };
+    for(const z of ECON_ZONES) {
+        if(lat>=z.lat_min && lat<=z.lat_max && lon>=z.lon_min && lon<=z.lon_max) return pick(z);
     }
+    const windReach = Math.min(0.6 * (r34nm || 0), 90);
+    let best = null, bestDist = 1e9;
+    for(const z of ECON_ZONES) {
+        const clat = Math.min(Math.max(lat, z.lat_min), z.lat_max);
+        const clon = Math.min(Math.max(lon, z.lon_min), z.lon_max);
+        const dlat = (lat - clat) * 60;
+        const dlon = (lon - clon) * 60 * Math.cos((lat + clat) / 2 * Math.PI / 180);
+        const dist = Math.hypot(dlat, dlon);
+        if(dist <= Math.max(z.depth_nm, windReach) && dist < bestDist) { best = z; bestDist = dist; }
+    }
+    if(best) return pick(best);
     // No matching zone — open ocean or non-US coast
     return { exposure: 0.05, vuln: 1.0, name: 'Open Ocean / Uncharted', depth_nm: 10 };
 }
@@ -2296,7 +2314,7 @@ function calculateERS(dataPoint, useNRI = false) {
     // ── Economic Exposure & Vulnerability ──
     // useNRI=true for active/forecast storms → uses FEMA NRI current resilience data
     // useNRI=false for historical presets → uses hand-tuned values from when storm hit
-    const econ = getEconomicExposure(dataPoint.lat, dataPoint.lon, useNRI);
+    const econ = getEconomicExposure(dataPoint.lat, dataPoint.lon, useNRI, dataPoint.r34_nm || 0);
 
     // ── Threat Reach ──
     // reach = sqrt(size_component × intensity_component)
@@ -2364,6 +2382,23 @@ function calculateERS(dataPoint, useNRI = false) {
 // path?" before landfall. Each forecast fix carries lat/lon + intensity;
 // size (R34) is persisted from the latest observed fix because forecasts
 // publish position + intensity but not wind radii.
+// Climatological cone radii (nm by forecast hour) — mirror of routes.py
+// _CONE_ERR_NM; used for cone-aware sampling below.
+const CONE_ERR_NM = {0: 0, 12: 22, 24: 38, 36: 50, 48: 64, 72: 95, 96: 125, 120: 165};
+function coneErrNm(hour) {
+    const keys = Object.keys(CONE_ERR_NM).map(Number).sort((a, b) => a - b);
+    if (hour <= keys[0]) return CONE_ERR_NM[keys[0]];
+    if (hour >= keys[keys.length - 1]) return CONE_ERR_NM[keys[keys.length - 1]];
+    for (let i = 1; i < keys.length; i++) {
+        if (hour <= keys[i]) {
+            const h0 = keys[i - 1], h1 = keys[i];
+            const f = (hour - h0) / (h1 - h0);
+            return CONE_ERR_NM[h0] + f * (CONE_ERR_NM[h1] - CONE_ERR_NM[h0]);
+        }
+    }
+    return CONE_ERR_NM[keys[keys.length - 1]];
+}
+
 function computeForecastERS(forecastTrack, useNRI) {
     if (!Array.isArray(forecastTrack) || forecastTrack.length === 0) return null;
     let curR34 = 0;
@@ -2372,16 +2407,52 @@ function computeForecastERS(forecastTrack, useNRI) {
             if (window.stormData[i] && window.stormData[i].r34_nm) { curR34 = window.stormData[i].r34_nm; break; }
         }
     }
+    // Forecast taus are 12-24h apart — a centerline sampled only at taus can
+    // jump clean over a small zone (the Guam box is 0.6° tall), and a zone
+    // inside the CONE but off the centerline scored zero. So: interpolate
+    // each segment every 2h, and at each sample also probe two cross-track
+    // points at ±half the climatological cone radius, weighted 0.5 (in-cone
+    // risk counts at half strength — probability-flavored, not a full
+    // integral).
+    const pts = forecastTrack.filter(p => p && p.lat != null && p.lon != null);
+    if (pts.length === 0) return null;
     let best = null;
-    forecastTrack.forEach(p => {
-        if (!p || p.hour === 0) return;            // skip the current fix
-        const wkt = p.max_wind_kt;
-        if (!wkt || wkt < 34) return;              // below TS-force → no meaningful $ threat
-        const ers = calculateERS({ lat: p.lat, lon: p.lon, max_wind_ms: wkt * 0.514444, r34_nm: curR34 }, useNRI);
-        if (ers && (!best || ers.score > best.score)) {
-            best = Object.assign({}, ers, { hour: p.hour, time: p.time, lat: p.lat, lon: p.lon, wind_kt: wkt });
+    const consider = (ers, weight, hour, time, lat, lon, wkt, inCone) => {
+        if (!ers) return;
+        const w = Math.round(ers.score * weight);
+        if (w > 0 && (!best || w > best.score)) {
+            best = Object.assign({}, ers, { score: w, hour: Math.round(hour), time, lat, lon, wind_kt: wkt, in_cone_edge: inCone });
         }
-    });
+    };
+    for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i], b = pts[i + 1];
+        const h0 = a.hour || 0, h1 = b.hour || 0;
+        if (h1 <= h0) continue;
+        // heading of this segment for perpendicular offsets
+        const midLatR = (a.lat + b.lat) / 2 * Math.PI / 180;
+        const segDx = (b.lon - a.lon) * Math.cos(midLatR), segDy = b.lat - a.lat;
+        const segLen = Math.hypot(segDx, segDy) || 1;
+        const perpLat = -segDx / segLen, perpLon = (segDy / segLen) / Math.max(0.1, Math.cos(midLatR));
+        for (let h = Math.max(h0, 2); h <= h1; h += 2) {
+            const f = (h - h0) / (h1 - h0);
+            const lat = a.lat + f * (b.lat - a.lat);
+            const lon = a.lon + f * (b.lon - a.lon);
+            const wkt = (a.max_wind_kt || 0) + f * ((b.max_wind_kt || 0) - (a.max_wind_kt || 0));
+            if (!wkt || wkt < 34) continue;        // below TS-force → no meaningful $ threat
+            const time = f < 0.5 ? a.time : b.time;
+            const ctr = calculateERS({ lat, lon, max_wind_ms: wkt * 0.514444, r34_nm: curR34 }, useNRI);
+            consider(ctr, 1.0, h, time, lat, lon, Math.round(wkt), false);
+            const offDeg = (coneErrNm(h) / 2) / 60;  // half cone radius, nm → deg
+            if (offDeg > 0.05) {
+                for (const s of [1, -1]) {
+                    const olat = lat + s * offDeg * perpLat;
+                    const olon = lon + s * offDeg * perpLon;
+                    const off = calculateERS({ lat: olat, lon: olon, max_wind_ms: wkt * 0.514444, r34_nm: curR34 }, useNRI);
+                    consider(off, 0.5, h, time, olat, olon, Math.round(wkt), true);
+                }
+            }
+        }
+    }
     return best;
 }
 
@@ -2395,8 +2466,16 @@ function displayForecastERS(fcErs) {
     if (!fcErs || !fcErs.score || fcErs.score <= observed) { el.style.display = 'none'; return; }
     const when = fcErs.hour ? ('+' + fcErs.hour + 'h') : 'ahead';
     const where = fcErs.zone ? (' near ' + fcErs.zone) : '';
-    el.innerHTML = '&#8599; Forecast ' + when + ': <b>' + fcErs.score + '</b> ' + fcErs.label + where;
-    el.title = 'Projected economic risk along the forecast track. Uncertainty grows with lead time — see the cone on the map.';
+    const edge = fcErs.in_cone_edge ? ' (cone edge)' : '';
+    let age = '';
+    if (window._forecastValidUtc) {
+        try {
+            const d = new Date(window._forecastValidUtc);
+            if (!isNaN(d)) age = ' · fcst ' + String(d.getUTCHours()).padStart(2, '0') + 'Z';
+        } catch (e) {}
+    }
+    el.innerHTML = '&#8599; Forecast ' + when + ': <b>' + fcErs.score + '</b> ' + fcErs.label + escapeHtml(where) + edge + '<span style="opacity:.6">' + age + '</span>';
+    el.title = 'Projected economic risk along the forecast track' + (fcErs.in_cone_edge ? ' (zone sits inside the uncertainty cone, off the centerline — scored at half weight)' : '') + '. Uncertainty grows with lead time — see the cone on the map.';
     el.style.display = 'block';
 }
 
@@ -6851,6 +6930,7 @@ function renderMap(data){
             window._forecastFetchedSid = sid;
             fetch(`${API_BASE}/storms/${sid}/forecast`).then(r=>r.ok?r.json():null).then(fc=>{
                 if(!fc||!currentMap)return;
+                window._forecastValidUtc = fc.valid_time_utc || null;  // forecast age for ERS line / tooltips
 
                 // ── Forecast-uncertainty DPS band (public, live storms) ──
                 // Range the PEAK DPS could reach given the official intensity error,

@@ -994,7 +994,13 @@ async def search_storms(
 # GeoJSON cone like NHC. We synthesize an NHC-style uncertainty cone by
 # offsetting each forecast point perpendicular to the local track heading by
 # the climatological ~5-yr-average track-error radius at that lead time.
-_CONE_ERR_NM = {0: 0, 12: 30, 24: 50, 36: 70, 48: 90, 72: 135, 96: 180, 120: 230}
+# Climatological track-error radii for the synthesized JTWC cone, nm by
+# forecast hour. Refreshed 2026-07 to recent JTWC annual-report five-year
+# mean track errors (WestPac); the previous table (30/50/70/90/135/180/230)
+# was 2010s-era and drew cones ~25-35% wider than modern JTWC verification,
+# overstating uncertainty. Keep in lockstep with CONE_ERR_NM in
+# frontend/index.html (cone-aware forecast ERS sampling).
+_CONE_ERR_NM = {0: 0, 12: 22, 24: 38, 36: 50, 48: 64, 72: 95, 96: 125, 120: 165}
 
 
 def _interp_err_nm(hour: float) -> float:
@@ -1065,6 +1071,9 @@ async def _jtwc_forecast(storm_id: str) -> dict:
         "forecast_track": track,
         "cone_polygon": _synthesize_cone(track),
         "source": "jtwc",
+        # tau-0 time of the warning the track came from — lets the frontend
+        # show forecast age instead of leaving users to guess freshness.
+        "valid_time_utc": t0.isoformat(),
     }
 
 
@@ -1100,6 +1109,9 @@ async def get_storm_forecast(request: Request, storm_id: str):
     # Implied forward speed between consecutive forecast positions (Haversine /
     # time delta); flags stall risk when forecast speeds drop below thresholds.
     forecast["stall_risk"] = _compute_stall_risk(forecast.get("forecast_track", []))
+
+    from datetime import datetime as _dt, timezone as _tz
+    forecast["fetched_at_utc"] = _dt.now(_tz.utc).isoformat()
 
     return forecast
 

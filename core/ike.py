@@ -1629,25 +1629,61 @@ def _load_nri_zones():
 _load_nri_zones()
 
 
-def get_economic_exposure(lat: Optional[float], lon: Optional[float], use_nri: bool = False) -> dict:
+def get_economic_exposure(lat: Optional[float], lon: Optional[float],
+                          use_nri: bool = False,
+                          r34_nm: Optional[float] = None) -> dict:
     """
     Look up the economic exposure and vulnerability for a lat/lon position.
+
+    Matching is two-pass (MUST stay in lockstep with the frontend mirror
+    getEconomicExposure in index.html):
+      1. Containment — point inside a zone box (original behavior, order-
+         preserving, zero drift for previously-matching points).
+      2. Proximity — if no box contains the point, the NEAREST zone within
+         reach matches, where reach_nm = max(zone.depth_nm, min(0.6*r34, 90)).
+         A storm center is a point but its damaging wind field is 100+ nm
+         wide; pure containment scored Bavi 2026 as "Open Ocean" while its
+         eyewall brushed Guam from just outside the box.
 
     Args:
         use_nri: If True, use the FEMA-derived overrides in nri_zones.json
                  (data-driven vulnerability; exposure stays hand-tuned) for
                  active/forecast storms. If False, use the hand-tuned values
                  (for presets).
+        r34_nm:  Gale radius; widens the proximity reach for large storms.
     """
     if lat is None or lon is None:
         return {"exposure": 0.10, "vuln": 1.0, "name": "Unknown", "depth_nm": 15}
+
+    def _result(name, exposure, vuln, depth_nm):
+        if use_nri and name in _NRI_ZONES:
+            exposure = _NRI_ZONES[name]["exposure"]
+            vuln = _NRI_ZONES[name]["vuln"]
+        return {"exposure": exposure, "vuln": vuln, "name": name, "depth_nm": depth_nm}
+
+    # Pass 1: containment (unchanged semantics)
     for entry in _ECON_ZONES:
         name, exposure, vuln, depth_nm, lat_min, lat_max, lon_min, lon_max = entry
         if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
-            if use_nri and name in _NRI_ZONES:
-                exposure = _NRI_ZONES[name]["exposure"]
-                vuln = _NRI_ZONES[name]["vuln"]
-            return {"exposure": exposure, "vuln": vuln, "name": name, "depth_nm": depth_nm}
+            return _result(name, exposure, vuln, depth_nm)
+
+    # Pass 2: nearest zone within reach
+    wind_reach = min(0.6 * (r34_nm or 0), 90.0)
+    best = None
+    best_dist = 1e9
+    for entry in _ECON_ZONES:
+        name, exposure, vuln, depth_nm, lat_min, lat_max, lon_min, lon_max = entry
+        clat = min(max(lat, lat_min), lat_max)
+        clon = min(max(lon, lon_min), lon_max)
+        dlat_nm = (lat - clat) * 60.0
+        dlon_nm = (lon - clon) * 60.0 * math.cos(math.radians((lat + clat) / 2.0))
+        dist = math.hypot(dlat_nm, dlon_nm)
+        if dist <= max(depth_nm, wind_reach) and dist < best_dist:
+            best = (name, exposure, vuln, depth_nm)
+            best_dist = dist
+    if best is not None:
+        return _result(*best)
+
     return {"exposure": 0.05, "vuln": 1.0, "name": "Open Ocean / Uncharted", "depth_nm": 10}
 
 
@@ -1682,7 +1718,7 @@ def calculate_ers(
     if not max_wind_ms or max_wind_ms <= 0:
         return {"score": 0, "label": "Minimal", "exposure": 0, "vuln": 1.0, "reach": 0, "zone": ""}
 
-    econ = get_economic_exposure(lat, lon, use_nri=use_nri)
+    econ = get_economic_exposure(lat, lon, use_nri=use_nri, r34_nm=r34_nm)
     v_kt = max_wind_ms / 0.514444
 
     # Size component: normalized to Sandy-scale storms (R34~400nm)
