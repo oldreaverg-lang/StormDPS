@@ -1978,8 +1978,12 @@ def _densify_snapshots_3h(snapshots: list) -> list:
         if a.timestamp is None or b.timestamp is None:
             continue
         gap_h = (b.timestamp - a.timestamp).total_seconds() / 3600.0
-        if gap_h <= 4.5:
-            continue  # already 3h-ish (or finer near landfall) — leave it
+        if gap_h <= 4.5 or gap_h > 13.5:
+            # <=4.5h: already 3h-ish (or finer near landfall) — leave it.
+            # >13.5h: too large a hole (missing advisories) to fabricate
+            # across — interpolating 5+ synthetic points over a day of missing
+            # data is a guess, not a fix; leave the real gap intact.
+            continue
         n = max(1, round(gap_h / 3.0) - 1)  # 6h→1 midpoint, 12h→3, ...
         brng = _bearing(a, b)
         for k in range(1, n + 1):
@@ -2290,7 +2294,17 @@ async def get_storm_track(
     # no baseline drift. Feeds finer DPS integration + smoother windfield and
     # animation for the storm people are actually watching. IKE below is then
     # computed on the densified points.
-    if _is_live and len(snapshots) >= 2:
+    #
+    # Also require the storm to be CURRENT-season: _is_live_jtwc is true for any
+    # 8-char WP/IO/SH id, so a historical typhoon requested by its ATCF id
+    # (e.g. WP262013) would otherwise densify and score inconsistently with its
+    # baked IBTrACS-SID version. NHC live storms are already gated by the
+    # active-storms list, and their id year is the current year, so they pass.
+    _cur_season = (
+        len(storm_id) == 8 and storm_id[4:8].isdigit()
+        and int(storm_id[4:8]) >= datetime.now().year
+    )
+    if _is_live and _cur_season and len(snapshots) >= 2:
         _n0 = len(snapshots)
         snapshots = _densify_snapshots_3h(snapshots)
         if len(snapshots) != _n0:
