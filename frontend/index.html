@@ -4838,14 +4838,63 @@ function formatSatelliteFrameLabel(ts) {
     return `${m} ${d}  ${hh}:${mm}Z`;
 }
 
+// Sun elevation angle (degrees) at a lat/lon for a UTC instant — standard
+// NOAA solar-position algorithm. Used to decide day vs night for the satellite
+// auto-IR switch below. Accurate to ~0.5°, far finer than the day/night call needs.
+function _sunElevationDeg(lat, lon, dateMs) {
+    const d = new Date(dateMs);
+    const rad = Math.PI / 180;
+    const doy = Math.floor((dateMs - Date.UTC(d.getUTCFullYear(), 0, 0)) / 86400000);
+    const hour = d.getUTCHours() + d.getUTCMinutes() / 60 + d.getUTCSeconds() / 3600;
+    const g = 2 * Math.PI / 365 * (doy - 1 + (hour - 12) / 24);   // fractional year (rad)
+    const decl = 0.006918 - 0.399912 * Math.cos(g) + 0.070257 * Math.sin(g)
+        - 0.006758 * Math.cos(2 * g) + 0.000907 * Math.sin(2 * g)
+        - 0.002697 * Math.cos(3 * g) + 0.00148 * Math.sin(3 * g);   // declination (rad)
+    const eot = 229.18 * (0.000075 + 0.001868 * Math.cos(g) - 0.032077 * Math.sin(g)
+        - 0.014615 * Math.cos(2 * g) - 0.040849 * Math.sin(2 * g)); // equation of time (min)
+    const tst = hour * 60 + eot + 4 * lon;                          // true solar time (min, lon east +)
+    const H = (tst / 4 - 180) * rad;                                // hour angle (rad)
+    const phi = lat * rad;
+    return Math.asin(Math.sin(phi) * Math.sin(decl) + Math.cos(phi) * Math.cos(decl) * Math.cos(H)) / rad;
+}
+
+// Should this satellite FRAME be shown in infrared even though the user hasn't
+// forced IR? Only for satellites whose "visible" product is a raw band that
+// goes black at night (Himawari = Band 3 Red Visible). GOES uses GeoColor,
+// which renders night itself (city lights + IR clouds), so it's never
+// auto-switched. Night = sun below the horizon at the storm's position for the
+// frame's time — so a live loop stays continuous instead of half-dark.
+function _autoIRForFrame(st, ts) {
+    if (!st || st.satellite !== 'himawari' || !ts || !window._satTsToMs) return false;
+    const tsMs = window._satTsToMs(ts);
+    if (!Number.isFinite(tsMs)) return false;
+    let lat = null, lon = null;
+    const sd = window.stormData || [];
+    if (sd.length) {
+        let bi = 0, bd = Infinity;
+        for (let i = 0; i < sd.length; i++) {
+            const t = Date.parse(sd[i].timestamp); if (isNaN(t)) continue;
+            const dd = Math.abs(t - tsMs); if (dd < bd) { bd = dd; bi = i; }
+        }
+        lat = sd[bi].lat; lon = sd[bi].lon;
+    } else if (typeof currentMap !== 'undefined' && currentMap) {
+        const c = currentMap.getCenter(); lat = c.lat; lon = c.lng;
+    }
+    if (lat == null) return false;
+    return _sunElevationDeg(lat, lon, tsMs) < 0;   // sun below horizon → night → IR
+}
+
 function setSatelliteFrame(idx) {
     const st = window._satelliteState;
     if (!st.layer || !st.frames.length) return;
     idx = Math.max(0, Math.min(idx, st.frames.length - 1));
     st.currentIdx = idx;
     const ts = st.frames[idx];
-    // Rebuild tile URL with the new ts in path
-    const modeQ = st.irMode ? '?mode=ir' : '';
+    // Effective IR = user forced IR, OR this is a night frame of a satellite
+    // whose visible product would be dark (Himawari). Keeps WP loops continuous.
+    const effIR = st.irMode || _autoIRForFrame(st, ts);
+    st._effIR = effIR;   // remembered so updateSatelliteFrame can label it
+    const modeQ = effIR ? '?mode=ir' : '';
     const newUrl = `${API_BASE}/satellite/tile/${st.satellite}/${ts}/{z}/{x}/{y}.png${modeQ}`;
     // ── Double-buffered frame swap ──
     // layer.setUrl() clears every tile and refetches, flashing gray basemap
@@ -4859,7 +4908,12 @@ function setSatelliteFrame(idx) {
             try { currentMap.removeLayer(st._pendingLayer); } catch (e) {}
             st._pendingLayer = null;
         }
-        const next = L.tileLayer(newUrl, Object.assign({}, st.layer.options));
+        // IR tops out at native zoom 6, visible/GeoColor at 7 — set
+        // maxNativeZoom per effective mode so an IR frame upsamples (rather
+        // than 404s) if the map is zoomed past 6.
+        const _opts = Object.assign({}, st.layer.options);
+        _opts.maxNativeZoom = effIR ? 6 : 7;
+        const next = L.tileLayer(newUrl, _opts);
         st._pendingLayer = next;
         const mySwap = ++st._swapToken;
         next.once('load', () => {
@@ -4898,7 +4952,9 @@ function setSatelliteFrame(idx) {
         st.layer.setUrl(newUrl);
     }
     const lbl = document.getElementById('satelliteFrameLabel');
-    if (lbl) lbl.textContent = formatSatelliteFrameLabel(ts);
+    // Flag frames auto-switched to IR (night, Himawari) so a "visible" loop
+    // showing IR clouds doesn't read as a glitch.
+    if (lbl) lbl.textContent = formatSatelliteFrameLabel(ts) + (effIR && !st.irMode ? ' · IR (night)' : '');
     const slider = document.getElementById('satelliteSliderInput');
     if (slider && parseInt(slider.value,10) !== idx) slider.value = idx;
     // Echo the snapped frame on the storm-timeline bar so users can see
