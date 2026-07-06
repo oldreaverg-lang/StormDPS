@@ -5785,19 +5785,40 @@ function _windButtonReset() {
 }
 
 function _satelliteTsToWindTs(ts) {
-    // YYYYMMDDTHHMM (sub-hourly) → YYYYMMDDTHH floored to a 3-HOUR bucket.
-    // Wind fields at this overlay's 1°/~28°-bbox scale barely change hour to
-    // hour, so bucketing to 3h collapses the ~hourly satellite frame set
-    // (~130 for a 5-day storm) to ~40 distinct wind frames. CRUCIAL: both the
-    // display (setWindFrame) and the prefetch resolve frames through THIS
-    // function, so they land on the identical bucket set — that alignment is
-    // what makes the prefetch actually cover what playback requests. (Anything
-    // malformed/undefined bails to null.)
+    // Map a satellite frame ts (YYYYMMDDTHH[MM]) to the wind frame's hour.
+    //
+    // SNAP TO THE NEAREST STORM-TRACK FIX'S HOUR. The windfield overlay draws
+    // the nearest fix (setWindfieldFrameByIdx → nearest storm index), so
+    // resolving the wind to the SAME fix makes the two layers show the same
+    // moment and co-register exactly — even for off-synoptic fixes (landfall
+    // special times) where a fixed 3h bucket would drift up to ~3h. With the
+    // live 3h densification, fix hours are already ~3h apart, so this also
+    // keeps the frame count bounded. Both the display (setWindFrame) and the
+    // prefetch route through here, so they stay on the identical set.
+    //
+    // Falls back to a 3h bucket when the track isn't loaded yet (initial load).
     if (!ts) return null;
-    const m = String(ts).match(/^(\d{8}T)(\d{2})(?:\d{2})?$/);
+    const m = String(ts).match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(?:(\d{2}))?$/);
     if (!m) return null;
-    const h3 = Math.floor(parseInt(m[2], 10) / 3) * 3;
-    return m[1] + String(h3).padStart(2, '0');
+    const pad = (n) => String(n).padStart(2, '0');
+    const sd = window.stormData;
+    if (sd && sd.length) {
+        const tsMs = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +(m[5] || 0));
+        let bestMs = null, bestDiff = Infinity;
+        for (const s of sd) {
+            if (!s || !s.timestamp) continue;
+            const sm = Date.parse(s.timestamp);
+            if (!Number.isFinite(sm)) continue;
+            const diff = Math.abs(sm - tsMs);
+            if (diff < bestDiff) { bestDiff = diff; bestMs = sm; }
+        }
+        if (bestMs != null) {
+            const d = new Date(bestMs);  // nearest fix; wind fetches hourly, so floor to the hour
+            return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}`;
+        }
+    }
+    const h3 = Math.floor(+m[4] / 3) * 3;  // fallback: 3h bucket
+    return `${m[1]}${m[2]}${m[3]}T${pad(h3)}`;
 }
 
 // Public entry: debounces rapid scrubs (Open-Meteo free tier = 10 req/min).
