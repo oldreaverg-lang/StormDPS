@@ -1002,7 +1002,7 @@ class CachedStaticFiles(StaticFiles):
             # ERS-zone bump.) NB Cloudflare's Browser Cache TTL override can
             # still rewrite this for browsers; edge revalidation is what we
             # need, and no-cache achieves that once the current entry expires.
-            if str(path).replace("\\", "/").endswith("sw.js"):
+            if Path(str(path).replace("\\", "/")).name == "sw.js":
                 response.headers["Cache-Control"] = "no-cache, max-age=0, must-revalidate"
                 return response
             ext = Path(path).suffix.lower()

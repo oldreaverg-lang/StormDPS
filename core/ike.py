@@ -1667,10 +1667,14 @@ def get_economic_exposure(lat: Optional[float], lon: Optional[float],
         if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
             return _result(name, exposure, vuln, depth_nm)
 
-    # Pass 2: nearest zone within reach
+    # Pass 2: nearest zone within reach, with linear distance taper — full
+    # zone exposure at the box edge decaying to 50% at the reach limit.
+    # Without the taper a center 90 nm offshore scored the zone at full
+    # strength (Nate 2017 peaked ERS 70 off New Orleans as a Cat 1).
     wind_reach = min(0.6 * (r34_nm or 0), 90.0)
     best = None
     best_dist = 1e9
+    best_reach = 0.0
     for entry in _ECON_ZONES:
         name, exposure, vuln, depth_nm, lat_min, lat_max, lon_min, lon_max = entry
         clat = min(max(lat, lat_min), lat_max)
@@ -1678,11 +1682,16 @@ def get_economic_exposure(lat: Optional[float], lon: Optional[float],
         dlat_nm = (lat - clat) * 60.0
         dlon_nm = (lon - clon) * 60.0 * math.cos(math.radians((lat + clat) / 2.0))
         dist = math.hypot(dlat_nm, dlon_nm)
-        if dist <= max(depth_nm, wind_reach) and dist < best_dist:
+        reach = max(depth_nm, wind_reach)
+        if dist <= reach and dist < best_dist:
             best = (name, exposure, vuln, depth_nm)
             best_dist = dist
+            best_reach = reach
     if best is not None:
-        return _result(*best)
+        out = _result(*best)
+        if best_reach > 0:
+            out["exposure"] = out["exposure"] * (1.0 - 0.5 * best_dist / best_reach)
+        return out
 
     return {"exposure": 0.05, "vuln": 1.0, "name": "Open Ocean / Uncharted", "depth_nm": 10}
 

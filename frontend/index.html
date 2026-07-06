@@ -2291,19 +2291,35 @@ function getEconomicExposure(lat, lon, useNRI = false, r34nm = 0) {
     for(const z of ECON_ZONES) {
         if(lat>=z.lat_min && lat<=z.lat_max && lon>=z.lon_min && lon<=z.lon_max) return pick(z);
     }
+    // Linear distance taper — full zone exposure at the box edge decaying to
+    // 50% at the reach limit (mirror of core/ike.py; keep in lockstep).
     const windReach = Math.min(0.6 * (r34nm || 0), 90);
-    let best = null, bestDist = 1e9;
+    let best = null, bestDist = 1e9, bestReach = 0;
     for(const z of ECON_ZONES) {
         const clat = Math.min(Math.max(lat, z.lat_min), z.lat_max);
         const clon = Math.min(Math.max(lon, z.lon_min), z.lon_max);
         const dlat = (lat - clat) * 60;
         const dlon = (lon - clon) * 60 * Math.cos((lat + clat) / 2 * Math.PI / 180);
         const dist = Math.hypot(dlat, dlon);
-        if(dist <= Math.max(z.depth_nm, windReach) && dist < bestDist) { best = z; bestDist = dist; }
+        const reach = Math.max(z.depth_nm, windReach);
+        if(dist <= reach && dist < bestDist) { best = z; bestDist = dist; bestReach = reach; }
     }
-    if(best) return pick(best);
+    if(best) {
+        const res = pick(best);
+        if(bestReach > 0) res.exposure = res.exposure * (1 - 0.5 * bestDist / bestReach);
+        return res;
+    }
     // No matching zone — open ocean or non-US coast
     return { exposure: 0.05, vuln: 1.0, name: 'Open Ocean / Uncharted', depth_nm: 10 };
+}
+
+function ersBand(score) {
+    if(score >= 80) return { label: "Extreme",   color: "#ef4444" };
+    if(score >= 60) return { label: "Very High", color: "#f97316" };
+    if(score >= 40) return { label: "High",      color: "#fbbf24" };
+    if(score >= 20) return { label: "Moderate",  color: "#34d399" };
+    if(score >= 8)  return { label: "Low",       color: "#60a5fa" };
+    return { label: "Minimal", color: "var(--text-muted)" };
 }
 
 function calculateERS(dataPoint, useNRI = false) {
@@ -2365,15 +2381,9 @@ function calculateERS(dataPoint, useNRI = false) {
     const rawScore = 100 * effectiveExposure * threatReach;
     const scoreObj = Math.min(100, Math.round(rawScore));
 
-    let label = "Minimal";
-    let color = "var(--text-muted)";
-    if(scoreObj >= 80)      { label="Extreme";   color="#ef4444"; }
-    else if(scoreObj >= 60) { label="Very High";  color="#f97316"; }
-    else if(scoreObj >= 40) { label="High";       color="#fbbf24"; }
-    else if(scoreObj >= 20) { label="Moderate";   color="#34d399"; }
-    else if(scoreObj >= 8)  { label="Low";        color="#60a5fa"; }
+    const band = ersBand(scoreObj);
 
-    return { score: scoreObj, label: label, color: color, exposure: econ.exposure, vuln: econ.vuln, reach: threatReach, zone: econ.name, nriActive: useNRI && NRI_ZONES != null };
+    return { score: scoreObj, label: band.label, color: band.color, exposure: econ.exposure, vuln: econ.vuln, reach: threatReach, zone: econ.name, nriActive: useNRI && NRI_ZONES != null };
 }
 
 // ── Forecast-driven ERS ──────────────────────────────────────────────────
@@ -2421,7 +2431,10 @@ function computeForecastERS(forecastTrack, useNRI) {
         if (!ers) return;
         const w = Math.round(ers.score * weight);
         if (w > 0 && (!best || w > best.score)) {
-            best = Object.assign({}, ers, { score: w, hour: Math.round(hour), time, lat, lon, wind_kt: wkt, in_cone_edge: inCone });
+            // Re-band from the WEIGHTED score — a halved cone-edge score can
+            // cross a band boundary, and score/label must agree on screen.
+            const band = ersBand(w);
+            best = Object.assign({}, ers, { score: w, label: band.label, color: band.color, hour: Math.round(hour), time, lat, lon, wind_kt: wkt, in_cone_edge: inCone });
         }
     };
     for (let i = 0; i < pts.length - 1; i++) {
