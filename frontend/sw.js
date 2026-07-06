@@ -14,7 +14,10 @@
 // cache-first, so a re-bake is invisible to returning visitors until the cache
 // is evicted. Bump on every bundle re-bake. This one ships the rainfall-
 // estimator cap + Maria's observed-rainfall anchor (was showing 116 in).
-const CACHE_NAME = 'stormdps-v11';
+// v12: econ_zones.json gained Guam / Northern Marianas / Mindanao zones
+// (Bavi 2026 ERS audit) — bump so cache-first statics refresh for returning
+// visitors during the Marianas passage.
+const CACHE_NAME = 'stormdps-v12';
 const STATIC_ASSETS = [
   '/',
   '/frontend/index.html',
