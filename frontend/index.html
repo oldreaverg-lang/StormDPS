@@ -5774,7 +5774,7 @@ function _s3StitchTiles(f, ts, done) {
         const st = window._satelliteState || {};
         const sat = st.satellite || (f.lon >= 100 && f.lon <= 180 ? 'himawari' : (f.lon < -135 ? 'goes-west' : 'goes-east'));
         const ir = st.irMode || _autoIRForFrame({ satellite: sat }, ts);
-        const z = 5, n = Math.pow(2, z);
+        const z = 6, n = Math.pow(2, z);
         const latR = f.lat * Math.PI / 180;
         const xt = (f.lon + 180) / 360 * n;
         const yt = (1 - Math.log(Math.tan(latR) + 1 / Math.cos(latR)) / Math.PI) / 2 * n;
@@ -5782,10 +5782,20 @@ function _s3StitchTiles(f, ts, done) {
         const cvs = document.createElement('canvas'); cvs.width = cvs.height = 768;
         const g = cvs.getContext('2d');
         g.fillStyle = '#0a1524'; g.fillRect(0, 0, 768, 768);
+        // Monochrome + cool tint: colorized IR products come back as a
+        // radar-style rainbow — grayscale them and multiply a deep blue so
+        // day and night frames both read as moody monochrome cloud imagery.
+        try { g.filter = 'grayscale(1) brightness(0.9) contrast(1.06)'; } catch (e) {}
         let pending = 9, sawAny = false;
         const finish = () => {
             if (--pending > 0) return;
             if (!sawAny) return done(null);
+            try {
+                g.filter = 'none';
+                g.globalCompositeOperation = 'multiply';
+                g.fillStyle = '#a8c4e8'; g.fillRect(0, 0, 768, 768);
+                g.globalCompositeOperation = 'source-over';
+            } catch (e) {}
             const inv = (y) => Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n))) * 180 / Math.PI;
             const lonW = x0 / n * 360 - 180, lonE = (x0 + 3) / n * 360 - 180;
             const latN = inv(y0), latS = inv(y0 + 3);
@@ -5877,14 +5887,16 @@ function _s3Rebuild(idx) {
         objs.edges.push(eline); s3.scene.add(eline);
     }
 
-    const ec = windColor(f.vmax) || [255, 77, 166];
-    const eyeCol = (ec[0] << 16) | (ec[1] << 8) | ec[2];
-    const rmwKm = Math.max(6, f.rmw_m / 1000);
-    const egeo = new T.CylinderGeometry(rmwKm, rmwKm * 1.18, canopyH, 48, 1, true);
-    const emat = new T.MeshBasicMaterial({ color: eyeCol, transparent: true, opacity: 0.30, side: T.DoubleSide, depthWrite: false, blending: T.AdditiveBlending });
-    objs.eyewall = new T.Mesh(egeo, emat);
-    objs.eyewall.position.y = canopyH / 2;
-    s3.scene.add(objs.eyewall);
+    if (f.vmax >= 33) {   // no eyewall column below hurricane force — a TD has no eyewall
+        const ec = windColor(f.vmax) || [255, 77, 166];
+        const eyeCol = (ec[0] << 16) | (ec[1] << 8) | ec[2];
+        const rmwKm = Math.max(6, f.rmw_m / 1000);
+        const egeo = new T.CylinderGeometry(rmwKm, rmwKm * 1.18, canopyH, 48, 1, true);
+        const emat = new T.MeshBasicMaterial({ color: eyeCol, transparent: true, opacity: 0.26, side: T.DoubleSide, depthWrite: false, blending: T.AdditiveBlending });
+        objs.eyewall = new T.Mesh(egeo, emat);
+        objs.eyewall.position.y = canopyH / 2;
+        s3.scene.add(objs.eyewall);
+    }
 
     const N = 2600;
     const pos = new Float32Array(N * 6), col = new Float32Array(N * 6);
@@ -5904,6 +5916,10 @@ function _s3Rebuild(idx) {
     objs.canopy = null;
     s3.objs = objs;
     s3.canopyH = canopyH;
+    // Re-frame for this fix's size and refresh the HUD.
+    s3.dist = Math.max(900, extKm * 1.5);
+    if (s3.phi < 0.95) s3.phi = 1.0;
+    _s3Hud(f);
 
     if (s3.texTimer) clearTimeout(s3.texTimer);
     s3.texTimer = setTimeout(() => {
@@ -5929,7 +5945,7 @@ function _s3Rebuild(idx) {
                 const ctex = new T.CanvasTexture(cc);
                 const R = r34km * 1.35;
                 const cgeo = new T.CircleGeometry(R, 64);
-                const cmat = new T.MeshBasicMaterial({ map: ctex, transparent: true, opacity: 0.85, depthWrite: false, side: T.DoubleSide });
+                const cmat = new T.MeshBasicMaterial({ map: ctex, transparent: true, opacity: 0.78, depthWrite: false, side: T.DoubleSide });
                 const canopy = new T.Mesh(cgeo, cmat);
                 canopy.rotation.x = -Math.PI / 2;
                 canopy.position.y = canopyH;
@@ -5946,14 +5962,29 @@ function _s3Rebuild(idx) {
     }, 250);
 }
 
+function _s3Hud(f) {
+    const s3 = window._storm3d;
+    if (!s3.hud || !f) return;
+    const kt = Math.round(f.vmax / 0.514444);
+    const cat = kt >= 137 ? 'Cat 5' : kt >= 113 ? 'Cat 4' : kt >= 96 ? 'Cat 3' : kt >= 83 ? 'Cat 2' : kt >= 64 ? 'Cat 1' : kt >= 34 ? 'TS' : 'TD';
+    const ec = windColor(f.vmax) || [125, 211, 252];
+    s3.hud.innerHTML = `<b style="font-size:13px">${escapeHtml(window._currentStormId || 'Storm')} · <span style="color:rgb(${ec[0]},${ec[1]},${ec[2]})">${cat}</span></b><br>` +
+        `${kt} kt · r34 ${Math.round(f.r34_m / NM_TO_M)} nm · rmw ${Math.round(f.rmw_m / NM_TO_M)} nm<br>` +
+        `<span style="opacity:.65">drag to orbit · scroll to zoom · timeline scrubs</span>`;
+}
+
 function _s3Frame() {
     const s3 = window._storm3d, T = window.THREE;
     if (!s3.on || !s3.renderer) return;
     s3.raf = requestAnimationFrame(_s3Frame);
     try {
+        // Follow the storm timeline only when the USER scrubs it after
+        // opening — the portrait opens on the newest fix, not frame 0.
         const wf = window._windfieldState;
-        const idx = (wf && wf.currentIdx != null) ? wf.currentIdx : ((window.stormData || []).length - 1);
-        if (idx !== s3.idx && idx >= 0) _s3Rebuild(idx);
+        if (wf && wf.currentIdx != null && wf.currentIdx !== s3.followWf) {
+            s3.followWf = wf.currentIdx;
+            if (wf.currentIdx !== s3.idx && wf.currentIdx >= 0) _s3Rebuild(wf.currentIdx);
+        }
         const f = s3.field; if (!f || !s3.objs) return;
         const r34km = f.r34_m / 1000;
         const pos = s3.objs.pgeo.attributes.position.array;
@@ -5987,7 +6018,7 @@ function _s3Frame() {
         s3.camera.position.set(Math.sin(s3.theta) * Math.cos(s3.phi) * ce,
                                Math.sin(s3.phi) * ce,
                                Math.cos(s3.theta) * Math.cos(s3.phi) * ce);
-        s3.camera.lookAt(0, 30, 0);
+        s3.camera.lookAt(0, (s3.canopyH || 100) * 0.3, 0);
         s3.renderer.render(s3.scene, s3.camera);
     } catch (e) { console.warn('[3D] frame error:', e); }
 }
@@ -6049,19 +6080,11 @@ function toggleStorm3D() {
             renderer.setSize(host.clientWidth, host.clientHeight);
             camera.aspect = host.clientWidth / host.clientHeight; camera.updateProjectionMatrix();
         });
+        // Open on the NEWEST fix (the storm as it is now); scrubbing the
+        // timeline afterwards re-drives the portrait via _s3Frame's follow.
         const wf = window._windfieldState;
-        const idx = (wf && wf.currentIdx != null) ? wf.currentIdx : (window.stormData.length - 1);
-        _s3Rebuild(idx);
-        const f = s3.field;
-        if (f && hud) {
-            const kt = Math.round(f.vmax / 0.514444);
-            const cat = kt >= 137 ? 'Cat 5' : kt >= 113 ? 'Cat 4' : kt >= 96 ? 'Cat 3' : kt >= 83 ? 'Cat 2' : kt >= 64 ? 'Cat 1' : kt >= 34 ? 'TS' : 'TD';
-            const ec = windColor(f.vmax) || [125, 211, 252];
-            hud.innerHTML = `<b style="font-size:13px">${escapeHtml(window._currentStormId || 'Storm')} · <span style="color:rgb(${ec[0]},${ec[1]},${ec[2]})">${cat}</span></b><br>` +
-                `${kt} kt · r34 ${Math.round(f.r34_m / NM_TO_M)} nm · rmw ${Math.round(f.rmw_m / NM_TO_M)} nm<br>` +
-                `<span style="opacity:.65">drag to orbit · scroll to zoom · timeline scrubs</span>`;
-        }
-        s3.dist = Math.max(900, s3.ext * 1.55);
+        s3.followWf = (wf && wf.currentIdx != null) ? wf.currentIdx : -1;
+        _s3Rebuild(window.stormData.length - 1);
         if (btn) { btn.textContent = '3D view: On'; btn.disabled = false;
             btn.style.background = 'rgba(167,139,250,.22)'; btn.style.borderColor = 'rgba(167,139,250,.5)'; btn.style.color = '#c4b5fd'; }
         _s3Frame();
