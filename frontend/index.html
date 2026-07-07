@@ -5664,7 +5664,7 @@ function _windfieldPrewarmAll() {
 window._storm3d = {
     on: false, raf: 0, token: 0, container: null, renderer: null, scene: null,
     camera: null, objs: null, parts: null, field: null, idx: -1,
-    theta: -0.6, phi: 0.92, dist: 1500, lastDrag: 0, texTimer: null, texTs: null,
+    theta: -0.6, phi: 0.84, dist: 1500, lastDrag: 0, texTimer: null, texTs: null,
 };
 
 function _s3LoadThree() {
@@ -5724,13 +5724,16 @@ function _s3SpeedAt(f, ex_km, ny_km) {
     return w;
 }
 
-function _s3WindVec(f, ex_km, ny_km) {
+function _s3WindVec(f, ex_km, ny_km, inflowScale) {
     const w = _s3SpeedAt(f, ex_km, ny_km);
     if (w <= 0) return [0, 0, 0];
     const r = Math.hypot(ex_km, ny_km) || 1;
     const rx = ex_km / r, ry = ny_km / r;
     const tx = -ry * f.hemi, ty = rx * f.hemi;   // cyclonic tangential
-    const ca = 0.906, sa = 0.423;                 // ~25° inflow toward the eye
+    // Inflow is a boundary-layer feature: ~25° at the surface, decaying to
+    // near-pure rotation aloft (inflowScale 1 → 0 with particle altitude).
+    const sa = 0.423 * (inflowScale == null ? 1 : inflowScale);
+    const ca = Math.sqrt(1 - sa * sa);
     return [w * (tx * ca - rx * sa), w * (ty * ca - ry * sa), w];
 }
 
@@ -5868,7 +5871,9 @@ function _s3Rebuild(idx) {
     const r34km = f.r34_m / 1000;
     const extKm = Math.max(650, r34km * 2.6);
     s3.ext = extKm;
-    const canopyH = 95 + f.vmax * 0.9;
+    // ~2x the earlier vertical scale — the structure topped out at ~8% of
+    // the storm's radius and the whole scene read as a flat spinning disc.
+    const canopyH = 190 + f.vmax * 1.8;
 
     const base = _s3BaseTexture(extKm);
     const mkPlane = (info) => {
@@ -5894,9 +5899,9 @@ function _s3Rebuild(idx) {
     // the particles. A bright edge ring at each threshold height plus a few
     // faint vertical drop-lines keeps the "3D cage" reading with zero
     // occlusion.
-    const bands = [ { thr: 17.5, h: 46, col: 0xfbbf24 },
-                    { thr: 25.7, h: 72, col: 0xf97316 },
-                    { thr: 32.9, h: 100, col: 0xef4444 } ];
+    const bands = [ { thr: 17.5, h: 92, col: 0xfbbf24 },
+                    { thr: 25.7, h: 145, col: 0xf97316 },
+                    { thr: 32.9, h: 200, col: 0xef4444 } ];
     objs.edges = []; objs.drops = [];
     for (const bd of bands) {
         const pts = _s3Outline(f, bd.thr); if (!pts) continue;
@@ -5920,9 +5925,10 @@ function _s3Rebuild(idx) {
         const ec = windColor(f.vmax) || [255, 77, 166];
         const eyeCol = (ec[0] << 16) | (ec[1] << 8) | ec[2];
         const rmwKm = Math.max(6, f.rmw_m / 1000);
-        // A glowing core marker, not a monolith: 55% of canopy height, faint.
-        const eh = canopyH * 0.55;
-        const egeo = new T.CylinderGeometry(rmwKm, rmwKm * 1.3, eh, 48, 1, true);
+        // Stadium effect — real eyewalls flare OUTWARD with height. Narrow at
+        // the sea surface, wide at the canopy: the iconic amphitheater.
+        const eh = canopyH * 0.78;
+        const egeo = new T.CylinderGeometry(rmwKm * 1.7, rmwKm * 1.05, eh, 48, 1, true);
         const emat = new T.MeshBasicMaterial({ color: eyeCol, transparent: true, opacity: 0.17, side: T.DoubleSide, depthWrite: false, blending: T.AdditiveBlending });
         objs.eyewall = new T.Mesh(egeo, emat);
         objs.eyewall.position.y = eh / 2;
@@ -5936,7 +5942,10 @@ function _s3Rebuild(idx) {
     for (let i = 0; i < N; i++) {
         const rr = (0.12 + 0.88 * Math.sqrt(Math.random())) * r34km * 1.3;
         const aa = Math.random() * Math.PI * 2;
-        parts.push({ x: Math.cos(aa) * rr, n: Math.sin(aa) * rr });
+        // Persistent altitude per particle, biased toward the surface — the
+        // wind field is a stratified rotating VOLUME, not a flat sheet.
+        parts.push({ x: Math.cos(aa) * rr, n: Math.sin(aa) * rr,
+                     h: 8 + Math.pow(Math.random(), 1.7) * (canopyH * 0.72) });
     }
     objs.pgeo = new T.BufferGeometry();
     objs.pgeo.setAttribute('position', new T.BufferAttribute(pos, 3));
@@ -5949,9 +5958,10 @@ function _s3Rebuild(idx) {
     objs.canopy = null;
     s3.objs = objs;
     s3.canopyH = canopyH;
-    // Re-frame for this fix's size and refresh the HUD.
+    // Re-frame for this fix's size and refresh the HUD. Keep the elevation
+    // in a band that shows the new verticality (near-top-down flattens it).
     s3.dist = Math.max(900, extKm * 1.5);
-    if (s3.phi < 0.95) s3.phi = 1.0;
+    s3.phi = Math.max(0.55, Math.min(1.05, s3.phi));
     _s3Hud(f);
 
     if (s3.texTimer) clearTimeout(s3.texTimer);
@@ -6008,7 +6018,7 @@ function _s3Hud(f) {
     const ec = windColor(f.vmax) || [125, 211, 252];
     s3.hud.innerHTML = `<b style="font-size:13px">${escapeHtml(window._currentStormId || 'Storm')} · <span style="color:rgb(${ec[0]},${ec[1]},${ec[2]})">${cat}</span></b><br>` +
         `${kt} kt · r34 ${Math.round(f.r34_m / NM_TO_M)} nm · rmw ${Math.round(f.rmw_m / NM_TO_M)} nm<br>` +
-        `<span style="opacity:.65">drag to orbit · scroll to zoom · timeline scrubs</span>`;
+        `<span style="opacity:.65">drag to orbit · scroll to zoom · timeline scrubs · height exaggerated</span>`;
 }
 
 function _s3Frame() {
@@ -6027,19 +6037,24 @@ function _s3Frame() {
         const r34km = f.r34_m / 1000;
         const pos = s3.objs.pgeo.attributes.position.array;
         const col = s3.objs.pgeo.attributes.color.array;
+        const cH = s3.canopyH || 300;
         for (let i = 0; i < s3.parts.length; i++) {
             const p = s3.parts[i];
-            const [u, v, w] = _s3WindVec(f, p.x, p.n);
+            // Surface particles spiral hard into the eye; upper-level ones
+            // rotate nearly pure-tangential — the volume organizes with height.
+            const infl = 1 - 0.78 * Math.min(1, (p.h || 8) / cH);
+            const [u, v, w] = _s3WindVec(f, p.x, p.n, infl);
             if (w < 3 || Math.hypot(p.x, p.n) > r34km * 1.42 || Math.random() < 0.004) {
                 const rr = (0.12 + 0.88 * Math.sqrt(Math.random())) * r34km * 1.3;
                 const aa = Math.random() * Math.PI * 2;
                 p.x = Math.cos(aa) * rr; p.n = Math.sin(aa) * rr;
+                p.h = 8 + Math.pow(Math.random(), 1.7) * (cH * 0.72);
                 continue;
             }
             const dt = 0.055;
             p.x += u * dt; p.n += v * dt;
             const len = 2.5 + w * 0.22;
-            const y = 5 + w * 0.28;
+            const y = (p.h || 8) + w * 0.12;
             const o = i * 6, sp = Math.hypot(u, v) || 1;
             pos[o] = p.x; pos[o + 1] = y; pos[o + 2] = -p.n;
             pos[o + 3] = p.x - (u / sp) * len; pos[o + 4] = y; pos[o + 5] = -(p.n - (v / sp) * len);
