@@ -5879,6 +5879,11 @@ function _s3Rebuild(idx) {
         const mesh = new T.Mesh(geo, mat);
         mesh.rotation.x = -Math.PI / 2;
         mesh.position.set(info.cxKm, 0, info.czKm);
+        // Explicit render order: the transparent plane must composite FIRST,
+        // then cage lines, eyewall, particles, canopy. Without this the
+        // sorted-transparency pass drew the plane over the depthWrite:false
+        // particles and erased them (iteration-2 regression).
+        mesh.renderOrder = 0;
         return mesh;
     };
     objs.plane = mkPlane(base);
@@ -5898,6 +5903,7 @@ function _s3Rebuild(idx) {
         const epts = pts.map(p => new T.Vector3(p[0], bd.h, -p[1]));
         const egeo = new T.BufferGeometry().setFromPoints(epts);
         const eline = new T.LineLoop(egeo, new T.LineBasicMaterial({ color: bd.col, transparent: true, opacity: 0.9 }));
+        eline.renderOrder = 1;
         objs.edges.push(eline); s3.scene.add(eline);
         const dpos = [];
         for (let a = 0; a < 72; a += 6) {   // every 30° along the outline
@@ -5906,6 +5912,7 @@ function _s3Rebuild(idx) {
         const dgeo = new T.BufferGeometry();
         dgeo.setAttribute('position', new T.BufferAttribute(new Float32Array(dpos), 3));
         const dline = new T.LineSegments(dgeo, new T.LineBasicMaterial({ color: bd.col, transparent: true, opacity: 0.22 }));
+        dline.renderOrder = 1;
         objs.drops.push(dline); s3.scene.add(dline);
     }
 
@@ -5919,6 +5926,7 @@ function _s3Rebuild(idx) {
         const emat = new T.MeshBasicMaterial({ color: eyeCol, transparent: true, opacity: 0.17, side: T.DoubleSide, depthWrite: false, blending: T.AdditiveBlending });
         objs.eyewall = new T.Mesh(egeo, emat);
         objs.eyewall.position.y = eh / 2;
+        objs.eyewall.renderOrder = 2;
         s3.scene.add(objs.eyewall);
     }
 
@@ -5934,6 +5942,7 @@ function _s3Rebuild(idx) {
     objs.pgeo.setAttribute('position', new T.BufferAttribute(pos, 3));
     objs.pgeo.setAttribute('color', new T.BufferAttribute(col, 3));
     objs.plines = new T.LineSegments(objs.pgeo, new T.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9, blending: T.AdditiveBlending, depthWrite: false }));
+    objs.plines.renderOrder = 3;
     s3.scene.add(objs.plines);
     s3.parts = parts;
 
@@ -5977,6 +5986,7 @@ function _s3Rebuild(idx) {
                 const canopy = new T.Mesh(cgeo, cmat);
                 canopy.rotation.x = -Math.PI / 2;
                 canopy.position.y = canopyH;
+                canopy.renderOrder = 4;
                 // Map the circle's [-R,R]² world footprint (centered on the
                 // storm at the origin) onto the stitched canvas, whose center
                 // sits at world (cxKm, czKm) and spans wKm × hKm.
