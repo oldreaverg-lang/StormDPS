@@ -791,6 +791,7 @@
                     <div class="adv-row"><button id="satToggleBtn" class="adv-toggle" onclick="toggleSatelliteVisibility()" disabled title="Loads when a storm with satellite coverage is displayed">Satellite: Off</button></div>
                     <div class="adv-row"><button id="irToggleBtn" class="adv-toggle" onclick="toggleIRMode()" disabled title="Switch satellite imagery between visible and infrared">Infrared: Off</button></div>
                     <div class="adv-row"><button id="windfieldToggleBtn" class="adv-toggle" onclick="toggleWindfieldLayer()" disabled title="Holland B wind-field overlay">Windfield: Off</button></div>
+                    <div class="adv-row"><button id="storm3dToggleBtn" class="adv-toggle" onclick="toggleStorm3D()" disabled title="3D storm portrait — wind particles, radii stamps and cloud canopy over the satellite plane">3D view: Off</button></div>
                     <div class="adv-row"><button id="windToggleBtn" class="adv-toggle" onclick="toggleWindLayer()" disabled title="Wind particle overlay">Wind: Off</button><input type="range" id="windOpacityInput" class="adv-opacity" min="10" max="95" value="70" oninput="setWindOpacity(this.value)" title="Wind layer opacity"><span id="windOpacityLabel" class="adv-opacity-lbl">70%</span></div>
                     <div class="adv-row"><button id="pressureToggleBtn" class="adv-toggle" onclick="togglePressureLayer()" disabled title="MSLP field, isobars, and station obs">Pressure: Off</button><input type="range" id="pressureOpacityInput" class="adv-opacity" min="10" max="95" value="55" oninput="setPressureOpacity(this.value)" title="Pressure layer opacity"><span id="pressureOpacityLabel" class="adv-opacity-lbl">55%</span></div>
                     <div class="adv-row"><button id="precipToggleBtn" class="adv-toggle" onclick="togglePrecipLayer()" disabled title="Precipitation rate + cloud cover">Precip: Off</button><input type="range" id="precipOpacityInput" class="adv-opacity" min="10" max="95" value="75" oninput="setPrecipOpacity(this.value)" title="Precipitation layer opacity"><span id="precipOpacityLabel" class="adv-opacity-lbl">75%</span></div>
@@ -5193,6 +5194,9 @@ function teardownSatelliteLayer(opts) {
         const ppleg = document.getElementById('precipLegend');
         if (ppleg) ppleg.style.display = 'none';
     }
+    // Close the 3D portrait if it's open — its scene is built from the
+    // outgoing storm's field and would render stale data over the new one.
+    try { if (window._storm3d && window._storm3d.on) toggleStorm3D(); } catch (e) {}
     // Tear down the windfield (Holland B image overlay) layer. Per-frame
     // canvas images are cached in wf.cache — drop it so a new storm doesn't
     // retain stale images from the previous one.
@@ -5418,6 +5422,14 @@ async function initSatelliteLayer(data, opts) {
         _wfReady.style.borderColor = 'rgba(100,116,139,.4)';
         _wfReady.style.color = '#94a3b8';
     }
+    // Enable the 3D portrait once track data exists (desktop only — the
+    // toggle itself re-checks width so a resize can't strand it).
+    const _s3Ready = document.getElementById('storm3dToggleBtn');
+    if (_s3Ready && window.innerWidth >= 900) {
+        _s3Ready.disabled = false;
+        _s3Ready.style.cursor = 'pointer';
+        _s3Ready.style.opacity = '1';
+    }
     // Enable the Infrared toggle and sync its visual state.
     const _irReady = document.getElementById('irToggleBtn');
     if (_irReady) {
@@ -5640,6 +5652,424 @@ function _windfieldPrewarmAll() {
         if (i < n) schedule(slice);
     }
     schedule(slice);
+}
+
+// ── Storm 3D portrait ─────────────────────────────────────────────────────
+// A volumetric "portrait" of the current storm: satellite/IR plane, analytic
+// Holland-B wind particles spiraling into the eye, translucent quadrant radii
+// stamps (r34/r50/r64), a glowing eyewall column and a rotating cloud canopy
+// cut from the live imagery. Lazy-loads three.js (UMD r147) on first toggle;
+// fully self-contained — failures reset the button and never touch the 2D map.
+// Scene units: km. Ground = XZ plane (x = east, z = -north), up = Y.
+window._storm3d = {
+    on: false, raf: 0, token: 0, container: null, renderer: null, scene: null,
+    camera: null, objs: null, parts: null, field: null, idx: -1,
+    theta: -0.6, phi: 0.92, dist: 1500, lastDrag: 0, texTimer: null, texTs: null,
+};
+
+function _s3LoadThree() {
+    if (window.THREE) return Promise.resolve();
+    if (window._s3ThreeP) return window._s3ThreeP;
+    window._s3ThreeP = new Promise((ok, bad) => {
+        const s = document.createElement('script');
+        s.src = 'https://unpkg.com/three@0.147.0/build/three.min.js';
+        s.onload = () => ok(); s.onerror = () => bad(new Error('three.js load failed'));
+        document.head.appendChild(s);
+    });
+    return window._s3ThreeP;
+}
+
+function _s3FieldFor(idx) {
+    const sd = window.stormData || [];
+    const d = sd[Math.max(0, Math.min(idx, sd.length - 1))];
+    if (!d || !d.max_wind_ms) return null;
+    const vmax = d.max_wind_ms, lat = d.lat, lon = d.lon;
+    const rmw_nm = d.rmw_nm || estimateRmwNm(vmax, lat);
+    const r34_nm = d.r34_nm || estimateR34Nm(vmax, rmw_nm);
+    const rmw_m = rmw_nm * NM_TO_M, r34_m = r34_nm * NM_TO_M;
+    const b = Math.min(2.5, Math.max(1.0, 1.0 + 0.5 * (vmax / 70.0)));
+    const q = d.r34_quadrants; const hasQ = q && (q.NE || q.SE || q.SW || q.NW);
+    let quads = null, meanR34 = r34_m;
+    if (hasQ) {
+        quads = { NE: (q.NE || r34_nm) * NM_TO_M, SE: (q.SE || r34_nm) * NM_TO_M,
+                  SW: (q.SW || r34_nm) * NM_TO_M, NW: (q.NW || r34_nm) * NM_TO_M };
+        meanR34 = (quads.NE + quads.SE + quads.SW + quads.NW) / 4;
+    }
+    const fwd = d.forward_speed_knots ? d.forward_speed_knots * 0.514444 : 0;
+    const thMax = (((d.forward_direction_deg || 0) + 90) % 360) * Math.PI / 180;
+    return { vmax, lat, lon, rmw_m, r34_m, b, quads, meanR34, fwd, thMax,
+             hemi: lat >= 0 ? 1 : -1, coslat: Math.max(0.2, Math.cos(lat * Math.PI / 180)) };
+}
+
+function _s3SpeedAt(f, ex_km, ny_km) {
+    const dx = ex_km * 1000, dy = ny_km * 1000;
+    const r = Math.hypot(dx, dy); if (r < 500) return 0;
+    let scale = 1, r34t = f.r34_m;
+    if (f.quads) {
+        const thd = ((Math.atan2(dx, dy) * 180 / Math.PI) + 360) % 360;
+        r34t = interpQuadrantRadius(thd, f.quads.NE, f.quads.SE, f.quads.SW, f.quads.NW);
+        scale = r34t / f.meanR34;
+    }
+    let w = hollandWindSpeed(r / scale, f.vmax, f.rmw_m, f.b);
+    if (r > r34t * 0.9) {
+        const tf = Math.min(1, (r - r34t * 0.9) / (r34t * 0.3));
+        w *= 0.5 * (1 + Math.cos(Math.PI * tf));
+    }
+    if (r > r34t * 1.2) return 0;
+    if (f.fwd > 0) {
+        const delta = Math.atan2(dx, dy) - f.thMax;
+        const decay = Math.exp(-0.5 * Math.pow((r / f.rmw_m) - 1, 2) / 2);
+        w = Math.max(0, w + 0.5 * f.fwd * Math.cos(delta) * decay);
+    }
+    return w;
+}
+
+function _s3WindVec(f, ex_km, ny_km) {
+    const w = _s3SpeedAt(f, ex_km, ny_km);
+    if (w <= 0) return [0, 0, 0];
+    const r = Math.hypot(ex_km, ny_km) || 1;
+    const rx = ex_km / r, ry = ny_km / r;
+    const tx = -ry * f.hemi, ty = rx * f.hemi;   // cyclonic tangential
+    const ca = 0.906, sa = 0.423;                 // ~25° inflow toward the eye
+    return [w * (tx * ca - rx * sa), w * (ty * ca - ry * sa), w];
+}
+
+function _s3RadiusFor(f, thr) {
+    if (hollandWindSpeed(f.rmw_m, f.vmax, f.rmw_m, f.b) < thr) return 0;
+    let lo = f.rmw_m, hi = f.r34_m * 1.25;
+    for (let i = 0; i < 42; i++) {
+        const mid = (lo + hi) / 2;
+        if (hollandWindSpeed(mid, f.vmax, f.rmw_m, f.b) >= thr) lo = mid; else hi = mid;
+    }
+    return lo;
+}
+
+function _s3Outline(f, thr) {
+    const rs = _s3RadiusFor(f, thr); if (!rs) return null;
+    const pts = [];
+    for (let a = 0; a < 72; a++) {
+        const th = a * 5, rad = th * Math.PI / 180;
+        let sc = 1;
+        if (f.quads) sc = interpQuadrantRadius(th, f.quads.NE, f.quads.SE, f.quads.SW, f.quads.NW) / f.meanR34;
+        const rk = rs * sc / 1000;
+        pts.push([Math.sin(rad) * rk, Math.cos(rad) * rk]);   // [east, north] km
+    }
+    return pts;
+}
+
+function _s3BaseTexture(extKm) {
+    const c = document.createElement('canvas'); c.width = c.height = 512;
+    const g = c.getContext('2d');
+    g.fillStyle = '#0a1524'; g.fillRect(0, 0, 512, 512);
+    g.strokeStyle = 'rgba(120,160,220,0.10)'; g.lineWidth = 1;
+    for (let i = 1; i <= 6; i++) {
+        g.beginPath(); g.arc(256, 256, i * 40, 0, Math.PI * 2); g.stroke();
+    }
+    return { canvas: c, wKm: extKm * 2, hKm: extKm * 2, cxKm: 0, czKm: 0 };
+}
+
+function _s3StitchTiles(f, ts, done) {
+    try {
+        if (!ts) return done(null);
+        const st = window._satelliteState || {};
+        const sat = st.satellite || (f.lon >= 100 && f.lon <= 180 ? 'himawari' : (f.lon < -135 ? 'goes-west' : 'goes-east'));
+        const ir = st.irMode || _autoIRForFrame({ satellite: sat }, ts);
+        const z = 5, n = Math.pow(2, z);
+        const latR = f.lat * Math.PI / 180;
+        const xt = (f.lon + 180) / 360 * n;
+        const yt = (1 - Math.log(Math.tan(latR) + 1 / Math.cos(latR)) / Math.PI) / 2 * n;
+        const x0 = Math.floor(xt) - 1, y0 = Math.floor(yt) - 1;   // 3×3 tiles ≈ 33°×~30°
+        const cvs = document.createElement('canvas'); cvs.width = cvs.height = 768;
+        const g = cvs.getContext('2d');
+        g.fillStyle = '#0a1524'; g.fillRect(0, 0, 768, 768);
+        let pending = 9, sawAny = false;
+        const finish = () => {
+            if (--pending > 0) return;
+            if (!sawAny) return done(null);
+            const inv = (y) => Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n))) * 180 / Math.PI;
+            const lonW = x0 / n * 360 - 180, lonE = (x0 + 3) / n * 360 - 180;
+            const latN = inv(y0), latS = inv(y0 + 3);
+            const kx = 111.32 * f.coslat, ky = 110.57;
+            done({ canvas: cvs,
+                   wKm: (lonE - lonW) * kx, hKm: (latN - latS) * ky,
+                   cxKm: ((lonW + lonE) / 2 - f.lon) * kx,
+                   czKm: -(((latN + latS) / 2) - f.lat) * ky });
+        };
+        for (let iy = 0; iy < 3; iy++) for (let ix = 0; ix < 3; ix++) {
+            const img = new Image();
+            img.onload = () => { try { g.drawImage(img, ix * 256, iy * 256, 256, 256); if (img.naturalWidth > 1) sawAny = true; } catch (e) {} finish(); };
+            img.onerror = () => finish();
+            img.src = `${API_BASE}/satellite/tile/${sat}/${ts}/${z}/${((x0 + ix) % n + n) % n}/${y0 + iy}.png${ir ? '?mode=ir' : ''}`;
+        }
+    } catch (e) { done(null); }
+}
+
+function _s3CanopyCanvas(texInfo, f) {
+    const c = document.createElement('canvas'); c.width = c.height = texInfo.canvas.width;
+    const g = c.getContext('2d');
+    g.drawImage(texInfo.canvas, 0, 0);
+    const pxPerKmX = c.width / texInfo.wKm, pxPerKmY = c.height / texInfo.hKm;
+    const cx = c.width / 2 - texInfo.cxKm * pxPerKmX;
+    const cy = c.height / 2 + texInfo.czKm * pxPerKmY;
+    const rPx = (f.r34_m / 1000) * 1.35 * pxPerKmX;
+    const grad = g.createRadialGradient(cx, cy, rPx * 0.55, cx, cy, rPx);
+    grad.addColorStop(0, 'rgba(0,0,0,1)'); grad.addColorStop(1, 'rgba(0,0,0,0)');
+    g.globalCompositeOperation = 'destination-in';
+    g.fillStyle = grad; g.beginPath(); g.arc(cx, cy, rPx, 0, Math.PI * 2); g.fill();
+    return c;
+}
+
+function _s3DisposeObjs() {
+    const s3 = window._storm3d;
+    if (!s3.objs || !s3.scene) return;
+    for (const o of Object.values(s3.objs)) {
+        if (!o) continue;
+        const list = Array.isArray(o) ? o : [o];
+        for (const m of list) {
+            try { s3.scene.remove(m); if (m.geometry) m.geometry.dispose();
+                  if (m.material) { if (m.material.map) m.material.map.dispose(); m.material.dispose(); } } catch (e) {}
+        }
+    }
+    s3.objs = null;
+}
+
+function _s3Rebuild(idx) {
+    const s3 = window._storm3d, T = window.THREE;
+    const f = _s3FieldFor(idx); if (!f || !s3.scene) return;
+    s3.field = f; s3.idx = idx;
+    _s3DisposeObjs();
+    const objs = {};
+    const r34km = f.r34_m / 1000;
+    const extKm = Math.max(650, r34km * 2.6);
+    s3.ext = extKm;
+    const canopyH = 95 + f.vmax * 0.9;
+
+    const base = _s3BaseTexture(extKm);
+    const mkPlane = (info) => {
+        const tex = new T.CanvasTexture(info.canvas);
+        const geo = new T.PlaneGeometry(info.wKm, info.hKm);
+        const mat = new T.MeshBasicMaterial({ map: tex });
+        const mesh = new T.Mesh(geo, mat);
+        mesh.rotation.x = -Math.PI / 2;
+        mesh.position.set(info.cxKm, 0, info.czKm);
+        return mesh;
+    };
+    objs.plane = mkPlane(base);
+    s3.scene.add(objs.plane);
+
+    const bands = [ { thr: 17.5, h: 46, col: 0xfbbf24, op: 0.13 },
+                    { thr: 25.7, h: 72, col: 0xf97316, op: 0.15 },
+                    { thr: 32.9, h: 100, col: 0xef4444, op: 0.18 } ];
+    objs.rings = []; objs.edges = [];
+    for (const bd of bands) {
+        const pts = _s3Outline(f, bd.thr); if (!pts) continue;
+        const shape = new T.Shape();
+        pts.forEach((p, i) => { const x = p[0], z = -p[1]; i ? shape.lineTo(x, z) : shape.moveTo(x, z); });
+        shape.closePath();
+        const geo = new T.ExtrudeGeometry(shape, { depth: bd.h, bevelEnabled: false });
+        const mat = new T.MeshBasicMaterial({ color: bd.col, transparent: true, opacity: bd.op, depthWrite: false, side: T.DoubleSide });
+        const mesh = new T.Mesh(geo, mat);
+        mesh.rotation.x = -Math.PI / 2;
+        objs.rings.push(mesh); s3.scene.add(mesh);
+        const epts = pts.map(p => new T.Vector3(p[0], bd.h, -p[1]));
+        const egeo = new T.BufferGeometry().setFromPoints(epts);
+        const eline = new T.LineLoop(egeo, new T.LineBasicMaterial({ color: bd.col, transparent: true, opacity: 0.85 }));
+        objs.edges.push(eline); s3.scene.add(eline);
+    }
+
+    const ec = windColor(f.vmax) || [255, 77, 166];
+    const eyeCol = (ec[0] << 16) | (ec[1] << 8) | ec[2];
+    const rmwKm = Math.max(6, f.rmw_m / 1000);
+    const egeo = new T.CylinderGeometry(rmwKm, rmwKm * 1.18, canopyH, 48, 1, true);
+    const emat = new T.MeshBasicMaterial({ color: eyeCol, transparent: true, opacity: 0.30, side: T.DoubleSide, depthWrite: false, blending: T.AdditiveBlending });
+    objs.eyewall = new T.Mesh(egeo, emat);
+    objs.eyewall.position.y = canopyH / 2;
+    s3.scene.add(objs.eyewall);
+
+    const N = 2600;
+    const pos = new Float32Array(N * 6), col = new Float32Array(N * 6);
+    const parts = [];
+    for (let i = 0; i < N; i++) {
+        const rr = (0.12 + 0.88 * Math.sqrt(Math.random())) * r34km * 1.3;
+        const aa = Math.random() * Math.PI * 2;
+        parts.push({ x: Math.cos(aa) * rr, n: Math.sin(aa) * rr });
+    }
+    objs.pgeo = new T.BufferGeometry();
+    objs.pgeo.setAttribute('position', new T.BufferAttribute(pos, 3));
+    objs.pgeo.setAttribute('color', new T.BufferAttribute(col, 3));
+    objs.plines = new T.LineSegments(objs.pgeo, new T.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9, blending: T.AdditiveBlending, depthWrite: false }));
+    s3.scene.add(objs.plines);
+    s3.parts = parts;
+
+    objs.canopy = null;
+    s3.objs = objs;
+    s3.canopyH = canopyH;
+
+    if (s3.texTimer) clearTimeout(s3.texTimer);
+    s3.texTimer = setTimeout(() => {
+        const sd = window.stormData || [];
+        const dfix = sd[idx]; if (!dfix || !window._tsMsToSatTsString) return;
+        const want = window._tsMsToSatTsString(Date.parse(dfix.timestamp));
+        const frames = (window._satelliteState || {}).frames || [];
+        let ts = null, bd = Infinity;
+        for (const fr of frames) {
+            const dm = Math.abs((window._satTsToMs ? window._satTsToMs(fr) : 0) - (window._satTsToMs ? window._satTsToMs(want) : 0));
+            if (dm < bd) { bd = dm; ts = fr; }
+        }
+        const myToken = s3.token;
+        _s3StitchTiles(f, ts, (info) => {
+            if (!info || !s3.on || s3.token !== myToken || !s3.objs) return;
+            try {
+                const np = mkPlane(info);
+                s3.scene.add(np);
+                s3.scene.remove(s3.objs.plane);
+                s3.objs.plane.geometry.dispose(); s3.objs.plane.material.map.dispose(); s3.objs.plane.material.dispose();
+                s3.objs.plane = np;
+                const cc = _s3CanopyCanvas(info, f);
+                const ctex = new T.CanvasTexture(cc);
+                const R = r34km * 1.35;
+                const cgeo = new T.CircleGeometry(R, 64);
+                const cmat = new T.MeshBasicMaterial({ map: ctex, transparent: true, opacity: 0.85, depthWrite: false, side: T.DoubleSide });
+                const canopy = new T.Mesh(cgeo, cmat);
+                canopy.rotation.x = -Math.PI / 2;
+                canopy.position.y = canopyH;
+                // Map the circle's [-R,R]² world footprint (centered on the
+                // storm at the origin) onto the stitched canvas, whose center
+                // sits at world (cxKm, czKm) and spans wKm × hKm.
+                ctex.repeat.set((2 * R) / info.wKm, (2 * R) / info.hKm);
+                ctex.offset.set(0.5 - (R + info.cxKm) / info.wKm, 0.5 - (R - info.czKm) / info.hKm);
+                if (s3.objs.canopy) { s3.scene.remove(s3.objs.canopy); }
+                s3.objs.canopy = canopy;
+                s3.scene.add(canopy);
+            } catch (e) { console.warn('[3D] texture swap failed:', e); }
+        });
+    }, 250);
+}
+
+function _s3Frame() {
+    const s3 = window._storm3d, T = window.THREE;
+    if (!s3.on || !s3.renderer) return;
+    s3.raf = requestAnimationFrame(_s3Frame);
+    try {
+        const wf = window._windfieldState;
+        const idx = (wf && wf.currentIdx != null) ? wf.currentIdx : ((window.stormData || []).length - 1);
+        if (idx !== s3.idx && idx >= 0) _s3Rebuild(idx);
+        const f = s3.field; if (!f || !s3.objs) return;
+        const r34km = f.r34_m / 1000;
+        const pos = s3.objs.pgeo.attributes.position.array;
+        const col = s3.objs.pgeo.attributes.color.array;
+        for (let i = 0; i < s3.parts.length; i++) {
+            const p = s3.parts[i];
+            const [u, v, w] = _s3WindVec(f, p.x, p.n);
+            if (w < 3 || Math.hypot(p.x, p.n) > r34km * 1.42 || Math.random() < 0.004) {
+                const rr = (0.12 + 0.88 * Math.sqrt(Math.random())) * r34km * 1.3;
+                const aa = Math.random() * Math.PI * 2;
+                p.x = Math.cos(aa) * rr; p.n = Math.sin(aa) * rr;
+                continue;
+            }
+            const dt = 0.055;
+            p.x += u * dt; p.n += v * dt;
+            const len = 2.5 + w * 0.22;
+            const y = 5 + w * 0.28;
+            const o = i * 6, sp = Math.hypot(u, v) || 1;
+            pos[o] = p.x; pos[o + 1] = y; pos[o + 2] = -p.n;
+            pos[o + 3] = p.x - (u / sp) * len; pos[o + 4] = y; pos[o + 5] = -(p.n - (v / sp) * len);
+            const c = windColor(Math.max(9, w)) || [45, 212, 191];
+            col[o] = c[0] / 255; col[o + 1] = c[1] / 255; col[o + 2] = c[2] / 255;
+            col[o + 3] = c[0] / 510; col[o + 4] = c[1] / 510; col[o + 5] = c[2] / 510;
+        }
+        s3.objs.pgeo.attributes.position.needsUpdate = true;
+        s3.objs.pgeo.attributes.color.needsUpdate = true;
+        if (s3.objs.canopy) s3.objs.canopy.rotation.z += 0.0016 * f.hemi;
+        if (s3.objs.eyewall) s3.objs.eyewall.rotation.y += 0.01 * f.hemi;
+        if (Date.now() - s3.lastDrag > 2500) s3.theta += 0.00045;
+        const ce = Math.max(250, Math.min(s3.dist, s3.ext * 3));
+        s3.camera.position.set(Math.sin(s3.theta) * Math.cos(s3.phi) * ce,
+                               Math.sin(s3.phi) * ce,
+                               Math.cos(s3.theta) * Math.cos(s3.phi) * ce);
+        s3.camera.lookAt(0, 30, 0);
+        s3.renderer.render(s3.scene, s3.camera);
+    } catch (e) { console.warn('[3D] frame error:', e); }
+}
+
+function toggleStorm3D() {
+    const s3 = window._storm3d;
+    const btn = document.getElementById('storm3dToggleBtn');
+    if (s3.on) {
+        s3.on = false; s3.token++;
+        if (s3.raf) cancelAnimationFrame(s3.raf);
+        _s3DisposeObjs();
+        try { if (s3.renderer) { s3.renderer.dispose(); } } catch (e) {}
+        if (s3.container) { try { s3.container.remove(); } catch (e) {} }
+        s3.container = null; s3.renderer = null; s3.scene = null; s3.camera = null; s3.idx = -1;
+        if (btn) { btn.textContent = '3D view: Off';
+            btn.style.background = 'rgba(100,116,139,.18)'; btn.style.borderColor = 'rgba(100,116,139,.4)'; btn.style.color = '#94a3b8'; }
+        return;
+    }
+    if (!window.stormData || !window.stormData.length || typeof currentMap === 'undefined' || !currentMap) return;
+    if (window.innerWidth < 900) { if (btn) btn.textContent = '3D: desktop only'; return; }
+    if (btn) { btn.textContent = '3D view: Loading…'; btn.disabled = true; }
+    const myToken = ++s3.token;
+    _s3LoadThree().then(() => {
+        if (s3.token !== myToken) return;
+        const T = window.THREE;
+        const host = currentMap.getContainer();
+        const box = document.createElement('div');
+        box.style.cssText = 'position:absolute;inset:0;z-index:900;background:#04070f;touch-action:none;cursor:grab';
+        host.appendChild(box);
+        const renderer = new T.WebGLRenderer({ antialias: true });
+        renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+        renderer.setSize(host.clientWidth, host.clientHeight);
+        box.appendChild(renderer.domElement);
+        const hud = document.createElement('div');
+        hud.style.cssText = 'position:absolute;top:10px;left:10px;color:#e2e8f0;font-size:12px;line-height:1.5;background:rgba(8,14,26,.72);border:1px solid rgba(148,163,184,.25);border-radius:8px;padding:8px 12px;pointer-events:none';
+        box.appendChild(hud);
+        s3.hud = hud;
+        const closeB = document.createElement('button');
+        closeB.textContent = '✕ Exit 3D';
+        closeB.style.cssText = 'position:absolute;top:10px;right:10px;background:rgba(8,14,26,.8);color:#e2e8f0;border:1px solid rgba(148,163,184,.35);border-radius:8px;padding:6px 12px;cursor:pointer;font-size:12px';
+        closeB.onclick = toggleStorm3D;
+        box.appendChild(closeB);
+        const scene = new T.Scene();
+        scene.fog = new T.Fog(0x04070f, 1600, 4200);
+        const camera = new T.PerspectiveCamera(46, host.clientWidth / host.clientHeight, 1, 12000);
+        s3.container = box; s3.renderer = renderer; s3.scene = scene; s3.camera = camera;
+        s3.on = true; s3.idx = -1; s3.dist = 1500;
+        let px = 0, py = 0, down = false;
+        box.addEventListener('pointerdown', (e) => { down = true; px = e.clientX; py = e.clientY; box.style.cursor = 'grabbing'; });
+        window.addEventListener('pointermove', (e) => {
+            if (!down) return;
+            s3.theta -= (e.clientX - px) * 0.005; s3.phi = Math.max(0.15, Math.min(1.35, s3.phi + (e.clientY - py) * 0.004));
+            px = e.clientX; py = e.clientY; s3.lastDrag = Date.now();
+        });
+        window.addEventListener('pointerup', () => { down = false; if (box) box.style.cursor = 'grab'; });
+        box.addEventListener('wheel', (e) => { e.preventDefault(); s3.dist = Math.max(250, Math.min(5200, s3.dist * (1 + Math.sign(e.deltaY) * 0.09))); s3.lastDrag = Date.now(); }, { passive: false });
+        window.addEventListener('resize', () => {
+            if (!s3.on || !s3.container) return;
+            renderer.setSize(host.clientWidth, host.clientHeight);
+            camera.aspect = host.clientWidth / host.clientHeight; camera.updateProjectionMatrix();
+        });
+        const wf = window._windfieldState;
+        const idx = (wf && wf.currentIdx != null) ? wf.currentIdx : (window.stormData.length - 1);
+        _s3Rebuild(idx);
+        const f = s3.field;
+        if (f && hud) {
+            const kt = Math.round(f.vmax / 0.514444);
+            const cat = kt >= 137 ? 'Cat 5' : kt >= 113 ? 'Cat 4' : kt >= 96 ? 'Cat 3' : kt >= 83 ? 'Cat 2' : kt >= 64 ? 'Cat 1' : kt >= 34 ? 'TS' : 'TD';
+            const ec = windColor(f.vmax) || [125, 211, 252];
+            hud.innerHTML = `<b style="font-size:13px">${escapeHtml(window._currentStormId || 'Storm')} · <span style="color:rgb(${ec[0]},${ec[1]},${ec[2]})">${cat}</span></b><br>` +
+                `${kt} kt · r34 ${Math.round(f.r34_m / NM_TO_M)} nm · rmw ${Math.round(f.rmw_m / NM_TO_M)} nm<br>` +
+                `<span style="opacity:.65">drag to orbit · scroll to zoom · timeline scrubs</span>`;
+        }
+        s3.dist = Math.max(900, s3.ext * 1.55);
+        if (btn) { btn.textContent = '3D view: On'; btn.disabled = false;
+            btn.style.background = 'rgba(167,139,250,.22)'; btn.style.borderColor = 'rgba(167,139,250,.5)'; btn.style.color = '#c4b5fd'; }
+        _s3Frame();
+    }).catch((e) => {
+        console.warn('[3D] init failed:', e);
+        s3.on = false;
+        if (btn) { btn.textContent = '3D view: Off'; btn.disabled = false; }
+    });
 }
 
 function toggleWindfieldLayer() {
