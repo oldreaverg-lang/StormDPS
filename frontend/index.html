@@ -5794,6 +5794,15 @@ function _s3StitchTiles(f, ts, done) {
                 g.filter = 'none';
                 g.globalCompositeOperation = 'multiply';
                 g.fillStyle = '#a8c4e8'; g.fillRect(0, 0, 768, 768);
+                // Radial edge fade: dissolve the rectangular tile boundary
+                // into the dark under-disc so the world reads as a soft
+                // circular pool of imagery, not a floating cut-out slab.
+                g.globalCompositeOperation = 'destination-in';
+                const eg = g.createRadialGradient(384, 384, 0, 384, 384, 384);
+                eg.addColorStop(0, 'rgba(0,0,0,1)');
+                eg.addColorStop(0.70, 'rgba(0,0,0,1)');
+                eg.addColorStop(1, 'rgba(0,0,0,0)');
+                g.fillStyle = eg; g.fillRect(0, 0, 768, 768);
                 g.globalCompositeOperation = 'source-over';
             } catch (e) {}
             const inv = (y) => Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n))) * 180 / Math.PI;
@@ -5866,7 +5875,7 @@ function _s3Rebuild(idx) {
         const tex = new T.CanvasTexture(info.canvas);
         try { tex.anisotropy = s3.renderer.capabilities.getMaxAnisotropy(); } catch (e) {}
         const geo = new T.PlaneGeometry(info.wKm, info.hKm);
-        const mat = new T.MeshBasicMaterial({ map: tex });
+        const mat = new T.MeshBasicMaterial({ map: tex, transparent: true });
         const mesh = new T.Mesh(geo, mat);
         mesh.rotation.x = -Math.PI / 2;
         mesh.position.set(info.cxKm, 0, info.czKm);
@@ -5961,7 +5970,10 @@ function _s3Rebuild(idx) {
                 try { ctex.anisotropy = s3.renderer.capabilities.getMaxAnisotropy(); } catch (e) {}
                 const R = r34km * 1.15;
                 const cgeo = new T.CircleGeometry(R, 64);
-                const cmat = new T.MeshBasicMaterial({ map: ctex, transparent: true, opacity: 0.62, depthWrite: false, side: T.DoubleSide });
+                // Additive so the canopy reads as a LUMINOUS cloud veil over
+                // the plane instead of a murky dark film (its texture shares
+                // the darkened plane imagery — normal blending only dims).
+                const cmat = new T.MeshBasicMaterial({ map: ctex, transparent: true, opacity: 0.55, depthWrite: false, side: T.DoubleSide, blending: T.AdditiveBlending });
                 const canopy = new T.Mesh(cgeo, cmat);
                 canopy.rotation.x = -Math.PI / 2;
                 canopy.position.y = canopyH;
