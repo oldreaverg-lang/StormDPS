@@ -2520,6 +2520,14 @@ async def get_storm_dps(
             derived_year = int(storm_id[4:])
         except ValueError:
             derived_year = 0
+    # IBTrACS SIDs (YYYYDDDNxxLLL) carry the year up front. Without this, a
+    # SID lookup ran ground_truth.get_by_name_year(name, 0) and missed every
+    # anchor — the same storm showed rainfall "Historic" under its ATCF id
+    # and "Normal" under its SID (Sinlaku 2026, data-fusion audit seam #1).
+    if derived_year is None and len(storm_id) >= 10 and storm_id[:4].isdigit():
+        _y = int(storm_id[:4])
+        if 1840 <= _y <= datetime.now().year + 1:
+            derived_year = _y
     if derived_year is None:
         derived_year = 0
     # Fall back to the catalog name so live bundles say "Bavi", not "WP092026".
@@ -2623,6 +2631,11 @@ async def _warm_one_dps(storm_id: str, *, force: bool = False) -> str:
             derived_year = int(storm_id[4:])
         except ValueError:
             derived_year = 0
+    elif len(storm_id) >= 10 and storm_id[:4].isdigit():
+        # IBTrACS SID — year is the leading four digits (see get_storm_dps).
+        _y = int(storm_id[:4])
+        if 1840 <= _y <= datetime.now().year + 1:
+            derived_year = _y
 
     try:
         from core.dps_engine import compute_storm_dps
