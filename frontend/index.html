@@ -5848,6 +5848,43 @@ function _s3CanopyCanvas(texInfo, f) {
     return c;
 }
 
+// Cloud-top height profile h(r) — the real storm shape: a dome peaking at
+// the eyewall rim (r = RMW), sloping down through the rainbands to a low
+// skirt at the r34 edge, with the eye as a funnel descending inside the rim.
+function _s3ConeH(r, rmw, R, H) {
+    if (r <= rmw) { const t = r / Math.max(1, rmw); return H * (0.22 + 0.78 * t * t); }
+    const t = Math.min(1, (r - rmw) / Math.max(1, R - rmw));
+    return H * (0.26 + 0.74 * Math.pow(1 - t, 1.6));
+}
+
+// Radial-grid canopy geometry displaced by _s3ConeH, with UVs baked against
+// the stitched-canvas world bounds so the planar cloud imagery drapes the
+// dome correctly (texture repeat/offset stay identity).
+function _s3ConeGeometry(T, R, rmw, H, info) {
+    const nR = 30, nT = 72;
+    const pos = [], uv = [], idx = [];
+    for (let i = 0; i <= nR; i++) {
+        const r = (i / nR) * R;
+        const y = _s3ConeH(r, rmw, R, H);
+        for (let j = 0; j <= nT; j++) {
+            const th = (j / nT) * Math.PI * 2;
+            const x = Math.sin(th) * r, z = -Math.cos(th) * r;
+            pos.push(x, y, z);
+            uv.push(0.5 + (x - info.cxKm) / info.wKm,
+                    0.5 - (z - info.czKm) / info.hKm);
+        }
+    }
+    for (let i = 0; i < nR; i++) for (let j = 0; j < nT; j++) {
+        const a = i * (nT + 1) + j, b = a + nT + 1;
+        idx.push(a, b, a + 1, b, b + 1, a + 1);
+    }
+    const g = new T.BufferGeometry();
+    g.setAttribute('position', new T.BufferAttribute(new Float32Array(pos), 3));
+    g.setAttribute('uv', new T.BufferAttribute(new Float32Array(uv), 2));
+    g.setIndex(idx);
+    return g;
+}
+
 function _s3DisposeObjs() {
     const s3 = window._storm3d;
     if (!s3.objs || !s3.scene) return;
@@ -5874,6 +5911,8 @@ function _s3Rebuild(idx) {
     // ~2x the earlier vertical scale — the structure topped out at ~8% of
     // the storm's radius and the whole scene read as a flat spinning disc.
     const canopyH = 190 + f.vmax * 1.8;
+    const rmwKm = Math.max(6, f.rmw_m / 1000);
+    const coneR = r34km * 1.15;   // canopy cone outer radius (matches the donut mask)
 
     const base = _s3BaseTexture(extKm);
     const mkPlane = (info) => {
@@ -5899,20 +5938,24 @@ function _s3Rebuild(idx) {
     // the particles. A bright edge ring at each threshold height plus a few
     // faint vertical drop-lines keeps the "3D cage" reading with zero
     // occlusion.
-    const bands = [ { thr: 17.5, h: 92, col: 0xfbbf24 },
-                    { thr: 25.7, h: 145, col: 0xf97316 },
-                    { thr: 32.9, h: 200, col: 0xef4444 } ];
+    const bands = [ { thr: 17.5, col: 0xfbbf24 },
+                    { thr: 25.7, col: 0xf97316 },
+                    { thr: 32.9, col: 0xef4444 } ];
     objs.edges = []; objs.drops = [];
     for (const bd of bands) {
         const pts = _s3Outline(f, bd.thr); if (!pts) continue;
-        const epts = pts.map(p => new T.Vector3(p[0], bd.h, -p[1]));
+        // Rings hug the cone: each vertex takes the dome height at its own
+        // radius, so the loops undulate with the quadrant asymmetry instead
+        // of floating at fixed altitudes.
+        const epts = pts.map(p => new T.Vector3(p[0], _s3ConeH(Math.hypot(p[0], p[1]), rmwKm, coneR, canopyH), -p[1]));
         const egeo = new T.BufferGeometry().setFromPoints(epts);
         const eline = new T.LineLoop(egeo, new T.LineBasicMaterial({ color: bd.col, transparent: true, opacity: 0.9 }));
         eline.renderOrder = 1;
         objs.edges.push(eline); s3.scene.add(eline);
         const dpos = [];
         for (let a = 0; a < 72; a += 6) {   // every 30° along the outline
-            dpos.push(pts[a][0], 0, -pts[a][1], pts[a][0], bd.h, -pts[a][1]);
+            const hy = _s3ConeH(Math.hypot(pts[a][0], pts[a][1]), rmwKm, coneR, canopyH);
+            dpos.push(pts[a][0], 0, -pts[a][1], pts[a][0], hy, -pts[a][1]);
         }
         const dgeo = new T.BufferGeometry();
         dgeo.setAttribute('position', new T.BufferAttribute(new Float32Array(dpos), 3));
@@ -5924,10 +5967,10 @@ function _s3Rebuild(idx) {
     if (f.vmax >= 33) {   // no eyewall column below hurricane force — a TD has no eyewall
         const ec = windColor(f.vmax) || [255, 77, 166];
         const eyeCol = (ec[0] << 16) | (ec[1] << 8) | ec[2];
-        const rmwKm = Math.max(6, f.rmw_m / 1000);
         // Stadium effect — real eyewalls flare OUTWARD with height. Narrow at
-        // the sea surface, wide at the canopy: the iconic amphitheater.
-        const eh = canopyH * 0.78;
+        // the sea surface, wide at the canopy: the iconic amphitheater. Tops
+        // out at the dome peak so the column plugs into the cone's crater rim.
+        const eh = _s3ConeH(rmwKm, rmwKm, coneR, canopyH);
         const egeo = new T.CylinderGeometry(rmwKm * 1.7, rmwKm * 1.05, eh, 48, 1, true);
         const emat = new T.MeshBasicMaterial({ color: eyeCol, transparent: true, opacity: 0.17, side: T.DoubleSide, depthWrite: false, blending: T.AdditiveBlending });
         objs.eyewall = new T.Mesh(egeo, emat);
@@ -5987,21 +6030,16 @@ function _s3Rebuild(idx) {
                 const cc = _s3CanopyCanvas(info, f);
                 const ctex = new T.CanvasTexture(cc);
                 try { ctex.anisotropy = s3.renderer.capabilities.getMaxAnisotropy(); } catch (e) {}
-                const R = r34km * 1.15;
-                const cgeo = new T.CircleGeometry(R, 64);
+                // Cone/dome canopy: the geometry bakes both the height profile
+                // and the canvas-space UVs, so no rotation, no y-lift, and no
+                // texture repeat/offset (they'd double-transform the imagery).
+                const cgeo = _s3ConeGeometry(T, coneR, rmwKm, canopyH, info);
                 // Additive so the canopy reads as a LUMINOUS cloud veil over
                 // the plane instead of a murky dark film (its texture shares
                 // the darkened plane imagery — normal blending only dims).
                 const cmat = new T.MeshBasicMaterial({ map: ctex, transparent: true, opacity: 0.55, depthWrite: false, side: T.DoubleSide, blending: T.AdditiveBlending });
                 const canopy = new T.Mesh(cgeo, cmat);
-                canopy.rotation.x = -Math.PI / 2;
-                canopy.position.y = canopyH;
                 canopy.renderOrder = 4;
-                // Map the circle's [-R,R]² world footprint (centered on the
-                // storm at the origin) onto the stitched canvas, whose center
-                // sits at world (cxKm, czKm) and spans wKm × hKm.
-                ctex.repeat.set((2 * R) / info.wKm, (2 * R) / info.hKm);
-                ctex.offset.set(0.5 - (R + info.cxKm) / info.wKm, 0.5 - (R - info.czKm) / info.hKm);
                 if (s3.objs.canopy) { s3.scene.remove(s3.objs.canopy); }
                 s3.objs.canopy = canopy;
                 s3.scene.add(canopy);
