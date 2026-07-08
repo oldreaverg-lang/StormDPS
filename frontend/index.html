@@ -5311,7 +5311,13 @@ async function initSatelliteLayer(data, opts) {
     // rows are hidden by the max-width:900px CSS rule; returning here means
     // no GIBS tile or frame request ever fires on mobile. The Windfield
     // toggle still needs enabling — on desktop the init below does it.
-    if (window.innerWidth <= 900) { _enableWindfieldToggle(); return; }
+    if (window.innerWidth <= 900) {
+        // A satellite layer built at desktop width (window since snapped
+        // narrow) would otherwise survive with stale frames/scrubber.
+        if (window._satelliteState.layer) teardownSatelliteLayer({});
+        _enableWindfieldToggle();
+        return;
+    }
     const keepOverlays = !!(opts && opts.keepOverlays);
     const st = window._satelliteState;
     // Capture the intended mode + session token *before* any await so a second
