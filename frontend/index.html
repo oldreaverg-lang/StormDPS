@@ -360,6 +360,10 @@
            DOM controls were the missing piece (LOOSE_ENDS_AUDIT.md A1).
            Dark chrome to match the JS-managed button color idiom. */
         .adv-overlay-panel{position:absolute;bottom:128px;left:8px;z-index:502;background:rgba(15,23,42,.88);backdrop-filter:blur(8px);border:1px solid rgba(100,116,139,.4);border-radius:var(--radius);padding:.45rem .5rem;display:none;flex-direction:column;gap:.3rem;width:220px;max-height:65%;overflow-y:auto}
+        /* Mobile keeps the simplified layer set: Windfield + Wind flow only.
+           !important so the JS row show/hide (inline display writes on storm
+           switch) can never resurface a desktop-only row on a phone. */
+        @media(max-width:900px){.adv-overlay-panel .adv-desktop-only{display:none!important}}
         .adv-row{display:flex;align-items:center;gap:.35rem}
         .adv-toggle{flex-shrink:0;background:rgba(100,116,139,.18);border:1px solid rgba(100,116,139,.4);color:#94a3b8;font-size:.72rem;font-weight:600;padding:.28rem .5rem;border-radius:var(--radius);cursor:pointer;font-family:inherit;min-width:106px;text-align:left;transition:background .15s,color .15s}
         .adv-toggle:disabled{opacity:.5;cursor:not-allowed}
@@ -788,13 +792,13 @@
                      storms restore them). Buttons start disabled — the layer
                      init paths enable them and manage all state/colors. -->
                 <div id="advOverlayPanel" class="adv-overlay-panel">
-                    <div class="adv-row"><button id="satToggleBtn" class="adv-toggle" onclick="toggleSatelliteVisibility()" disabled title="Loads when a storm with satellite coverage is displayed">Satellite: Off</button></div>
-                    <div class="adv-row"><button id="irToggleBtn" class="adv-toggle" onclick="toggleIRMode()" disabled title="Switch satellite imagery between visible and infrared">Infrared: Off</button></div>
+                    <div class="adv-row adv-desktop-only"><button id="satToggleBtn" class="adv-toggle" onclick="toggleSatelliteVisibility()" disabled title="Loads when a storm with satellite coverage is displayed">Satellite: Off</button></div>
+                    <div class="adv-row adv-desktop-only"><button id="irToggleBtn" class="adv-toggle" onclick="toggleIRMode()" disabled title="Switch satellite imagery between visible and infrared">Infrared: Off</button></div>
                     <div class="adv-row"><button id="windfieldToggleBtn" class="adv-toggle" onclick="toggleWindfieldLayer()" disabled title="Holland B wind-field overlay">Windfield: Off</button></div>
-                    <div class="adv-row"><button id="storm3dToggleBtn" class="adv-toggle" onclick="toggleStorm3D()" disabled title="3D storm portrait — wind particles, radii stamps and cloud canopy over the satellite plane">3D view: Off</button></div>
-                    <div class="adv-row"><button id="windToggleBtn" class="adv-toggle" onclick="toggleWindLayer()" disabled title="Wind particle overlay">Wind: Off</button><input type="range" id="windOpacityInput" class="adv-opacity" min="10" max="95" value="70" oninput="setWindOpacity(this.value)" title="Wind layer opacity"><span id="windOpacityLabel" class="adv-opacity-lbl">70%</span></div>
-                    <div class="adv-row"><button id="pressureToggleBtn" class="adv-toggle" onclick="togglePressureLayer()" disabled title="MSLP field, isobars, and station obs">Pressure: Off</button><input type="range" id="pressureOpacityInput" class="adv-opacity" min="10" max="95" value="55" oninput="setPressureOpacity(this.value)" title="Pressure layer opacity"><span id="pressureOpacityLabel" class="adv-opacity-lbl">55%</span></div>
-                    <div class="adv-row"><button id="precipToggleBtn" class="adv-toggle" onclick="togglePrecipLayer()" disabled title="Precipitation rate + cloud cover">Precip: Off</button><input type="range" id="precipOpacityInput" class="adv-opacity" min="10" max="95" value="75" oninput="setPrecipOpacity(this.value)" title="Precipitation layer opacity"><span id="precipOpacityLabel" class="adv-opacity-lbl">75%</span></div>
+                    <div class="adv-row adv-desktop-only"><button id="storm3dToggleBtn" class="adv-toggle" onclick="toggleStorm3D()" disabled title="3D storm portrait — wind particles, radii stamps and cloud canopy over the satellite plane">3D view: Off</button></div>
+                    <div class="adv-row adv-desktop-only"><button id="windToggleBtn" class="adv-toggle" onclick="toggleWindLayer()" disabled title="Wind particle overlay">Wind: Off</button><input type="range" id="windOpacityInput" class="adv-opacity" min="10" max="95" value="70" oninput="setWindOpacity(this.value)" title="Wind layer opacity"><span id="windOpacityLabel" class="adv-opacity-lbl">70%</span></div>
+                    <div class="adv-row adv-desktop-only"><button id="pressureToggleBtn" class="adv-toggle" onclick="togglePressureLayer()" disabled title="MSLP field, isobars, and station obs">Pressure: Off</button><input type="range" id="pressureOpacityInput" class="adv-opacity" min="10" max="95" value="55" oninput="setPressureOpacity(this.value)" title="Pressure layer opacity"><span id="pressureOpacityLabel" class="adv-opacity-lbl">55%</span></div>
+                    <div class="adv-row adv-desktop-only"><button id="precipToggleBtn" class="adv-toggle" onclick="togglePrecipLayer()" disabled title="Precipitation rate + cloud cover">Precip: Off</button><input type="range" id="precipOpacityInput" class="adv-opacity" min="10" max="95" value="75" oninput="setPrecipOpacity(this.value)" title="Precipitation layer opacity"><span id="precipOpacityLabel" class="adv-opacity-lbl">75%</span></div>
                     <div id="satelliteSlider" class="adv-sat-slider" style="display:none">
                         <div class="adv-sat-head"><span id="satelliteName"></span><span id="satelliteProductLabel"></span></div>
                         <input type="range" id="satelliteSliderInput" min="0" max="0" value="0" oninput="onSatelliteFrameScrub(this.value)" title="Scrub satellite frames">
@@ -5283,7 +5287,31 @@ function _computeStormBbox(data, pad) {
     return [s, _normLon(w - pad), n, _normLon(e + pad)];
 }
 
+// Enable the Windfield toggle button. Every overlay-wiring path (active-storm
+// satellite init, historic subset, simplified mobile set) needs this. Holland B
+// uses estimated R34 when per-quadrant radii are missing, so it's always safe
+// once track data exists. Paint matches the layer's ACTUAL state — the layer
+// auto-enables at storm load, usually before any of those paths run.
+function _enableWindfieldToggle() {
+    const btn = document.getElementById('windfieldToggleBtn');
+    if (!btn) return;
+    btn.disabled = false;
+    btn.title = 'Toggle Holland B wind-field overlay (2D colored gradient, per-frame)';
+    btn.style.cursor = 'pointer';
+    btn.style.opacity = '1';
+    const on = !!(window._windfieldState && window._windfieldState.enabled);
+    btn.style.background  = on ? 'rgba(234,179,8,.18)' : 'rgba(100,116,139,.18)';
+    btn.style.borderColor = on ? 'rgba(234,179,8,.45)' : 'rgba(100,116,139,.4)';
+    btn.style.color       = on ? '#fde68a' : '#94a3b8';
+}
+
 async function initSatelliteLayer(data, opts) {
+    // ≤900px gets the simplified mobile layer set: Windfield + Wind flow only
+    // (both storm-parametric, zero external fetches). The desktop-only panel
+    // rows are hidden by the max-width:900px CSS rule; returning here means
+    // no GIBS tile or frame request ever fires on mobile. The Windfield
+    // toggle still needs enabling — on desktop the init below does it.
+    if (window.innerWidth <= 900) { _enableWindfieldToggle(); return; }
     const keepOverlays = !!(opts && opts.keepOverlays);
     const st = window._satelliteState;
     // Capture the intended mode + session token *before* any await so a second
@@ -5410,18 +5438,7 @@ async function initSatelliteLayer(data, opts) {
         _ppbtnReady.style.borderColor = 'rgba(100,116,139,.4)';
         _ppbtnReady.style.color = '#94a3b8';
     }
-    // Holland B uses estimated R34 when per-quadrant radii are missing,
-    // so the Windfield toggle is always safe to enable once track data exists.
-    const _wfReady = document.getElementById('windfieldToggleBtn');
-    if (_wfReady) {
-        _wfReady.disabled = false;
-        _wfReady.title = 'Toggle Holland B wind-field overlay (2D colored gradient, per-frame)';
-        _wfReady.style.cursor = 'pointer';
-        _wfReady.style.opacity = '1';
-        _wfReady.style.background = 'rgba(100,116,139,.18)';
-        _wfReady.style.borderColor = 'rgba(100,116,139,.4)';
-        _wfReady.style.color = '#94a3b8';
-    }
+    _enableWindfieldToggle();
     // Enable the 3D portrait once track data exists (desktop only — the
     // toggle itself re-checks width so a resize can't strand it).
     const _s3Ready = document.getElementById('storm3dToggleBtn');
@@ -5511,16 +5528,7 @@ function enableHistoricOverlays(data) {
         wbtn.style.borderColor = 'rgba(100,116,139,.4)';
         wbtn.style.color = '#94a3b8';
     }
-    const wfbtn = document.getElementById('windfieldToggleBtn');
-    if (wfbtn) {
-        wfbtn.disabled = false;
-        wfbtn.title = 'Toggle Holland B wind-field overlay (2D colored gradient, per-frame)';
-        wfbtn.style.cursor = 'pointer';
-        wfbtn.style.opacity = '1';
-        wfbtn.style.background = 'rgba(100,116,139,.18)';
-        wfbtn.style.borderColor = 'rgba(100,116,139,.4)';
-        wfbtn.style.color = '#94a3b8';
-    }
+    _enableWindfieldToggle();
 }
 
 // ── Overlay fetch coalescing + LRU cache ─────────────────────────────────
