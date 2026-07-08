@@ -5993,8 +5993,10 @@ function _s3Rebuild(idx) {
         // Persistent altitude per particle, biased toward the surface — the
         // wind field is a stratified rotating VOLUME, not a flat sheet. The
         // ceiling follows the cone, so the volume FILLS the dome (outer
-        // particles hug the low skirt instead of floating above it); inward
-        // drift only ever raises the local ceiling, never strands a particle.
+        // particles hug the low skirt instead of floating above it). Outside
+        // the RMW, inward drift only raises the local ceiling; inside it the
+        // funnel dips below spawned heights, but the eye hole is transparent
+        // and the w<3 respawn evicts strays, so no visible stranding.
         parts.push({ x: Math.cos(aa) * rr, n: Math.sin(aa) * rr,
                      h: 8 + Math.pow(Math.random(), 1.7) * 0.72 * _s3ConeH(rr, rmwKm, coneR, canopyH) });
     }
@@ -6048,7 +6050,11 @@ function _s3Rebuild(idx) {
                 const cmat = new T.MeshBasicMaterial({ map: ctex, transparent: true, opacity: 0.55, depthWrite: false, side: T.DoubleSide, blending: T.AdditiveBlending });
                 const canopy = new T.Mesh(cgeo, cmat);
                 canopy.renderOrder = 4;
-                if (s3.objs.canopy) { s3.scene.remove(s3.objs.canopy); }
+                if (s3.objs.canopy) {
+                    const old = s3.objs.canopy;
+                    s3.scene.remove(old);
+                    try { old.geometry.dispose(); if (old.material.map) old.material.map.dispose(); old.material.dispose(); } catch (e) {}
+                }
                 s3.objs.canopy = canopy;
                 s3.scene.add(canopy);
             } catch (e) { console.warn('[3D] texture swap failed:', e); }
@@ -6111,7 +6117,10 @@ function _s3Frame() {
         }
         s3.objs.pgeo.attributes.position.needsUpdate = true;
         s3.objs.pgeo.attributes.color.needsUpdate = true;
-        if (s3.objs.canopy) s3.objs.canopy.rotation.z += 0.0016 * f.hemi;
+        // Y is the spin axis now that the dome lives in world space — the old
+        // disc spun on local Z only because its -PI/2 x-rotation mapped that
+        // to world-up; keeping .z here would slowly capsize the dome.
+        if (s3.objs.canopy) s3.objs.canopy.rotation.y += 0.0016 * f.hemi;
         if (s3.objs.eyewall) s3.objs.eyewall.rotation.y += 0.01 * f.hemi;
         if (Date.now() - s3.lastDrag > 2500) s3.theta += 0.00045;
         const ce = Math.max(250, Math.min(s3.dist, s3.ext * 3));
