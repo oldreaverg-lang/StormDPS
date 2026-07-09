@@ -32,6 +32,7 @@ Endpoints:
 """
 
 import asyncio
+import contextvars
 import csv
 import hashlib
 import io
@@ -461,6 +462,39 @@ _IKE_CACHE_MAX_SIZE_MB = 200  # soft cap — triggers eviction when exceeded
 # picked up within the window. The track GET is keyed by (storm_id, grid, skip)
 # — no track fingerprint — so the TTL is the sole freshness gate.
 _LIVE_TRACK_TTL_S = 1800  # 30 minutes
+
+# Stale-while-revalidate for live-storm tracks (2026-07 perf audit): the first
+# viewer after every TTL expiry used to BLOCK ~13s on the inline recompute —
+# the single worst load-time event on the site. Now a TTL-expired cache is
+# served immediately and ONE background task re-enters get_storm_track to
+# recompute + re-save it. The contextvar marks that background call so it
+# bypasses the cache read and the SWR branch (a shared flag would make
+# concurrent USER requests skip the cache and pay the 13s inline).
+_track_swr_inflight: set = set()
+_track_swr_bypass: contextvars.ContextVar = contextvars.ContextVar(
+    "_track_swr_bypass", default=False
+)
+
+
+async def _swr_refresh_track(storm_id: str, grid_resolution_km: float, skip_points: int):
+    """Singleflight background recompute of a live storm's track cache."""
+    key = (storm_id.upper(), grid_resolution_km, skip_points)
+    if key in _track_swr_inflight:
+        return
+    _track_swr_inflight.add(key)
+    _track_swr_bypass.set(True)   # task-local: create_task copied this context
+    try:
+        # Re-enters the route handler; with the bypass set it skips straight
+        # to the fetch+compute pipeline and saves the fresh cache at the end.
+        await get_storm_track(
+            storm_id, grid_resolution_km=grid_resolution_km, skip_points=skip_points
+        )
+        logger.info(f"[TRACK SWR] {storm_id} background refresh complete")
+    except Exception as e:
+        # Fail-open: the stale copy keeps serving; the next request re-spawns.
+        logger.warning(f"[TRACK SWR] {storm_id} background refresh failed: {e}")
+    finally:
+        _track_swr_inflight.discard(key)
 
 
 def _ike_cache_key(storm_id: str, grid_res_km: float, skip: int) -> str:
@@ -2053,11 +2087,28 @@ async def get_storm_track(
     # still skips the b-deck/IBTrACS fetch AND the IKE compute (~13s for a live
     # storm), so a burst of viewers during an event shares a single compute.
     _ike_ttl = _LIVE_TRACK_TTL_S if _is_live else None
-    cached = _load_ike_cache(storm_id, grid_resolution_km, skip_points, max_age_s=_ike_ttl)
+    _swr_bypass = _track_swr_bypass.get()
+    cached = None if _swr_bypass else _load_ike_cache(
+        storm_id, grid_resolution_km, skip_points, max_age_s=_ike_ttl
+    )
     if cached:
         logger.info(f"[CACHE HIT] {storm_id} — {len(cached)} cached IKE results"
                     + (" (live, within TTL)" if _is_live else ""))
-        return JSONResponse(content=cached)
+        return JSONResponse(content=cached, headers={
+            "X-Track-Cache": "hit", "Cache-Control": "public, max-age=120"})
+    if _is_live and not _swr_bypass:
+        # Stale-while-revalidate: a TTL-expired live cache is at worst one
+        # advisory old — serve it NOW and refresh in the background instead
+        # of blocking this viewer ~13s on the fetch+IKE recompute.
+        stale = _load_ike_cache(storm_id, grid_resolution_km, skip_points)
+        if stale:
+            asyncio.create_task(
+                _swr_refresh_track(storm_id, grid_resolution_km, skip_points))
+            logger.info(f"[CACHE STALE→SWR] {storm_id} — served {len(stale)} "
+                        f"stale results, background refresh spawned")
+            return JSONResponse(content=stale, headers={
+                "X-Track-Cache": "stale-refreshing",
+                "Cache-Control": "public, max-age=120"})
 
     snapshots = []
     source = None
