@@ -180,7 +180,16 @@
         .scrubber-bar{display:none;align-items:center;gap:.4rem;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:.3rem .6rem;flex-shrink:0}.scrubber-bar.visible{display:flex;animation:fadeIn .3s}
         .scrubber-bar input[type="range"]{flex:1;-webkit-appearance:none;background:transparent;border:none;padding:0;height:20px;cursor:pointer}.scrubber-bar input[type="range"]::-webkit-slider-track{height:6px;background:rgba(32,84,147,.22);border-radius:3px}.scrubber-bar input[type="range"]:hover::-webkit-slider-track{background:rgba(32,84,147,.35)}.scrubber-bar input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;background:var(--primary);border-radius:50%;margin-top:-7px;cursor:pointer;box-shadow:0 0 0 2px rgba(32,84,147,.25),0 0 10px rgba(32,84,147,.5);transition:box-shadow .15s}.scrubber-bar input[type="range"]:hover::-webkit-slider-thumb{box-shadow:0 0 0 3px rgba(32,84,147,.35),0 0 14px rgba(32,84,147,.6)}.scrubber-bar input[type="range"]::-moz-range-track{height:5px;background:rgba(32,84,147,.22);border-radius:3px;border:none}.scrubber-bar input[type="range"]::-moz-range-thumb{width:20px;height:20px;background:var(--primary);border-radius:50%;border:2px solid rgba(32,84,147,.4);cursor:pointer}
         .scrubber-time{font-size:.82rem;font-weight:700;color:var(--text-main);min-width:100px;text-align:center;font-variant-numeric:tabular-nums;letter-spacing:-.01em}.scrubber-ike{font-size:.78rem;font-weight:700;color:var(--primary);min-width:60px;text-align:right;font-variant-numeric:tabular-nums}
-        .map-legend{position:absolute;bottom:8px;left:8px;z-index:500;background:rgba(255,255,255,.93);backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:var(--radius);padding:.35rem .5rem;display:flex;flex-direction:column;gap:.15rem;font-size:.72rem;color:var(--text-muted);max-height:50%;overflow-y:auto}.legend-item{display:flex;align-items:center;gap:.25rem}.legend-swatch{width:14px;height:6px;border-radius:2px;flex-shrink:0}
+        /* Compact map key: 3 chip rows (~60px) instead of 13 stacked items
+           (~240px — half the map). Ranges live in the chip tooltips. Offset
+           right of the bottom-left button column so nothing overlaps it. */
+        .map-legend{position:absolute;bottom:8px;left:118px;z-index:500;background:rgba(255,255,255,.93);backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:var(--radius);padding:.3rem .5rem;display:flex;flex-direction:column;gap:.2rem;font-size:.65rem;color:var(--text-muted);max-width:calc(100% - 126px)}
+        .legend-row{display:flex;align-items:center;gap:.4rem;white-space:nowrap}
+        .legend-row-label{font-weight:700;color:#22272d;width:42px;flex-shrink:0}
+        .legend-chip{display:inline-flex;align-items:center;gap:.2rem;cursor:help}
+        .legend-chip i{display:inline-block;width:12px;height:6px;border-radius:2px;flex-shrink:0}
+        .legend-chip.chip-line i{height:3px;border-radius:1px}
+        .legend-chip.chip-dot i{width:9px;height:9px;border-radius:50%}
         .leaflet-popup-content-wrapper{background:rgba(255,255,255,.97);color:var(--text-main);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.4)}.leaflet-popup-tip{background:rgba(255,255,255,.97);border:1px solid var(--border)}.leaflet-popup-content{margin:8px 12px;line-height:1.5}
         .welcome-state{flex:1;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--text-dim)}.welcome-state.hidden{display:none}.welcome-icon{font-size:2.5rem;margin-bottom:.75rem;opacity:.5}.welcome-text{font-size:.9rem;font-weight:500;max-width:300px;line-height:1.6}
         /* Larger H1 in the welcome state so it (not the footer) wins LCP.
@@ -810,7 +819,7 @@
                     <div class="adv-row adv-desktop-only"><button id="windToggleBtn" class="adv-toggle" onclick="toggleWindLayer()" disabled title="Wind particle overlay">Wind: Off</button><input type="range" id="windOpacityInput" class="adv-opacity" min="10" max="95" value="70" oninput="setWindOpacity(this.value)" title="Wind layer opacity"><span id="windOpacityLabel" class="adv-opacity-lbl">70%</span></div>
                     <div class="adv-row adv-desktop-only"><button id="pressureToggleBtn" class="adv-toggle" onclick="togglePressureLayer()" disabled title="MSLP field, isobars, and station obs">Pressure: Off</button><input type="range" id="pressureOpacityInput" class="adv-opacity" min="10" max="95" value="55" oninput="setPressureOpacity(this.value)" title="Pressure layer opacity"><span id="pressureOpacityLabel" class="adv-opacity-lbl">55%</span></div>
                     <div class="adv-row adv-desktop-only"><button id="precipToggleBtn" class="adv-toggle" onclick="togglePrecipLayer()" disabled title="Precipitation rate + cloud cover">Precip: Off</button><input type="range" id="precipOpacityInput" class="adv-opacity" min="10" max="95" value="75" oninput="setPrecipOpacity(this.value)" title="Precipitation layer opacity"><span id="precipOpacityLabel" class="adv-opacity-lbl">75%</span></div>
-                    <div id="satelliteSlider" class="adv-sat-slider" style="display:none">
+                    <div id="satelliteSlider" class="adv-sat-slider adv-desktop-only" style="display:none">
                         <div class="adv-sat-head"><span id="satelliteName"></span><span id="satelliteProductLabel"></span></div>
                         <input type="range" id="satelliteSliderInput" min="0" max="0" value="0" oninput="onSatelliteFrameScrub(this.value)" title="Scrub satellite frames">
                         <div id="satelliteFrameLabel" class="adv-sat-frame"></div>
@@ -822,21 +831,27 @@
                 <!-- Analyst toggle relocated off the map into the storm-title bar (by the
                      score cards); see #analystToggleBtn there. -->
                 <div class="map-legend" id="mapLegend" style="display:none;">
-                    <div style="font-weight:600;margin-bottom:2px;color:#22272d;">Wind Speed</div>
-                    <div class="legend-item"><div class="legend-swatch" style="background:#ff4da6"></div>Cat 5 (&ge;157 mph)</div>
-                    <div class="legend-item"><div class="legend-swatch" style="background:#ef4444"></div>Cat 3-4 (111-156 mph)</div>
-                    <div class="legend-item"><div class="legend-swatch" style="background:#f97316"></div>Cat 1-2 (74-110 mph)</div>
-                    <div class="legend-item"><div class="legend-swatch" style="background:#fbbf24"></div>Tropical Storm (39-73 mph)</div>
-                    <div style="margin-top:3px;font-weight:600;color:#22272d;">Track Energy</div>
-                    <div class="legend-item"><div class="legend-swatch" style="background:#ef4444;width:12px;height:3px;border-radius:1px"></div>Extreme (&gt;200 TJ)</div>
-                    <div class="legend-item"><div class="legend-swatch" style="background:#f97316;width:12px;height:3px;border-radius:1px"></div>High (&gt;120 TJ)</div>
-                    <div class="legend-item"><div class="legend-swatch" style="background:#fbbf24;width:12px;height:3px;border-radius:1px"></div>Moderate (&gt;60 TJ)</div>
-                    <div class="legend-item"><div class="legend-swatch" style="background:#60a5fa;width:12px;height:3px;border-radius:1px"></div>Low (&le;60 TJ)</div>
-                    <div style="margin-top:3px;font-weight:600;color:#22272d;">Score Bands</div>
-                    <div class="legend-item"><div class="legend-swatch" style="background:var(--cat5);border-radius:50%;width:10px;height:10px"></div>Devastating / Historic (80-100)</div>
-                    <div class="legend-item"><div class="legend-swatch" style="background:var(--cat4);border-radius:50%;width:10px;height:10px"></div>Extreme (60-79)</div>
-                    <div class="legend-item"><div class="legend-swatch" style="background:var(--cat3);border-radius:50%;width:10px;height:10px"></div>Severe (40-59)</div>
-                    <div class="legend-item"><div class="legend-swatch" style="background:var(--cat2);border-radius:50%;width:10px;height:10px"></div>Moderate (20-39)</div>
+                    <div class="legend-row" title="Wind speed — Saffir-Simpson category of each track point">
+                        <span class="legend-row-label">Wind</span>
+                        <span class="legend-chip" title="Category 5 — &ge;157 mph"><i style="background:#ff4da6"></i>Cat 5</span>
+                        <span class="legend-chip" title="Category 3&ndash;4 — 111&ndash;156 mph"><i style="background:#ef4444"></i>3&ndash;4</span>
+                        <span class="legend-chip" title="Category 1&ndash;2 — 74&ndash;110 mph"><i style="background:#f97316"></i>1&ndash;2</span>
+                        <span class="legend-chip" title="Tropical Storm — 39&ndash;73 mph"><i style="background:#fbbf24"></i>TS</span>
+                    </div>
+                    <div class="legend-row" title="Track energy — Integrated Kinetic Energy (terajoules)">
+                        <span class="legend-row-label">Energy</span>
+                        <span class="legend-chip chip-line" title="Extreme — over 200 TJ"><i style="background:#ef4444"></i>&gt;200</span>
+                        <span class="legend-chip chip-line" title="High — over 120 TJ"><i style="background:#f97316"></i>&gt;120</span>
+                        <span class="legend-chip chip-line" title="Moderate — over 60 TJ"><i style="background:#fbbf24"></i>&gt;60</span>
+                        <span class="legend-chip chip-line" title="Low — 60 TJ or less"><i style="background:#60a5fa"></i>&le;60</span>
+                    </div>
+                    <div class="legend-row" title="DPS score bands">
+                        <span class="legend-row-label">Score</span>
+                        <span class="legend-chip chip-dot" title="Devastating / Historic — 80&ndash;100"><i style="background:var(--cat5)"></i>80+</span>
+                        <span class="legend-chip chip-dot" title="Extreme — 60&ndash;79"><i style="background:var(--cat4)"></i>60+</span>
+                        <span class="legend-chip chip-dot" title="Severe — 40&ndash;59"><i style="background:var(--cat3)"></i>40+</span>
+                        <span class="legend-chip chip-dot" title="Moderate — 20&ndash;39"><i style="background:var(--cat2)"></i>20+</span>
+                    </div>
                 </div>
             </div>
             <div class="charts-stack charts-stack-collapsed" id="chartsStack">
