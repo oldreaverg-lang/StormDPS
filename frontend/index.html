@@ -541,6 +541,17 @@
         /* Rainfall red bar glow for extreme warnings */
         #rainfallBar.rain-extreme{border-color:rgba(239,68,68,.5)!important;background:rgba(239,68,68,.1)!important;animation:rainBarPulse 3s ease-in-out infinite}
         @keyframes rainBarPulse{0%,100%{box-shadow:0 0 0 rgba(239,68,68,0)}50%{box-shadow:0 0 12px rgba(239,68,68,.2)}}
+        /* Mobile: the full advisory filled half the viewport above the fold.
+           Collapse to one line ("Flood risk 100/100 — Historic: …"); tapping
+           the banner expands the complete text — including the defer-to-
+           authorities wording — so nothing is lost, just folded. */
+        @media(max-width:900px){
+            #rainfallBar{cursor:pointer}
+            #rainfallBar #rainfallBarText{display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+            #rainfallBar::after{content:'\25BE';color:#64748b;opacity:.7;font-size:.75rem;flex-shrink:0;align-self:center}
+            #rainfallBar.rain-expanded #rainfallBarText{display:inline-block;overflow:visible}
+            #rainfallBar.rain-expanded::after{content:'\25B4'}
+        }
 
         /* ── Breakdown Bars ── */
         .breakdown-bar{display:flex;width:100%;height:6px;border-radius:3px;overflow:hidden;margin-top:6px;cursor:pointer;position:relative;transition:height .2s}
@@ -723,7 +734,7 @@
             <div class="stat-card" id="ersCard"><div class="stat-label">Economic Risk<span class="tip" data-tip="ERS: A 0-100 score measuring economic exposure along the storm's path. Combines coastal economic value with threat reach (storm size x intensity).">?</span></div><div class="stat-value" id="statPeakERS" style="color:var(--text-main);">-</div><div class="stat-sub" id="statERSLabel">-</div><div class="ers-forecast" id="ersForecastLine" style="display:none;font-size:.72rem;font-weight:600;color:#b45309;line-height:1.35;margin-top:.1rem"></div><div class="score-context" id="ersContext"></div><div class="breakdown-wrap" onclick="this.classList.toggle('open')"><div class="breakdown-bar" id="breakdownERS"></div><div class="breakdown-panel" id="panelERS"></div></div><div class="breakdown-hint">Score breakdown — tap or hover</div></div>
             <div class="stat-card" id="actualImpactCard" style="display:none"><div class="stat-label">Actual Impact<span class="tip" data-tip="What the storm actually did, from independent records: total damage (StormDPS curated dataset) and the federal disaster response (FEMA OpenFEMA — counties declared, major-disaster status). This is observed ground truth, shown alongside the DPS prediction.">?</span></div><div class="stat-value" id="statActualImpact" style="color:var(--text-main);">-</div><div class="stat-sub" id="statActualImpactSub">-</div><div class="score-context" id="actualImpactContext"></div></div>
         </div>
-        <div id="rainfallBar" class="stall-bar" style="display:none;border-color:rgba(239,68,68,.3);background:rgba(239,68,68,.06)" role="status">
+        <div id="rainfallBar" class="stall-bar" style="display:none;border-color:rgba(239,68,68,.3);background:rgba(239,68,68,.06)" role="status" onclick="this.classList.toggle('rain-expanded')">
             <span class="stall-bar-icon" style="font-size:1.1rem">&#127783;&#65039;</span>
             <span class="stall-bar-score" id="rainfallBarScore" style="color:#b3261e;white-space:nowrap"></span>
             <div class="rainfall-text-scroll">
@@ -1754,6 +1765,7 @@ function _renderRainBanner(mode, suffix) {
     const d = window._rainBannerData;
     const bar = document.getElementById('rainfallBar');
     if (!d || !bar) return;
+    bar.classList.remove('rain-expanded');   // new storm/mode starts collapsed on mobile
     const scoreEl = document.getElementById('rainfallBarScore');
     const textEl = document.getElementById('rainfallBarText');
     if (mode === 'warning') {
@@ -4171,10 +4183,16 @@ function renderAll(stormId,data){
     // Use pre-compiled score if available; otherwise compute from DPS+IAS+ERS
     // Try direct ID match first, then name+year fallback (handles IBTrACS SID → ATCF ID mismatch)
     let compiled = getCompiledScore(stormId, name, data[0] ? new Date(data[0].timestamp).getFullYear() : null);
-    let heroDPS, heroDPSLabel;
+    let heroDPS, heroDPSLabel, heroDPSExact;
     if (compiled) {
         heroDPS = Math.round(compiled.dps);
-        heroDPSLabel = getDPSBand(heroDPS);
+        heroDPSExact = compiled.dps;
+        // Task #14: label comes from the server's dps_label, which bands the
+        // UNROUNDED score — banding the rounded number here called 79.61
+        // "80 · Devastating" while every server surface said "Extreme" (same
+        // defect class as the old "40 · Moderate" paradox). The fallback
+        // bands the unrounded value with the identical thresholds.
+        heroDPSLabel = compiled.dps_label || getDPSBand(heroDPSExact);
         // The "current vs Peak" split only makes sense for a LIVE storm that is
         // still evolving. For a historical storm the event is over, so showing a
         // lower "current" beside a higher "Peak" just reads oddly — show the
@@ -4186,14 +4204,17 @@ function renderAll(stormId,data){
     } else {
         // Fallback: use peak single-snapshot DPS as hero (no cumulative data)
         heroDPS = peakDpsObj.score;
-        heroDPSLabel = getDPSBand(heroDPS);
+        heroDPSExact = peakDpsObj.score;
+        heroDPSLabel = getDPSBand(heroDPSExact);
     }
-    const heroColor = dpsTextColor(heroDPS);
+    // Color / severity / context all band the UNROUNDED score so they can
+    // never disagree with the label; only the big displayed number rounds.
+    const heroColor = dpsTextColor(heroDPSExact);
     const heroCard = document.getElementById('dpsHeroCard');
     const heroEl = document.getElementById('statHeroDPS');
     // Apply severity class for glow/pulse effects
     heroCard.className = heroCard.className.replace(/severity-\w+/g, '').trim();
-    const sevClass = heroDPS >= 80 ? 'severity-catastrophic' : heroDPS >= 60 ? 'severity-extreme' : heroDPS >= 40 ? 'severity-severe' : heroDPS >= 20 ? 'severity-moderate' : 'severity-minor';
+    const sevClass = heroDPSExact >= 80 ? 'severity-catastrophic' : heroDPSExact >= 60 ? 'severity-extreme' : heroDPSExact >= 40 ? 'severity-severe' : heroDPSExact >= 20 ? 'severity-moderate' : 'severity-minor';
     heroCard.classList.add(sevClass);
     // Animated count-up for hero number
     heroEl.style.color = heroColor;
@@ -4238,7 +4259,7 @@ function renderAll(stormId,data){
             _dhEl.title = 'Dominant hazard (Analyst): the standout threat type for this storm — surge (shelf + storm size), inland rainfall (storm-total level), and peak wind, each shown 0–100. Storm-level, not location-specific.';
         }
     } catch (e) { /* analyst-only; must never break the public render */ }
-    updateScoreContexts(heroDPS, peakIasObj.score, peakErsObj.score);
+    updateScoreContexts(heroDPSExact, peakIasObj.score, peakErsObj.score);
 
     // Storm title bar
     const stormYear = data[0] ? new Date(data[0].timestamp).getFullYear() : null;
@@ -4275,7 +4296,7 @@ function renderAll(stormId,data){
     const rainBar = document.getElementById('rainfallBar');
     if (compiled && compiled.rainfall_anomalous) {
         const _rw = Math.round(compiled.rainfall_warning);
-        window._rainBannerData = { rw: _rw, level: compiled.rainfall_level, text: compiled.rainfall_text, heroDPS: heroDPS };
+        window._rainBannerData = { rw: _rw, level: compiled.rainfall_level, text: compiled.rainfall_text, heroDPS: heroDPSExact };
         // Land-relevance gate (fails open to 'warning' for cached bundles
         // that predate the flag): a storm whose observed track never nears
         // land gets "rainfall potential" framing instead of a flood warning.
