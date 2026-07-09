@@ -69,10 +69,14 @@ future edge rule).
 ## 4. Roadmap (ranked by payoff ÷ effort)
 
 ### Operator (Cloudflare dashboard — no code)
-1. **Cache Rule: `stormdps.com/frontend/*` → Eligible for cache, respect
-   origin headers.** Instantly edge-caches the 3.5 MB bundle (immutable +
-   versioned URL → zero purge risk) and nri_zones. Biggest single win for
-   global load time and Railway egress.
+1. ~~**Cache Rule: `stormdps.com/frontend/*`**~~ — **DONE 2026-07-08**
+   (operator-deployed; expression `http.request.uri.path wildcard
+   "/frontend/*"`, Eligible for cache, Edge TTL = use cache-control header if
+   present else bypass, Browser TTL = respect origin). Verified live: bundle
+   DYNAMIC→MISS→HIT (Railway round-trip eliminated), nri_zones HIT at 16 ms,
+   sw.js still revalidates (`no-cache` honored), HTML untouched. Gotcha
+   learned: the "URI Full" field includes the scheme — `/frontend/*` under
+   URI Full matches nothing; the field must be **URI Path**.
 2. **Cache Rule: `stormdps.com/api/v1/storms/catalog*` → cache, respect
    origin** (`s-maxage=900` already set). Same for `/api/v1/storms/*/track`
    once comfortable — the new `max-age=120` bounds staleness.
