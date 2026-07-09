@@ -696,6 +696,7 @@
                  uncertainty band, observed-vs-modeled surge validation). OFF by default;
                  persisted per-browser. -->
             <button class="storm-title-analyst" id="analystToggleBtn" onclick="toggleAnalystMode()" title="Analyst mode — adds the dominant-hazard headline and observed-vs-modeled surge validation for meteorologists. Off by default; your choice is remembered.">Analyst: Off</button>
+            <button class="storm-title-share" id="stormCompareBtn" onclick="window.location.href='/compare?a='+encodeURIComponent(window._currentStormId||'')" title="Compare this storm with another"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3l4 4-4 4"/><path d="M21 7H8"/><path d="M7 21l-4-4 4-4"/><path d="M3 17h13"/></svg><span class="share-label">Compare</span></button>
             <button class="storm-title-share" id="stormShareBtn" onclick="shareStorm(this)" title="Share this storm"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"/><path d="M16 6l-4-4-4 4"/><path d="M12 2v13"/></svg><span class="share-label">Share</span></button>
             <button class="storm-title-reset" onclick="resetToWelcome()" title="New search">&#10005;</button>
         </div>

@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Compare Two Hurricanes Side by Side | StormDPS</title>
+    <meta name="description" content="Put any two hurricanes head to head: Destructive Power Score, size, surge potential, tracks on one map, and intensity timelines — Katrina vs Sandy, Haiyan vs any storm since 1980.">
+    <link rel="canonical" href="https://stormdps.com/compare">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Compare Two Hurricanes Side by Side">
+    <meta property="og:description" content="Head-to-head Destructive Power Scores, tracks, and timelines for any two storms in the StormDPS catalog.">
+    <meta property="og:url" content="https://stormdps.com/compare">
+    <meta property="og:image" content="https://stormdps.com/frontend/logo-512.png">
+    <meta property="og:site_name" content="StormDPS">
+    <meta name="twitter:card" content="summary">
+    <link rel="icon" type="image/x-icon" href="/frontend/favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="/frontend/logo-32.png">
+    <meta name="theme-color" content="#eceef0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <style>
+        @font-face{font-family:'Public Sans';font-style:normal;font-weight:100 900;font-display:optional;src:url('/frontend/fonts/public-sans-latin.woff2') format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+        :root {
+            --primary:#205493; --bg-dark:#eceef0; --bg-card:#ffffff; --bg-input:#f7f8fa;
+            --text-main:#1b1f24; --text-muted:#404b57; --text-dim:#5c6873; --border:#d4d9de;
+            --cat1:#60a5fa; --cat2:#34d399; --cat3:#fbbf24; --cat4:#f97316; --cat5:#ef4444;
+            --storm-a:#205493; --storm-b:#b3261e;
+            --radius:10px;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family:'Public Sans',-apple-system,BlinkMacSystemFont,sans-serif; background:var(--bg-dark); color:var(--text-main); line-height:1.6; font-size:16px; }
+        header { background:linear-gradient(180deg,rgba(255,255,255,.96),rgba(252,252,253,.96)); backdrop-filter:blur(12px); padding:1rem 1.5rem; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:1000; }
+        .logo { display:flex; align-items:center; gap:.6rem; color:var(--text-main); text-decoration:none; }
+        .logo-icon { width:32px; height:32px; border-radius:8px; overflow:hidden; }
+        .logo-icon img { width:100%; height:100%; object-fit:cover; }
+        .logo-text { font-size:1.1rem; font-weight:700; letter-spacing:-.03em; }
+        nav { display:flex; flex-wrap:wrap; gap:1.25rem; row-gap:.5rem; align-items:center; }
+        nav a { color:var(--text-muted); text-decoration:none; font-weight:600; font-size:.95rem; transition:color .15s; }
+        nav a:hover { color:var(--text-main); }
+        nav a.cta { color:var(--primary); }
+        main { max-width: 980px; margin: 0 auto; padding: 2.5rem 1.5rem 6rem; }
+        h1.page-title { font-size:clamp(1.6rem,4vw,2.3rem); font-weight:800; letter-spacing:-.03em; line-height:1.2; margin-bottom:.5rem; }
+        .lede { font-size:1.05rem; color:var(--text-muted); margin-bottom:2rem; }
+        footer { border-top:1px solid var(--border); padding:2rem 1.5rem 3rem; text-align:center; font-size:.85rem; color:var(--text-muted); }
+        footer a { color:var(--text-muted); }
+
+        .picker-row { display:flex; gap:.6rem; align-items:center; flex-wrap:wrap; margin-bottom:1.6rem; }
+        .picker-row input[type=text] { flex:1 1 240px; min-width:200px; padding:.6rem .8rem; font:inherit; font-size:.95rem; border:1px solid var(--border); border-radius:var(--radius); background:var(--bg-card); color:var(--text-main); }
+        .picker-row input#stormA:focus { outline:2px solid var(--storm-a); }
+        .picker-row input#stormB:focus { outline:2px solid var(--storm-b); }
+        .btn { padding:.6rem 1.1rem; font:inherit; font-size:.95rem; font-weight:700; border:none; border-radius:var(--radius); cursor:pointer; background:var(--primary); color:#fff; transition:opacity .15s; }
+        .btn:hover { opacity:.9; }
+        .btn.ghost { background:var(--bg-card); color:var(--text-muted); border:1px solid var(--border); font-weight:600; }
+        .hint { font-size:.78rem; color:var(--text-dim); margin:-1rem 0 1.6rem; }
+        #status { margin:0 0 1.4rem; font-size:.9rem; color:var(--text-dim); min-height:1.3em; }
+        #status.err { color:#b3261e; font-weight:600; }
+
+        #results { display:none; }
+        .verdict { background:var(--bg-card); border:1px solid var(--border); border-left:4px solid var(--primary); border-radius:var(--radius); padding:1rem 1.2rem; margin-bottom:1.6rem; font-size:1.02rem; }
+        .vs-grid { display:grid; grid-template-columns:1fr auto 1fr; gap:0 1rem; background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:1.2rem 1.4rem; margin-bottom:1.6rem; }
+        .vs-head { font-weight:800; font-size:1.15rem; letter-spacing:-.02em; padding-bottom:.2rem; }
+        .vs-head a { color:inherit; text-decoration:none; }
+        .vs-head a:hover { text-decoration:underline; }
+        .vs-head.a { color:var(--storm-a); }
+        .vs-head.b { color:var(--storm-b); text-align:right; }
+        .vs-sub { font-size:.78rem; color:var(--text-dim); }
+        .vs-sub.b { text-align:right; }
+        .vs-row { display:contents; }
+        .vs-row > div { padding:.45rem 0; border-top:1px solid var(--border); font-variant-numeric:tabular-nums; }
+        .vs-metric { text-align:center; font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--text-dim); align-self:center; }
+        .vs-val { font-weight:600; }
+        .vs-val.b { text-align:right; }
+        .vs-val .win { font-weight:800; }
+        .vs-val .sub { font-size:.75rem; color:var(--text-dim); font-weight:400; margin-left:.3rem; }
+        .dps-big { font-size:2.1rem; font-weight:800; line-height:1.1; }
+        .dps-band { font-size:.8rem; font-weight:700; }
+
+        .panel { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; margin-bottom:1.6rem; }
+        .panel-title { padding:.7rem 1.1rem; font-size:.8rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--text-dim); border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:.4rem; }
+        .legend-dot { display:inline-flex; align-items:center; gap:.3rem; font-size:.78rem; text-transform:none; letter-spacing:0; font-weight:600; color:var(--text-muted); margin-left:.8rem; }
+        .legend-dot i { width:10px; height:10px; border-radius:50%; display:inline-block; }
+        #cmpMap { height: 420px; }
+        #chartWrap { padding: .8rem 1rem 1rem; height: 300px; }
+        @media (max-width: 700px) {
+            .vs-grid { grid-template-columns:1fr; padding:1rem; }
+            .vs-metric { text-align:left; padding-top:.7rem !important; border-top:1px solid var(--border); }
+            .vs-row > div { border-top:none; padding:.15rem 0; }
+            .vs-head.b, .vs-sub.b, .vs-val.b { text-align:left; }
+            #cmpMap { height: 300px; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <a href="/" class="logo">
+            <span class="logo-icon"><img src="/frontend/logo-128.png" alt=""></span>
+            <span class="logo-text">StormDPS</span>
+        </a>
+        <nav>
+            <a href="/">Tracker</a>
+            <a href="/methodology">Methodology</a>
+            <a href="/historic-storms">Historic</a>
+            <a href="/data">Data</a>
+            <a href="/about">About</a>
+        </nav>
+    </header>
+
+    <main>
+        <h1 class="page-title">Storm vs. storm</h1>
+        <p class="lede">Put any two storms since 1980 head to head — Destructive Power Score, size,
+        intensity, tracks on one map, and DPS timelines. The Category scale says Sandy was a
+        Category 1; the comparison below is why that number misled people.</p>
+
+        <div class="picker-row">
+            <input type="text" id="stormA" list="stormOptions" placeholder="First storm — name or ID (e.g. Katrina or AL122005)" autocomplete="off">
+            <button class="btn ghost" id="swapBtn" title="Swap storms">&#8644;</button>
+            <input type="text" id="stormB" list="stormOptions" placeholder="Second storm — name or ID (e.g. Sandy)" autocomplete="off">
+            <button class="btn" id="goBtn">Compare</button>
+        </div>
+        <p class="hint">Type a name and pick from the list, or paste an ATCF/IBTrACS ID. Try
+            <a class="inline" href="/compare?a=2005236N23285&amp;b=2012296N14283" style="color:var(--primary)">Katrina vs Sandy</a> or
+            <a class="inline" href="/compare?a=WP092026&amp;b=2013306N07162" style="color:var(--primary)">Bavi vs Haiyan</a>.</p>
+        <div id="status"></div>
+
+        <div id="results">
+            <div class="verdict" id="verdict"></div>
+            <div class="vs-grid" id="vsGrid"></div>
+            <div class="panel">
+                <div class="panel-title"><span>Tracks</span><span id="mapLegend"></span></div>
+                <div id="cmpMap"></div>
+            </div>
+            <div class="panel">
+                <div class="panel-title"><span>DPS over storm lifetime (hours since first fix)</span></div>
+                <div id="chartWrap"><canvas id="dpsChart"></canvas></div>
+            </div>
+        </div>
+    </main>
+
+    <datalist id="stormOptions"></datalist>
+
+    <footer>
+        <a href="/">Tracker</a> ·
+        <a href="/methodology">Methodology</a> ·
+        <a href="/historic-storms">Historic</a> ·
+        <a href="/data">Data</a> ·
+        <a href="/faq">FAQ</a> ·
+        <a href="/about">About</a> ·
+        <a href="/privacy">Privacy</a>
+        <p style="margin-top:.6rem;color:var(--text-dim)">StormDPS — open-data hurricane destructive-power scoring</p>
+    </footer>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script>
+    (function () {
+        const API = '/api/v1';
+        const COLORS = { a: '#205493', b: '#b3261e' };
+        let catalog = [];         // [{id,name,year,basin,peak_dps,dps_label,category}]
+        let map = null, mapLayers = [], chart = null;
+
+        const $ = (id) => document.getElementById(id);
+        const bandColor = (s) => s >= 80 ? 'var(--cat5)' : s >= 60 ? 'var(--cat4)' : s >= 40 ? 'var(--cat3)' : s >= 20 ? 'var(--cat2)' : 'var(--cat1)';
+        const esc = (t) => String(t == null ? '' : t).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+        // ── storm picker ────────────────────────────────────────────────
+        async function loadCatalog() {
+            try {
+                const r = await fetch(API + '/storms/catalog?min_year=1980');
+                if (!r.ok) return;
+                catalog = await r.json();
+                const dl = $('stormOptions');
+                const frag = document.createDocumentFragment();
+                // Newest first reads better in the dropdown.
+                catalog.slice().sort((x, y) => (y.year - x.year) || String(x.name).localeCompare(String(y.name)))
+                    .forEach(s => {
+                        if (!s.id) return;
+                        const o = document.createElement('option');
+                        o.value = `${s.name || 'Unnamed'} (${s.year}) — ${s.id}`;
+                        o.label = `DPS ${s.peak_dps ?? '—'} · ${s.dps_label || ''}`;
+                        frag.appendChild(o);
+                    });
+                dl.appendChild(frag);
+            } catch (e) { /* picker degrades to raw-ID input */ }
+        }
+
+        // Accept "Name (Year) — ID", a bare ID, or a bare name (catalog lookup).
+        // Remembers the human name seen alongside each ID: the /dps payload's
+        // `name` falls back to the raw ID for ATCF-id lookups (the known
+        // storm-identity seam), and the catalog keys many storms by IBTrACS
+        // SID — the picker text is often the only name we have.
+        const pickedNames = {};
+        function resolveId(text) {
+            const t = (text || '').trim();
+            if (!t) return null;
+            const m = t.match(/([A-Za-z]{2}\d{6}\b|\d{7}[NS]\d{5}\b)/);
+            if (m) {
+                const id = m[1].toUpperCase();
+                const nm = t.match(/^(.+?)\s*\(\d{4}\)/);   // "Name (Year) — ID"
+                if (nm) pickedNames[id] = nm[1].trim();
+                return id;
+            }
+            const name = t.toLowerCase();
+            const hits = catalog.filter(s => String(s.name || '').toLowerCase() === name);
+            if (hits.length) {
+                hits.sort((x, y) => y.year - x.year);   // most recent same-named storm
+                pickedNames[hits[0].id] = hits[0].name;
+                return hits[0].id;
+            }
+            return t.toUpperCase();   // hope it's an ID form we don't recognize
+        }
+
+        // ── data fetch ──────────────────────────────────────────────────
+        async function fetchStorm(id) {
+            const [dpsR, trackR] = await Promise.all([
+                fetch(`${API}/storms/${encodeURIComponent(id)}/dps`),
+                fetch(`${API}/storms/${encodeURIComponent(id)}/track?grid_resolution_km=15&skip_points=0`),
+            ]);
+            if (!dpsR.ok) throw new Error(`${id}: DPS lookup failed (${dpsR.status})`);
+            if (!trackR.ok) throw new Error(`${id}: track lookup failed (${trackR.status})`);
+            const dps = await dpsR.json();
+            const track = await trackR.json();
+            if (!Array.isArray(track) || !track.length) throw new Error(`${id}: empty track`);
+            return { id, dps, track };
+        }
+
+        function summarize(s) {
+            const pk = (sel) => s.track.reduce((m, d) => Math.max(m, sel(d) || 0), 0);
+            const minP = s.track.reduce((m, d) => (d.min_pressure_hpa ? Math.min(m, d.min_pressure_hpa) : m), 9999);
+            const t0 = Date.parse(s.track[0].timestamp), t1 = Date.parse(s.track[s.track.length - 1].timestamp);
+            const cat = catalog.find(c => c.id === s.id);
+            return {
+                name: (s.dps.name && s.dps.name !== s.id) ? s.dps.name
+                      : (cat && cat.name) || pickedNames[s.id] || s.id,
+                year: s.dps.year || (cat && cat.year) || (isNaN(t0) ? '' : new Date(t0).getUTCFullYear()),
+                dps: Math.round(s.dps.dps || 0), dpsExact: s.dps.dps || 0,
+                label: s.dps.dps_label || '',
+                windKt: Math.round(pk(d => d.max_wind_ms) / 0.514444),
+                minP: minP === 9999 ? null : Math.round(minP),
+                ike: pk(d => d.ike_total_tj),
+                r34: Math.round(pk(d => d.r34_nm)),
+                hours: (isNaN(t0) || isNaN(t1)) ? null : Math.round((t1 - t0) / 3600000),
+                rain: s.dps.rainfall_level || null,
+                damage: (s.dps.actual_impact && s.dps.actual_impact.damage_display) || null,
+            };
+        }
+
+        // ── render ──────────────────────────────────────────────────────
+        function renderScores(A, B) {
+            const rows = [
+                ['DPS', a => `<span class="dps-big" style="color:${bandColor(a.dpsExact)}">${a.dps}</span><div class="dps-band" style="color:${bandColor(a.dpsExact)}">${esc(a.label)}</div>`, s => s.dpsExact],
+                ['Peak wind', a => a.windKt ? `${a.windKt} kt<span class="sub">${Math.round(a.windKt * 1.15078)} mph</span>` : '—', s => s.windKt],
+                ['Min pressure', a => a.minP ? `${a.minP} mb` : '—', s => s.minP ? 1100 - s.minP : 0],
+                ['Peak IKE', a => a.ike ? `${a.ike.toFixed(0)} TJ` : '—', s => s.ike],
+                // (No Impact-Area / Economic-Risk rows: the raw /track API
+                // carries no per-point scores — the SPA computes those
+                // client-side with calculators this page doesn't port.)
+                ['Max r34 radius', a => a.r34 ? `${a.r34} nm` : '—', s => s.r34],
+                ['Lifetime tracked', a => a.hours ? `${Math.round(a.hours / 24)}d ${a.hours % 24}h` : '—', s => s.hours],
+                ['Rainfall level', a => a.rain ? esc(a.rain) : '—', () => 0],
+                ['Recorded damage', a => a.damage ? esc(a.damage) : '—', () => 0],
+            ];
+            let html = `
+                <div class="vs-head a"><a href="/storm/${esc(A.id)}">${esc(A.s.name)} (${esc(A.s.year)})</a></div>
+                <div></div>
+                <div class="vs-head b"><a href="/storm/${esc(B.id)}">${esc(B.s.name)} (${esc(B.s.year)})</a></div>
+                <div class="vs-sub">${esc(A.id)}</div><div></div><div class="vs-sub b">${esc(B.id)}</div>`;
+            for (const [label, fmt, rank] of rows) {
+                const ra = rank(A.s), rb = rank(B.s);
+                const wa = ra > rb ? ' win' : '', wb = rb > ra ? ' win' : '';
+                html += `<div class="vs-row">
+                    <div class="vs-val"><span class="${wa}">${fmt(A.s)}</span></div>
+                    <div class="vs-metric">${label}</div>
+                    <div class="vs-val b"><span class="${wb}">${fmt(B.s)}</span></div></div>`;
+            }
+            $('vsGrid').innerHTML = html;
+
+            const d = Math.abs(A.s.dps - B.s.dps);
+            const hi = A.s.dpsExact >= B.s.dpsExact ? A.s : B.s;
+            const lo = hi === A.s ? B.s : A.s;
+            $('verdict').innerHTML = d === 0
+                ? `<strong>Dead heat:</strong> both storms score DPS ${hi.dps}.`
+                : `<strong>${esc(hi.name)} (${esc(hi.year)})</strong> out-scores ${esc(lo.name)} by
+                   <strong>${d} point${d === 1 ? '' : 's'}</strong> — DPS ${hi.dps}
+                   <em>${esc(hi.label)}</em> vs ${lo.dps} <em>${esc(lo.label)}</em>.
+                   DPS folds size, surge potential, duration, and reach in with peak wind —
+                   see <a href="/methodology" style="color:var(--primary)">how it works</a>.`;
+        }
+
+        // Normalize a track's longitudes so dateline-crossing storms draw as
+        // one line instead of wrapping across the whole map.
+        function normLons(track) {
+            const lons = track.map(d => d.lon);
+            if (Math.max(...lons) - Math.min(...lons) > 180) {
+                return track.map(d => ({ ...d, lon: d.lon < 0 ? d.lon + 360 : d.lon }));
+            }
+            return track;
+        }
+
+        function renderMap(A, B) {
+            if (map) { map.remove(); map = null; }
+            map = L.map('cmpMap', { scrollWheelZoom: false });
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+                { attribution: '&copy; OSM &copy; CARTO', subdomains: 'abcd', maxZoom: 19 }).addTo(map);
+            const all = [];
+            for (const [S, col] of [[A, COLORS.a], [B, COLORS.b]]) {
+                const trk = normLons(S.track);
+                const pts = trk.map(d => [d.lat, d.lon]);
+                all.push(...pts);
+                L.polyline(pts, { color: col, weight: 3, opacity: .8 }).addTo(map);
+                trk.forEach(d => {
+                    const kt = Math.round((d.max_wind_ms || 0) / 0.514444);
+                    L.circleMarker([d.lat, d.lon], {
+                        radius: Math.max(2.5, Math.min(7, kt / 25)),
+                        fillColor: col, fillOpacity: .75, color: '#fff', weight: .8,
+                    }).addTo(map).bindTooltip(
+                        `${esc(S.s.name)} · ${new Date(d.timestamp).toISOString().slice(0, 13)}Z · ${kt} kt`);
+                });
+            }
+            map.fitBounds(all, { padding: [24, 24] });
+            $('mapLegend').innerHTML =
+                `<span class="legend-dot"><i style="background:${COLORS.a}"></i>${esc(A.s.name)}</span>` +
+                `<span class="legend-dot"><i style="background:${COLORS.b}"></i>${esc(B.s.name)}</span>`;
+        }
+
+        function renderChart(A, B) {
+            const series = (S) => {
+                const ts = (S.dps.dpi_timeseries || []).filter(p => p && p.t);
+                if (!ts.length) return [];
+                const t0 = Date.parse(ts[0].t);
+                return ts.map(p => ({ x: (Date.parse(p.t) - t0) / 3600000, y: p.dpi }));
+            };
+            if (chart) { chart.destroy(); chart = null; }
+            chart = new Chart($('dpsChart'), {
+                type: 'line',
+                data: { datasets: [
+                    { label: `${A.s.name} (${A.s.year})`, data: series(A), borderColor: COLORS.a, backgroundColor: COLORS.a, pointRadius: 0, borderWidth: 2.5, tension: .3 },
+                    { label: `${B.s.name} (${B.s.year})`, data: series(B), borderColor: COLORS.b, backgroundColor: COLORS.b, pointRadius: 0, borderWidth: 2.5, tension: .3 },
+                ]},
+                options: {
+                    responsive: true, maintainAspectRatio: false, animation: false,
+                    scales: {
+                        x: { type: 'linear', title: { display: true, text: 'hours since first fix' }, grid: { color: 'rgba(0,0,0,.05)' } },
+                        y: { min: 0, max: 100, title: { display: true, text: 'DPS' }, grid: { color: 'rgba(0,0,0,.05)' } },
+                    },
+                    plugins: { legend: { position: 'bottom' } },
+                    interaction: { mode: 'nearest', axis: 'x', intersect: false },
+                },
+            });
+        }
+
+        // ── orchestration ───────────────────────────────────────────────
+        let busy = false;
+        async function compare() {
+            if (busy) return;
+            const ia = resolveId($('stormA').value), ib = resolveId($('stormB').value);
+            const st = $('status');
+            st.classList.remove('err');
+            if (!ia || !ib) { st.textContent = 'Pick two storms to compare.'; return; }
+            if (ia === ib) { st.textContent = 'Pick two different storms.'; return; }
+            busy = true; $('goBtn').disabled = true;
+            st.textContent = 'Loading both storms… (uncached storms can take ~15s)';
+            try {
+                const [ra, rb] = await Promise.all([fetchStorm(ia), fetchStorm(ib)]);
+                const A = { ...ra, s: summarize(ra) }, B = { ...rb, s: summarize(rb) };
+                renderScores(A, B); renderMap(A, B); renderChart(A, B);
+                $('results').style.display = 'block';
+                st.textContent = '';
+                document.title = `${A.s.name} (${A.s.year}) vs ${B.s.name} (${B.s.year}) — Storm Comparison | StormDPS`;
+                history.replaceState(null, '', `/compare?a=${encodeURIComponent(ia)}&b=${encodeURIComponent(ib)}`);
+            } catch (e) {
+                st.textContent = e && e.message ? e.message : 'Comparison failed — check both storm IDs.';
+                st.classList.add('err');
+            } finally {
+                busy = false; $('goBtn').disabled = false;
+            }
+        }
+
+        $('goBtn').addEventListener('click', compare);
+        for (const id of ['stormA', 'stormB']) {
+            $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') compare(); });
+        }
+        $('swapBtn').addEventListener('click', () => {
+            const a = $('stormA').value; $('stormA').value = $('stormB').value; $('stormB').value = a;
+            if ($('results').style.display === 'block') compare();
+        });
+
+        (async function boot() {
+            await loadCatalog();
+            const q = new URLSearchParams(location.search);
+            const a = q.get('a'), b = q.get('b');
+            const pretty = (id) => {
+                const c = catalog.find(s => s.id === (id || '').toUpperCase());
+                return c ? `${c.name} (${c.year}) — ${c.id}` : (id || '');
+            };
+            if (a) $('stormA').value = pretty(a);
+            if (b) $('stormB').value = pretty(b);
+            if (a && b) compare();
+        })();
+    })();
+    </script>
+</body>
+</html>

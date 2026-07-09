@@ -704,6 +704,21 @@ async def serve_methodology():
     )
 
 
+@app.get("/compare")
+async def serve_compare():
+    """Storm-vs-storm comparison page. Static HTML; the two storms come from
+    ?a=&b= query params, resolved client-side against the public API. Short
+    cache: the page shell is static but ships picker data expectations."""
+    fp = FRONTEND_DIR / "compare.html"
+    if not fp.exists():
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(
+        fp,
+        media_type="text/html",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
 @app.get("/data")
 async def serve_data_page():
     """Dataset landing page — exposes the historical storms database with
