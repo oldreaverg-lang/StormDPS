@@ -2513,6 +2513,114 @@ def _ike_responses_to_engine_snapshots(responses: list) -> list[dict]:
     return out
 
 
+# ------------------------------------------------------------------
+# Storm analogs — "storms like this one"
+# ------------------------------------------------------------------
+# Nearest neighbors in the baked catalog by weighted L1 distance over the
+# canonical bundle features (intensity, size/IKE, rainfall, duration, basin).
+# Powers the storm page's analog strip; each analog links into /compare.
+# The comparison pool is compiled_bundle.json (223 curated storms); live
+# storms are scored from their (cached) /dps bundle.
+
+_ANALOG_BUNDLE: dict = {"mtime": None, "storms": {}}
+_ANALOG_BUNDLE_PATH = Path(__file__).resolve().parent.parent / "frontend" / "compiled_bundle.json"
+
+
+def _analog_pool() -> dict:
+    """Bundle storms keyed by id, reloaded when the bake changes on disk."""
+    try:
+        mtime = _ANALOG_BUNDLE_PATH.stat().st_mtime
+    except OSError:
+        return _ANALOG_BUNDLE["storms"] or {}
+    if _ANALOG_BUNDLE["mtime"] != mtime:
+        try:
+            with open(_ANALOG_BUNDLE_PATH, encoding="utf-8") as fh:
+                _ANALOG_BUNDLE["storms"] = json.load(fh).get("storms", {})
+            _ANALOG_BUNDLE["mtime"] = mtime
+        except Exception as e:
+            logger.warning(f"[ANALOGS] bundle load failed: {e}")
+    return _ANALOG_BUNDLE["storms"] or {}
+
+
+def _analog_distance(a: dict, b: dict) -> float:
+    """Weighted L1 distance in the bundle feature space (0 = identical)."""
+    def n(x, cap):
+        try:
+            return min(float(x or 0), cap) / cap
+        except (TypeError, ValueError):
+            return 0.0
+    d = 0.0
+    d += 0.30 * abs(n(a.get("dps"), 100) - n(b.get("dps"), 100))
+    d += 0.20 * abs(n(a.get("peak_wind_kt"), 160) - n(b.get("peak_wind_kt"), 160))
+    d += 0.20 * abs(n(a.get("peak_ike_tj"), 300) - n(b.get("peak_ike_tj"), 300))
+    d += 0.10 * abs(n(a.get("rainfall_warning"), 100) - n(b.get("rainfall_warning"), 100))
+    d += 0.05 * abs(n(a.get("track_hours"), 400) - n(b.get("track_hours"), 400))
+    if (a.get("basin") or "") != (b.get("basin") or ""):
+        d += 0.15
+    return d
+
+
+@router.get("/storms/{storm_id}/analogs")
+async def get_storm_analogs(
+    storm_id: str,
+    n: int = Query(4, ge=1, le=8, description="How many analogs to return"),
+):
+    """Historical analogs: the catalog storms nearest to this one in the
+    canonical DPS feature space. Live storms are scored from their live
+    /dps bundle; baked storms come straight from the pool entry."""
+    pool = _analog_pool()
+    if not pool:
+        raise HTTPException(status_code=503, detail="catalog unavailable")
+    sid = storm_id.upper()
+    query = pool.get(sid)
+    if query is None:
+        # Live / ad-hoc storm: reuse the canonical /dps machinery (cached).
+        # Every Query-default param is passed EXPLICITLY — calling a route
+        # handler directly otherwise leaves truthy Query(...) sentinel
+        # objects in the parameters (the documented re-entry trap).
+        try:
+            res = await get_storm_dps(storm_id, name=None, year=None,
+                                      grid_resolution_km=15.0, skip_points=0,
+                                      force=False)
+            query = json.loads(res.body) if isinstance(res, JSONResponse) else res
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.warning(f"[ANALOGS] dps lookup failed for {storm_id}: {e}")
+            raise HTTPException(status_code=404, detail="storm not found")
+    if not isinstance(query, dict) or not query.get("dps"):
+        raise HTTPException(status_code=404, detail="storm has no DPS bundle")
+    q_name = str(query.get("name") or sid).lower()
+    q_year = query.get("year")
+    ranked = []
+    for aid, s in pool.items():
+        if aid.upper() == sid or not s.get("dps"):
+            continue
+        # The identity seam: the same storm can appear under both its ATCF
+        # id and IBTrACS SID — never offer a storm as its own analog.
+        if str(s.get("name") or "").lower() == q_name and s.get("year") == q_year:
+            continue
+        ranked.append((_analog_distance(query, s), aid, s))
+    ranked.sort(key=lambda t: t[0])
+    analogs = [{
+        "id": aid,
+        "name": s.get("name") or aid,
+        "year": s.get("year"),
+        "basin": s.get("basin"),
+        "dps": round(s.get("dps") or 0),
+        "dps_label": s.get("dps_label"),
+        "category": s.get("category"),
+        "peak_wind_kt": s.get("peak_wind_kt"),
+        "similarity": max(0, round((1.0 - dist) * 100)),
+    } for dist, aid, s in ranked[:n]]
+    return JSONResponse(content={
+        "query": {"id": sid, "name": query.get("name") or sid,
+                  "year": q_year, "dps": round(query.get("dps") or 0),
+                  "dps_label": query.get("dps_label")},
+        "analogs": analogs,
+    }, headers={"Cache-Control": "public, max-age=3600"})
+
+
 @router.get("/storms/{storm_id}/dps")
 async def get_storm_dps(
     storm_id: str,

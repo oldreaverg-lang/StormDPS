@@ -455,6 +455,14 @@
         .stall-bar-icon{font-size:.9rem}
         .stall-bar-text{flex:1;line-height:1.4}
         .stall-bar-score{font-weight:800;font-size:.9rem;font-variant-numeric:tabular-nums}
+        /* Historical-analogs strip: one compact row of chips linking to /compare */
+        .analog-strip{display:flex;align-items:center;gap:.45rem;flex-wrap:wrap;padding:.3rem .6rem;margin-top:.15rem;font-size:.75rem;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-card);flex-shrink:0}
+        .analog-strip-label{font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em;font-size:.65rem;white-space:nowrap}
+        .analog-chip{display:inline-flex;align-items:center;gap:.35rem;padding:.18rem .55rem;border:1px solid var(--border);border-radius:12px;background:var(--bg-input);color:var(--text-main);text-decoration:none;font-weight:600;white-space:nowrap;transition:border-color .15s,background .15s}
+        .analog-chip:hover{border-color:var(--primary);background:rgba(32,84,147,.06)}
+        .analog-chip .ac-dps{font-weight:800;font-variant-numeric:tabular-nums}
+        .analog-chip .ac-cmp{color:var(--text-dim);font-weight:400;font-size:.68rem}
+        .analog-chip:hover .ac-cmp{color:var(--primary)}
 
         .dps-toggle-controls{display:flex;gap:.75rem;font-size:.82rem;color:var(--text-muted);margin-bottom:.4rem}
         .dps-toggle-controls label{display:flex;align-items:center;gap:.33rem;cursor:pointer}
@@ -734,6 +742,10 @@
             <span class="stall-bar-text" id="stallBarText"></span>
             <span class="stall-bar-score" id="stallBarScore"></span>
         </div>
+        <!-- Historical analogs strip ("storms like this one") — populated by
+             loadAnalogs() from /storms/{id}/analogs; each chip deep-links
+             into /compare. Hidden until the fetch succeeds; fail-open. -->
+        <div id="analogStrip" class="analog-strip" style="display:none"></div>
         <div id="scrubberBar" class="scrubber-bar">
             <span style="font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-dim);white-space:nowrap">Storm Timeline</span>
             <button class="btn btn-secondary" onclick="toggleAnimation()" id="scrubPlay" style="padding:.35rem .7rem;gap:.4rem;font-size:.8rem;font-weight:600;"><svg id="scrubPlayIcon" width="14" height="14" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg><span id="scrubPlayLabel">Play animation</span></button>
@@ -1764,6 +1776,39 @@ function _renderRainBanner(mode, suffix) {
         bar.classList.remove('rain-extreme');
     }
     bar.style.display = 'flex';
+}
+
+// ── Historical analogs strip ("storms like this one") ─────────────────────
+// Fetches /storms/{id}/analogs and renders one row of chips; every chip is a
+// deep link into /compare with the current storm pre-filled as side A.
+// Fail-open: any error (or an empty result) leaves the strip hidden.
+async function loadAnalogs(stormId) {
+    const el = document.getElementById('analogStrip');
+    if (!el) return;
+    el.style.display = 'none';
+    el.innerHTML = '';
+    if (!stormId) return;
+    const myStorm = stormId;
+    try {
+        const r = await fetch(`${API_BASE}/storms/${encodeURIComponent(stormId)}/analogs?n=4`);
+        if (!r.ok) return;
+        const data = await r.json();
+        // A slow response for the PREVIOUS storm must not paint over the
+        // strip of the storm the user has since navigated to.
+        if (window._currentStormId && window._currentStormId !== myStorm) return;
+        const list = (data && data.analogs) || [];
+        if (!list.length) return;
+        el.innerHTML = '<span class="analog-strip-label">Storms like this one</span>' +
+            list.map(a => {
+                const col = dpsTextColor(a.dps || 0);
+                return `<a class="analog-chip" href="/compare?a=${encodeURIComponent(myStorm)}&b=${encodeURIComponent(a.id)}"` +
+                       ` title="Compare ${escapeHtml(a.name)} (${escapeHtml(a.year)}) with this storm — similarity ${escapeHtml(a.similarity)}%">` +
+                       `${escapeHtml(a.name)} <span style="color:var(--text-dim);font-weight:400">${escapeHtml(a.year)}</span>` +
+                       ` <span class="ac-dps" style="color:${col}">${escapeHtml(a.dps)}</span>` +
+                       `<span class="ac-cmp">compare →</span></a>`;
+            }).join('');
+        el.style.display = 'flex';
+    } catch (e) { /* fail-open */ }
 }
 
 function deAuthorize(t) {
@@ -4284,6 +4329,9 @@ function renderAll(stormId,data){
         rainBar.style.display = 'none';
         rainBar.classList.remove('rain-extreme');
     }
+
+    // Historical analogs strip — fire-and-forget; fail-open (stays hidden).
+    try { loadAnalogs(stormId); } catch (e) {}
 
     // Actual Impact — observed ground truth (curated damage + FEMA declarations).
     // Values are structured/curated (formatted $ string, integer counties, bool),
