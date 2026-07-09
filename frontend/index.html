@@ -777,10 +777,6 @@
                      Pressure/Precip/Satellite are redundant with the side
                      charts. Windfield (Holland B colored gradient) is now
                      always on for every storm; see renderMap auto-enable. -->
-                <!-- (removed) empty #satelliteSlider stub — the real scrubber
-                     now lives inside #advOverlayPanel; the duplicate id made
-                     getElementById wire the empty stub instead. -->
-
                 <button class="map-legend-toggle" id="observedToggleBtn" style="bottom:38px;left:8px;display:none" onclick="toggleObservedLayer()" title="Observed peak storm surge at NOAA tide gauges (and buoy wind/waves where available)">Observed surge: Off</button>
                 <!-- Advanced overlay panel removed (2026-07-08): the map now
                      runs a fixed always-on layer set — Satellite (active
@@ -6906,7 +6902,12 @@ function renderMap(data){
     }
     // Delay so the map container's ResizeObserver has a chance to reflow
     // before the Holland B image overlay computes its geographic bounds.
-    setTimeout(() => { try { toggleWindfieldLayer(); } catch(e) {} }, 250);
+    // Guard on !enabled: a double renderMap within 250ms (direct-URL +
+    // sidebar auto-load race) would otherwise TOGGLE the layer back off,
+    // and with the panel gone there is no button to recover it.
+    setTimeout(() => { try {
+        if (window._windfieldState && !window._windfieldState.enabled) toggleWindfieldLayer();
+    } catch(e) {} }, 250);
     // Wind flow (parametric direction particles) is part of the always-on
     // layer set. Slightly after the windfield so leaflet-velocity's lazy
     // script load never races the map rebuild.

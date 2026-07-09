@@ -1129,9 +1129,13 @@
                     const kt = Math.round(f.vmax / 0.514444);
                     const cat = kt >= 137 ? 'Category 5' : kt >= 113 ? 'Category 4' : kt >= 96 ? 'Category 3' : kt >= 83 ? 'Category 2' : kt >= 64 ? 'Category 1' : kt >= 34 ? 'Tropical Storm' : 'Tropical Depression';
                     if (lab) lab.textContent = (storm.name || storm.id) + ' (' + cat + ', ' + kt + ' kt)';
-                    sec.style.display = '';
+                    sec.style.display = '';   // must be visible BEFORE buildScene (clientWidth)
                     buildScene(window.THREE, stage, f, sat, frameTs, ir);
-                } catch (e) { /* fail-open: section stays hidden */ }
+                } catch (e) {
+                    // Fail-open: re-hide so a mid-build throw (e.g. WebGL
+                    // disabled) can't leave a dead black stage on the page.
+                    try { const s = document.getElementById('storm3dShowcase'); if (s) s.style.display = 'none'; } catch (e2) {}
+                }
             })();
         })();
     </script>
