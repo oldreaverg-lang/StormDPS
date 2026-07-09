@@ -2522,24 +2522,18 @@ def _ike_responses_to_engine_snapshots(responses: list) -> list[dict]:
 # The comparison pool is compiled_bundle.json (223 curated storms); live
 # storms are scored from their (cached) /dps bundle.
 
-_ANALOG_BUNDLE: dict = {"mtime": None, "storms": {}}
-_ANALOG_BUNDLE_PATH = Path(__file__).resolve().parent.parent / "frontend" / "compiled_bundle.json"
-
-
 def _analog_pool() -> dict:
-    """Bundle storms keyed by id, reloaded when the bake changes on disk."""
+    """Bundle storms keyed by id — via seo's VOLUME-FIRST cached reader.
+    compile_cache can rebake onto the persistent volume between deploys;
+    reading only the repo-baked copy would rank analogs with scores the
+    site no longer displays (and hold a second multi-MB parsed copy of a
+    bundle seo already keeps in memory)."""
     try:
-        mtime = _ANALOG_BUNDLE_PATH.stat().st_mtime
-    except OSError:
-        return _ANALOG_BUNDLE["storms"] or {}
-    if _ANALOG_BUNDLE["mtime"] != mtime:
-        try:
-            with open(_ANALOG_BUNDLE_PATH, encoding="utf-8") as fh:
-                _ANALOG_BUNDLE["storms"] = json.load(fh).get("storms", {})
-            _ANALOG_BUNDLE["mtime"] = mtime
-        except Exception as e:
-            logger.warning(f"[ANALOGS] bundle load failed: {e}")
-    return _ANALOG_BUNDLE["storms"] or {}
+        from seo import _read_compiled_bundle
+        return (_read_compiled_bundle() or {}).get("storms", {}) or {}
+    except Exception as e:
+        logger.warning(f"[ANALOGS] bundle load failed: {e}")
+        return {}
 
 
 def _analog_distance(a: dict, b: dict) -> float:

@@ -4072,6 +4072,8 @@ function hideResults(){
     document.getElementById('mapLegend').style.display='none';
     document.getElementById('mapLegendToggle').style.display='none';
     document.getElementById('rainfallBar').style.display='none';
+    const _as=document.getElementById('analogStrip');
+    if(_as){_as.style.display='none';_as.innerHTML='';}
     window._sstReady=false;window._sstData=null;
     window.animatedMarker=null;window.windOverlay=null;
     clearStallRisk();
