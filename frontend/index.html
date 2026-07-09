@@ -183,12 +183,11 @@
         /* Compact map key: 3 chip rows (~60px) instead of 13 stacked items
            (~240px — half the map). Ranges live in the chip tooltips. Offset
            right of the bottom-left button column so nothing overlaps it. */
-        .map-legend{position:absolute;bottom:8px;left:118px;z-index:500;background:rgba(255,255,255,.93);backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:var(--radius);padding:.3rem .5rem;display:flex;flex-direction:column;gap:.2rem;font-size:.65rem;color:var(--text-muted);max-width:calc(100% - 126px)}
+        .map-legend{position:absolute;bottom:8px;left:118px;z-index:500;background:rgba(255,255,255,.93);backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:var(--radius);padding:.3rem .5rem;display:flex;flex-direction:column;gap:.2rem;font-size:.65rem;color:var(--text-muted);max-width:calc(100% - 126px);overflow-x:auto}
         .legend-row{display:flex;align-items:center;gap:.4rem;white-space:nowrap}
         .legend-row-label{font-weight:700;color:#22272d;width:42px;flex-shrink:0}
         .legend-chip{display:inline-flex;align-items:center;gap:.2rem;cursor:help}
         .legend-chip i{display:inline-block;width:12px;height:6px;border-radius:2px;flex-shrink:0}
-        .legend-chip.chip-line i{height:3px;border-radius:1px}
         .legend-chip.chip-dot i{width:9px;height:9px;border-radius:50%}
         .leaflet-popup-content-wrapper{background:rgba(255,255,255,.97);color:var(--text-main);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.4)}.leaflet-popup-tip{background:rgba(255,255,255,.97);border:1px solid var(--border)}.leaflet-popup-content{margin:8px 12px;line-height:1.5}
         .welcome-state{flex:1;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--text-dim)}.welcome-state.hidden{display:none}.welcome-icon{font-size:2.5rem;margin-bottom:.75rem;opacity:.5}.welcome-text{font-size:.9rem;font-weight:500;max-width:300px;line-height:1.6}
@@ -831,21 +830,19 @@
                 <!-- Analyst toggle relocated off the map into the storm-title bar (by the
                      score cards); see #analystToggleBtn there. -->
                 <div class="map-legend" id="mapLegend" style="display:none;">
-                    <div class="legend-row" title="Wind speed — Saffir-Simpson category of each track point">
+                    <!-- No "Track Energy" row: ikeColor() has zero call sites —
+                         nothing on the map is energy-colored (IKE is a popup
+                         NUMBER). The old 13-row legend described that phantom
+                         scale for months. Re-add a row only when a layer
+                         actually paints with it. -->
+                    <div class="legend-row" title="Windfield / wind-flow overlay color — Saffir-Simpson category">
                         <span class="legend-row-label">Wind</span>
                         <span class="legend-chip" title="Category 5 — &ge;157 mph"><i style="background:#ff4da6"></i>Cat 5</span>
                         <span class="legend-chip" title="Category 3&ndash;4 — 111&ndash;156 mph"><i style="background:#ef4444"></i>3&ndash;4</span>
                         <span class="legend-chip" title="Category 1&ndash;2 — 74&ndash;110 mph"><i style="background:#f97316"></i>1&ndash;2</span>
                         <span class="legend-chip" title="Tropical Storm — 39&ndash;73 mph"><i style="background:#fbbf24"></i>TS</span>
                     </div>
-                    <div class="legend-row" title="Track energy — Integrated Kinetic Energy (terajoules)">
-                        <span class="legend-row-label">Energy</span>
-                        <span class="legend-chip chip-line" title="Extreme — over 200 TJ"><i style="background:#ef4444"></i>&gt;200</span>
-                        <span class="legend-chip chip-line" title="High — over 120 TJ"><i style="background:#f97316"></i>&gt;120</span>
-                        <span class="legend-chip chip-line" title="Moderate — over 60 TJ"><i style="background:#fbbf24"></i>&gt;60</span>
-                        <span class="legend-chip chip-line" title="Low — 60 TJ or less"><i style="background:#60a5fa"></i>&le;60</span>
-                    </div>
-                    <div class="legend-row" title="DPS score bands">
+                    <div class="legend-row" title="Track line &amp; point color — DPS score band">
                         <span class="legend-row-label">Score</span>
                         <span class="legend-chip chip-dot" title="Devastating / Historic — 80&ndash;100"><i style="background:var(--cat5)"></i>80+</span>
                         <span class="legend-chip chip-dot" title="Extreme — 60&ndash;79"><i style="background:var(--cat4)"></i>60+</span>
