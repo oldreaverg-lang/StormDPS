@@ -1632,6 +1632,10 @@ function _enableWindfieldToggle() {
     btn.style.color       = on ? '#fde68a' : '#94a3b8';
 }
 
+// ─── SEAM ─── everything below is NOT a top-level function: it is the
+// interior tail of initSatelliteLayer (panel era), pasted after the tile
+// layer is added to the map (`if (st.visible) st.layer.addTo(currentMap);`).
+
     // Wire slider UI
     const slider = document.getElementById('satelliteSliderInput');
     const wrap = document.getElementById('satelliteSlider');

@@ -5039,9 +5039,9 @@ function teardownSatelliteLayer(opts) {
         const labelEl = document.getElementById('satelliteProductLabel');
         if (labelEl) labelEl.textContent = '\u00a0';
     }
-    // On a full storm teardown we also wipe wind/pressure/precip since they're
-    // bbox-tied to the session. On an IR toggle (keepOverlays=true) we leave
-    // them alone — they're independent data products.
+    // keepOverlays (the IR-toggle-era flag, now always false) skips the
+    // st.visible reset below. The wind/pressure/precip wipe that used to
+    // live here moved to docs/RETIRED_MAP_OVERLAYS.md §7c with its layers.
     if (keepOverlays) return;
     // NOTE: the windfield is deliberately NOT torn down here anymore. It is
     // part of the always-on layer set: renderMap resets its state per storm
