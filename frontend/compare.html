@@ -191,7 +191,7 @@
         function resolveId(text) {
             const t = (text || '').trim();
             if (!t) return null;
-            const m = t.match(/([A-Za-z]{2}\d{6}\b|\d{7}[NS]\d{5}\b)/);
+            const m = t.match(/\b([A-Za-z]{2}\d{6}\b|\d{7}[NSns]\d{5}\b)/);
             if (m) {
                 const id = m[1].toUpperCase();
                 const nm = t.match(/^(.+?)\s*\(\d{4}\)/);   // "Name (Year) — ID"
@@ -254,7 +254,7 @@
                 // carries no per-point scores — the SPA computes those
                 // client-side with calculators this page doesn't port.)
                 ['Max r34 radius', a => a.r34 ? `${a.r34} nm` : '—', s => s.r34],
-                ['Lifetime tracked', a => a.hours ? `${Math.round(a.hours / 24)}d ${a.hours % 24}h` : '—', s => s.hours],
+                ['Lifetime tracked', a => a.hours ? `${Math.floor(a.hours / 24)}d ${a.hours % 24}h` : '—', s => s.hours],
                 ['Rainfall level', a => a.rain ? esc(a.rain) : '—', () => 0],
                 ['Recorded damage', a => a.damage ? esc(a.damage) : '—', () => 0],
             ];
@@ -361,8 +361,12 @@
             try {
                 const [ra, rb] = await Promise.all([fetchStorm(ia), fetchStorm(ib)]);
                 const A = { ...ra, s: summarize(ra) }, B = { ...rb, s: summarize(rb) };
-                renderScores(A, B); renderMap(A, B); renderChart(A, B);
+                // Results must be VISIBLE before Leaflet initializes: a map
+                // built in a display:none container measures 0×0, fitBounds
+                // resolves to zoom 0, and Leaflet never re-measures on its
+                // own — every deep-link load would show a world-zoom map.
                 $('results').style.display = 'block';
+                renderScores(A, B); renderMap(A, B); renderChart(A, B);
                 st.textContent = '';
                 document.title = `${A.s.name} (${A.s.year}) vs ${B.s.name} (${B.s.year}) — Storm Comparison | StormDPS`;
                 history.replaceState(null, '', `/compare?a=${encodeURIComponent(ia)}&b=${encodeURIComponent(ib)}`);
