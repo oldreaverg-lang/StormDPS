@@ -471,6 +471,13 @@ _LIVE_TRACK_TTL_S = 1800  # 30 minutes
 # bypasses the cache read and the SWR branch (a shared flag would make
 # concurrent USER requests skip the cache and pay the 13s inline).
 _track_swr_inflight: set = set()
+# Strong refs to in-flight refresh tasks: asyncio keeps only weak refs, so an
+# unreferenced task can be GC'd mid-flight (silently killed). Done-callback
+# discard keeps the set from growing.
+_track_swr_tasks: set = set()
+# Serve-stale ceiling: SWR normally serves a copy ≤1 advisory old, but after
+# downtime the cache can be arbitrarily stale — beyond this, recompute inline.
+_LIVE_TRACK_STALE_MAX_S = 6 * 3600
 _track_swr_bypass: contextvars.ContextVar = contextvars.ContextVar(
     "_track_swr_bypass", default=False
 )
@@ -2097,13 +2104,17 @@ async def get_storm_track(
         return JSONResponse(content=cached, headers={
             "X-Track-Cache": "hit", "Cache-Control": "public, max-age=120"})
     if _is_live and not _swr_bypass:
-        # Stale-while-revalidate: a TTL-expired live cache is at worst one
-        # advisory old — serve it NOW and refresh in the background instead
-        # of blocking this viewer ~13s on the fetch+IKE recompute.
-        stale = _load_ike_cache(storm_id, grid_resolution_km, skip_points)
+        # Stale-while-revalidate: a TTL-expired live cache (normally one
+        # advisory old, capped at _LIVE_TRACK_STALE_MAX_S after downtime) is
+        # served NOW and refreshed in the background instead of blocking this
+        # viewer ~13s on the fetch+IKE recompute.
+        stale = _load_ike_cache(storm_id, grid_resolution_km, skip_points,
+                                max_age_s=_LIVE_TRACK_STALE_MAX_S)
         if stale:
-            asyncio.create_task(
+            _t = asyncio.create_task(
                 _swr_refresh_track(storm_id, grid_resolution_km, skip_points))
+            _track_swr_tasks.add(_t)
+            _t.add_done_callback(_track_swr_tasks.discard)
             logger.info(f"[CACHE STALE→SWR] {storm_id} — served {len(stale)} "
                         f"stale results, background refresh spawned")
             return JSONResponse(content=stale, headers={
@@ -2657,7 +2668,15 @@ async def _warm_one_dps(storm_id: str, *, force: bool = False) -> str:
     try:
         # skip_points=0 — must match get_storm_dps so the warm loop and the
         # request path compute from the same full-resolution track.
-        track_results = await get_storm_track(storm_id, grid_resolution_km=15.0, skip_points=0)
+        # Bypass the track SWR branch: this loop IS the freshness driver for
+        # live DPS (force=True), so it must recompute an expired track inline
+        # rather than accept the stale copy SWR hands ordinary viewers —
+        # otherwise every hourly tick computes DPS from last hour's track.
+        _tok = _track_swr_bypass.set(True)
+        try:
+            track_results = await get_storm_track(storm_id, grid_resolution_km=15.0, skip_points=0)
+        finally:
+            _track_swr_bypass.reset(_tok)
     except Exception as e:
         logger.warning(f"[DPS WARM] track fetch failed for {storm_id}: {e}")
         return "failed"

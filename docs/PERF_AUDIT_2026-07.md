@@ -57,8 +57,10 @@ caching where CF suffices (versioned static JSON).
 
 **Live-track stale-while-revalidate** (`api/routes.py`): a TTL-expired
 live-storm track cache is now served immediately (`X-Track-Cache:
-stale-refreshing`, at worst one advisory old) while a singleflight background
-task re-enters the route (contextvar bypass) to recompute and re-save. The
+stale-refreshing` — normally one advisory old, capped at 6 h after downtime)
+while a singleflight background task re-enters the route (contextvar bypass,
+strong task ref) to recompute and re-save. The hourly DPS warm loop sets the
+same bypass so live DPS bundles keep computing from fresh tracks. The
 13-second first-viewer stall after every 30-min TTL expiry is gone; genuinely
 uncached storms still compute inline. Track responses also gain
 `Cache-Control: public, max-age=120` (browser-level; a prerequisite for any
