@@ -110,14 +110,26 @@ def compute_storm_dps(
     from core import ground_truth as _gt
     _truth = _gt.get(storm_id) or _gt.get_by_name_year(storm_name, storm_year)
     _observed_rain_in: Optional[float] = None
+    # DPS-side rainfall score: the rain_inland / inland_pen factors below gate
+    # and scale on THIS value. It keeps the original 500mm observed-rain boost
+    # so every baked score stays bit-identical — recalibrating the scoring side
+    # belongs to the WP Tranche B ceremony (re-bake + golden-master refreeze).
+    _rain_score_for_dps = rain_result.warning_score
     if _truth is not None and _truth.peak_rainfall_in is not None:
         _observed_rain_in = _truth.peak_rainfall_in
         _observed_rain_mm = _truth.peak_rainfall_in * 25.4
         # Observed peak-station accumulation is authoritative — replace the
-        # heuristic estimate. Keep warning_score consistent: scale relative to
-        # a 500mm reference (where 500mm ~ historic-class rainfall).
+        # heuristic estimate.
         rain_result.estimated_total_mm = _observed_rain_mm
-        _rain_score_from_obs = min(100.0, (_observed_rain_mm / 500.0) * 100.0)
+        _rain_score_for_dps = max(
+            _rain_score_for_dps, min(100.0, (_observed_rain_mm / 500.0) * 100.0)
+        )
+        # DISPLAYED score: 100 ≡ 1000mm (~40 in) observed peak rainfall —
+        # genuinely Harvey-class (Harvey peaked at 1539mm / 60.58in). The old
+        # 500mm display reference rated most landfalling typhoons "Historic …
+        # comparable to Harvey (2017)" at a third of Harvey's rain, which
+        # drowned the banner's meaning (Bavi 2026 et al. pinned at 100/100).
+        _rain_score_from_obs = min(100.0, (_observed_rain_mm / 1000.0) * 100.0)
         rain_result.warning_score = max(rain_result.warning_score, _rain_score_from_obs)
         # Re-derive level AND text together from the boosted score via the single
         # source of truth, so they can never disagree. (Previously only the level
@@ -163,11 +175,11 @@ def compute_storm_dps(
     RAIN_MM_THRESHOLD = 250
     RAIN_INLAND_CAP = 0.04
     if (
-        rain_result.warning_score > RAIN_WARN_THRESHOLD
+        _rain_score_for_dps > RAIN_WARN_THRESHOLD
         and rain_result.estimated_total_mm > RAIN_MM_THRESHOLD
         and cum_result.peak_dpi > 0
     ):
-        raw_rain_inland = min(rain_result.warning_score / 100.0 * 0.08, RAIN_INLAND_CAP)
+        raw_rain_inland = min(_rain_score_for_dps / 100.0 * 0.08, RAIN_INLAND_CAP)
         rain_econ = COASTAL_EXPOSURE_WEIGHTS.get(exposure_region, 0.20)
         rain_inland_factor = raw_rain_inland * max(rain_econ, 0.15)
     else:
@@ -207,7 +219,7 @@ def compute_storm_dps(
             rain_scale = min(
                 1.0,
                 max(
-                    rain_result.warning_score,
+                    _rain_score_for_dps,
                     rain_result.estimated_total_mm / 10.0,
                 )
                 / 50.0,
