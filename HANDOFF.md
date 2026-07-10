@@ -9,9 +9,8 @@ point-in-time snapshot, not a spec; verify against current code before acting.
 push to `main` → Railway auto-deploy (~30 s–4 min). Repo:
 `C:\Users\Ryan\APPS\StormDPS-recovered`.
 
-**Deploy state:** local HEAD == origin/main == `b148245`, deployed and
-verified live. Working tree clean except this file and
-`scratch/resolution_3h_test.py` (untracked leftover, safe to delete).
+**Deploy state:** local HEAD == origin/main == `5b105cb` (landfall panel),
+deployed and verified live. Working tree clean.
 BAVI (WP092026) has been the live test storm all week.
 
 ---
@@ -65,10 +64,17 @@ carries its detail in git log + the docs listed in §4.
 ## 2. Priority backlog (operator-reviewed suggestions, best first)
 
 **Quick wins**
-1. **Landfall panel** (public "when and how hard" card): landfall window +
-   forecast DPS at landfall + ERS zone, from the existing forecast/cone/zone
-   machinery. Small; ship while a storm is threatening land. Copy must stay
-   descriptive (see stormdps-no-directives memory).
+1. ~~**Landfall panel**~~ **SHIPPED 2026-07-09** (`5b105cb`): #landfallBar on
+   the storm view. Server: `core/landfall_forecast.py` (+11 offline tests,
+   run via embedded python — no pytest there) feeds a fail-open `landfall`
+   object on `/storms/{id}/forecast`. Coastline waypoint DB is
+   ATLANTIC-ONLY and feeds DPS scoring — do NOT extend it casually;
+   out-of-coverage basins (incl. the EP Pacific-Mexico gap) get
+   `coverage:false` and the frontend falls back to zone-approach copy via
+   computeForecastERS. AL storms deep-link to
+   `/surgedps?storm=active_<atcf>` — SurgeDPS `e9de16a` restored ?storm=
+   parsing (operator-approved reversal of the 2026-05 removal, explicit
+   links only). Verified live with BAVI (zone mode, Shanghai/Yangtze +44h).
 2. **Cloudflare Cache Rule #2** (operator dashboard): URI Path
    `/api/v1/storms/catalog*` → eligible for cache (s-maxage=900 already
    sent). Gotcha: field must be URI *Path*, not URI Full.
