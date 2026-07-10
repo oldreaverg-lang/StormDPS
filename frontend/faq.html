@@ -72,7 +72,7 @@
                 "name": "What does a DPS score actually mean?",
                 "acceptedAnswer": {
                     "@type": "Answer",
-                    "text": "DPS scores fall into roughly five outcome ranges. 0–24 (Minimal) — localized wind damage, no widespread flooding. 25–49 (Notable) — regional damage. 50–74 (Severe) — multi-billion-dollar event with sustained coastal damage. 75–89 (Catastrophic) — wide-area destruction, multiple coastal zones affected. 90–100 (Historic) — generation-defining storms like Katrina, Maria, Haiyan, Mangkhut. The scale is calibrated against the historical damage record from roughly 200 storms."
+                    "text": "DPS scores fall into seven bands. 0–9 (Minimal) — little to no impact expected. 10–19 (Low) — minor, localized impacts. 20–39 (Moderate) — regional damage. 40–59 (Severe) — significant threat, comparable to a large Cat 2–3 hurricane. 60–79 (Extreme) — major damage likely across a wide area. 80–89 (Devastating) — equivalent to a worst-case hurricane. 90–100 (Historic) — generation-defining storms like Katrina, Maria, Haiyan, Mangkhut. The scale is calibrated against the historical damage record from roughly 200 storms."
                 }
             },
             {
@@ -177,6 +177,16 @@
         footer { padding: 2rem 1.5rem; text-align: center; color: var(--text-dim); font-size: .85rem; border-top: 1px solid var(--border); }
         footer a { color: var(--text-muted); text-decoration: none; margin: 0 .6rem; }
         footer a:hover { color: var(--text-main); }
+    
+        /* Mobile header: stack the logo above the nav instead of wrapping
+           links around it - at ~375px the side-by-side layout collided the
+           logo with the first nav link (mobile review 2026-07-10). */
+        @media (max-width: 640px) {
+            header { flex-wrap: wrap; padding: .7rem 1rem; }
+            header .logo { width: 100%; }
+            header nav { width: 100%; margin-top: .55rem; gap: .35rem .95rem; }
+            header nav a { font-size: .88rem; }
+        }
     </style>
 </head>
 <body>
@@ -243,15 +253,17 @@
         <details class="faq-item">
             <summary>What does a DPS score actually mean?</summary>
             <div class="answer">
-                <p>DPS scores fall into roughly five outcome ranges:</p>
+                <p>DPS scores fall into seven bands:</p>
                 <ul style="margin: .3rem 0 0 1.4rem;">
-                    <li><strong>0–24 (Minimal)</strong> — localized wind damage, no widespread flooding.</li>
-                    <li><strong>25–49 (Notable)</strong> — regional damage.</li>
-                    <li><strong>50–74 (Severe)</strong> — multi-billion-dollar event with sustained coastal damage.</li>
-                    <li><strong>75–89 (Catastrophic)</strong> — wide-area destruction, multiple coastal zones affected.</li>
+                    <li><strong>0–9 (Minimal)</strong> — little to no impact expected.</li>
+                    <li><strong>10–19 (Low)</strong> — minor, localized impacts; isolated flooding.</li>
+                    <li><strong>20–39 (Moderate)</strong> — regional damage; prepare if within the forecast cone.</li>
+                    <li><strong>40–59 (Severe)</strong> — significant threat, comparable to a large Cat 2–3 hurricane.</li>
+                    <li><strong>60–79 (Extreme)</strong> — major damage likely across a wide area.</li>
+                    <li><strong>80–89 (Devastating)</strong> — equivalent to a worst-case hurricane; wide-area destruction.</li>
                     <li><strong>90–100 (Historic)</strong> — generation-defining storms like <a href="/storm/AL122005" class="inline">Katrina</a>, <a href="/storm/AL152017" class="inline">Maria</a>, Haiyan, Mangkhut.</li>
                 </ul>
-                <p style="margin-top: .8rem;">The scale is calibrated against the historical damage record from roughly 200 storms.</p>
+                <p style="margin-top: .8rem;">The scale is calibrated against the historical damage record from roughly 200 storms — the same bands used on every score across the site (see the <a href="/methodology" class="inline">methodology</a> table).</p>
             </div>
         </details>
 

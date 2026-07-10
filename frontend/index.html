@@ -341,8 +341,12 @@
         /* Storm title banner */
         .storm-title-bar{display:none;align-items:center;gap:.6rem;padding:.35rem .5rem;flex-shrink:0;min-height:0;background:rgba(32,84,147,.05);border:1px solid rgba(32,84,147,.12);border-radius:var(--radius)}
         .storm-title-bar.visible{display:flex;animation:fadeIn .3s}
-        .storm-title-name{font-size:1.25rem;font-weight:800;letter-spacing:-.04em;color:var(--text-main);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-        .storm-title-meta{font-size:.78rem;color:var(--text-muted);white-space:nowrap}
+        /* Shrink priority: the storm NAME is the one thing a visitor must
+           always see — the meta "(year) · ATCF" ellipsizes first. Without
+           flex-shrink:0 the name clipped to "B…" on phones while the raw id
+           stayed fully visible (mobile review 2026-07-10). */
+        .storm-title-name{font-size:1.25rem;font-weight:800;letter-spacing:-.04em;color:var(--text-main);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;max-width:48vw}
+        .storm-title-meta{font-size:.78rem;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:0}
         .storm-title-cat{display:inline-block;padding:2px 7px;border-radius:4px;font-size:.68rem;font-weight:700;color:#fff;letter-spacing:.03em}
         .storm-title-reset{background:none;border:1px solid var(--border);color:var(--text-dim);width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:.85rem;transition:all .15s;flex-shrink:0;font-family:inherit;line-height:1}
         .storm-title-reset:hover{background:rgba(196,40,28,.08);border-color:rgba(196,40,28,.35);color:#b3261e}
@@ -552,6 +556,12 @@
             #landfallBar::after{content:'\25BE';color:#64748b;opacity:.7;font-size:.75rem;flex-shrink:0;align-self:center}
             #landfallBar.rain-expanded #landfallBarText{display:inline-block;overflow:visible}
             #landfallBar.rain-expanded::after{content:'\25B4'}
+            /* Stall-risk bar: same fold (backlog quick-win #4) */
+            #stallRiskBar{cursor:pointer}
+            #stallRiskBar #stallBarText{display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+            #stallRiskBar::after{content:'\25BE';color:#64748b;opacity:.7;font-size:.75rem;flex-shrink:0;align-self:center}
+            #stallRiskBar.rain-expanded #stallBarText{display:inline-block;overflow:visible}
+            #stallRiskBar.rain-expanded::after{content:'\25B4'}
         }
 
         /* ── Breakdown Bars ── */
@@ -736,21 +746,21 @@
             <div class="stat-card" id="ersCard"><div class="stat-label">Economic Risk<span class="tip" data-tip="ERS: A 0-100 score measuring economic exposure along the storm's path. Combines coastal economic value with threat reach (storm size x intensity).">?</span></div><div class="stat-value" id="statPeakERS" style="color:var(--text-main);">-</div><div class="stat-sub" id="statERSLabel">-</div><div class="ers-forecast" id="ersForecastLine" style="display:none;font-size:.72rem;font-weight:600;color:#b45309;line-height:1.35;margin-top:.1rem"></div><div class="score-context" id="ersContext"></div><div class="breakdown-wrap" onclick="this.classList.toggle('open')"><div class="breakdown-bar" id="breakdownERS"></div><div class="breakdown-panel" id="panelERS"></div></div><div class="breakdown-hint">Score breakdown — tap or hover</div></div>
             <div class="stat-card" id="actualImpactCard" style="display:none"><div class="stat-label">Actual Impact<span class="tip" data-tip="What the storm actually did, from independent records: total damage (StormDPS curated dataset) and the federal disaster response (FEMA OpenFEMA — counties declared, major-disaster status). This is observed ground truth, shown alongside the DPS prediction.">?</span></div><div class="stat-value" id="statActualImpact" style="color:var(--text-main);">-</div><div class="stat-sub" id="statActualImpactSub">-</div><div class="score-context" id="actualImpactContext"></div></div>
         </div>
-        <div id="rainfallBar" class="stall-bar" style="display:none;border-color:rgba(239,68,68,.3);background:rgba(239,68,68,.06)" role="status" onclick="this.classList.toggle('rain-expanded')">
+        <div id="rainfallBar" class="stall-bar" style="display:none;border-color:rgba(239,68,68,.3);background:rgba(239,68,68,.06)" role="status" tabindex="0" onclick="this.classList.toggle('rain-expanded')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.classList.toggle('rain-expanded');}">
             <span class="stall-bar-icon" style="font-size:1.1rem">&#127783;&#65039;</span>
             <span class="stall-bar-score" id="rainfallBarScore" style="color:#b3261e;white-space:nowrap"></span>
             <div class="rainfall-text-scroll">
                 <span class="stall-bar-text" id="rainfallBarText" style="color:#b3261e;font-size:.78rem;line-height:1.4"></span>
             </div>
         </div>
-        <div id="landfallBar" class="stall-bar" style="display:none;border-color:rgba(32,84,147,.35);background:rgba(32,84,147,.06)" role="status" onclick="this.classList.toggle('rain-expanded')">
+        <div id="landfallBar" class="stall-bar" style="display:none;border-color:rgba(32,84,147,.35);background:rgba(32,84,147,.06)" role="status" tabindex="0" onclick="this.classList.toggle('rain-expanded')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.classList.toggle('rain-expanded');}">
             <span class="stall-bar-icon" style="font-size:1.05rem">&#128205;</span>
             <span class="stall-bar-score" id="landfallBarScore" style="color:#205493;white-space:nowrap"></span>
             <div class="rainfall-text-scroll">
                 <span class="stall-bar-text" id="landfallBarText" style="color:#16406f;font-size:.78rem;line-height:1.4"></span>
             </div>
         </div>
-        <div id="stallRiskBar" class="stall-bar">
+        <div id="stallRiskBar" class="stall-bar" role="status" tabindex="0" onclick="this.classList.toggle('rain-expanded')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.classList.toggle('rain-expanded');}">
             <span class="stall-bar-icon" id="stallBarIcon"></span>
             <span class="stall-bar-text" id="stallBarText"></span>
             <span class="stall-bar-score" id="stallBarScore"></span>
@@ -1567,7 +1577,15 @@ function updateBreakdownBars(heroDPS, peakDpsObj, _unused, peakIasObj, peakErsOb
 // self-hosting fonts. fetchStorm() force-starts the preload inline if
 // the user picks a storm before requestIdleCallback fires.
 function _startPreload(){ if(!preloadPromise) preloadPromise = loadPreloadBundle(); }
-if ('requestIdleCallback' in window) {
+// Mobile (≤900px): skip the AUTOMATIC preload — a casual "how dangerous is
+// this storm" phone visit renders entirely from live endpoints and never
+// needs the 3.5 MB bundle parse (main-thread jank on mid-range phones).
+// The bundle still loads on demand: opening the storm browser warms it
+// (toggleMobileMenu) and fetchStorm() force-starts it inline for direct
+// historic-storm URLs, so nothing functional is lost.
+if (window.matchMedia('(max-width: 900px)').matches) {
+    /* on-demand only — see toggleMobileMenu + fetchStorm */
+} else if ('requestIdleCallback' in window) {
     requestIdleCallback(_startPreload, { timeout: 2500 });
 } else {
     setTimeout(_startPreload, 200);
@@ -3987,6 +4005,9 @@ function _setMobileMenuState(isOpen) {
 function toggleMobileMenu() {
     const sidebar = document.querySelector('.sidebar');
     const isOpen = sidebar && !sidebar.classList.contains('mobile-open');
+    // First open on mobile = the user wants the storm browser — warm the
+    // preload bundle now (skipped at boot on ≤900px to keep first visits light).
+    if (isOpen) { try { _startPreload(); } catch (e) {} }
     _setMobileMenuState(isOpen);
 }
 // Close on storm load, backdrop tap, close-button tap.
@@ -4123,15 +4144,21 @@ async function fetchHistory(){
         const _libsReady = Promise.all([loadChart(), loadLeaflet()]);
 
         // ---- CHECK PRELOAD CACHE FIRST ----
-        // Wait for preload to finish if it's still loading (max 8s on mobile).
-        // The preload is now deferred to requestIdleCallback, so if the user
-        // clicks a storm before idle fires, force-start it inline first.
-        if (!preloadReady) {
+        // Desktop: if the user picks a storm before idle fires, force-start
+        // the preload inline and wait for the instant-render path.
+        // Mobile (≤900px): NEVER force-start here — the automatic preload is
+        // disabled on phones (see _startPreload), and the old behavior of
+        // blocking a storm load up to 8 s behind the 3.5 MB bundle parse was
+        // the single worst mobile wait. The API fallback below serves the
+        // storm straight from the volume caches instead; if the storm-browser
+        // menu already warmed the bundle we still give it a short window.
+        if (!preloadReady && window.innerWidth > 900) {
             _startPreload();
             if (preloadPromise) {
-                const waitMs = window.innerWidth<=900 ? 8000 : 5000;
-                await Promise.race([preloadPromise, new Promise(r => setTimeout(r, waitMs))]);
+                await Promise.race([preloadPromise, new Promise(r => setTimeout(r, 5000))]);
             }
+        } else if (!preloadReady && preloadPromise) {
+            await Promise.race([preloadPromise, new Promise(r => setTimeout(r, 1500))]);
         }
 
         if (PRELOAD_CACHE[rawId] && PRELOAD_CACHE[rawId].length > 0) {
@@ -5934,7 +5961,10 @@ function renderMap(data){
                             radius:5,fillColor:col,color:'rgba(255,255,255,.5)',weight:1.5,fillOpacity:.6
                         }).addTo(currentMap);
                         const label=`${p.time||('+'+(p.hour||0)+'h')}`;
-                        m.bindTooltip(label,{permanent:true,direction:'right',offset:L.point(8,0),
+                        // Mobile: permanent labels stack unreadably when late-track
+                        // fixes cluster (12h spacing ≈ a few px at phone zoom) —
+                        // show on tap instead.
+                        m.bindTooltip(label,{permanent:window.innerWidth>900,direction:'right',offset:L.point(8,0),
                             className:'forecast-label'});
                     });
                     // Extend map bounds to include forecast

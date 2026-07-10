@@ -126,6 +126,16 @@
         footer { padding: 2rem 1.5rem; text-align: center; color: var(--text-dim); font-size: .85rem; border-top: 1px solid var(--border); }
         footer a { color: var(--text-muted); text-decoration: none; margin: 0 .6rem; }
         footer a:hover { color: var(--text-main); }
+    
+        /* Mobile header: stack the logo above the nav instead of wrapping
+           links around it - at ~375px the side-by-side layout collided the
+           logo with the first nav link (mobile review 2026-07-10). */
+        @media (max-width: 640px) {
+            header { flex-wrap: wrap; padding: .7rem 1rem; }
+            header .logo { width: 100%; }
+            header nav { width: 100%; margin-top: .55rem; gap: .35rem .95rem; }
+            header nav a { font-size: .88rem; }
+        }
     </style>
 </head>
 <body>
