@@ -64,7 +64,7 @@ gh('PUT', f'/contents/{path}', {'content': b64encode(patched), 'sha': cur_sha, .
 
 - **Railway** single project, auto-deploys on `main` push.
 - **Cloudflare** in front of stormdps.com. After HTML deploys: Caching → Purge Everything.
-- **Env vars on Railway** (do not touch without confirmation): `ADMIN_TOKEN`, `ALLOWED_ORIGINS`, `PERSISTENT_DATA_DIR=/app/persistent`.
+- **Env vars on Railway** (12 service vars, verified against the dashboard 2026-07-09; do not touch without confirmation): `ADMIN_TOKEN`, `ALLOWED_ORIGINS`, `PERSISTENT_DATA_DIR=/app/persistent`, `HOST`, `LOG_LEVEL`, `IKE_CACHE_DIR`, `IBTRACS_CACHE_TTL_HOURS`, `PRELOAD_ON_STARTUP`, `PRELOAD_GRID_RESOLUTION_KM`, `IMERG_LIVE_INGEST`, and `EARTHDATA_USERNAME`/`EARTHDATA_PASSWORD` (NASA Earthdata login — consumed by the `earthaccess` lib for IMERG rainfall, not by repo code). Annotated reference: `.env.example`.
 - **Search Console**: Google + Bing both verified. Sitemap submitted.
 
 ---
