@@ -6,7 +6,17 @@ the DPS-vs-damage validation correlation.
 Sources (per product decision — curated + FEMA only; NCEI dropped as its damage
 figures undercount and its name matching is unreliable):
   - historical_storms_db.csv  -> curated headline damage ($B), validation_target
+                                 (the 24-storm CALIBRATION set — wins on conflict
+                                 so scoring-audit numbers never drift)
+  - data/recorded_damage.csv  -> broader curated headline damage keyed by the
+                                 bundle's own storm ids (NCEI billion-dollar
+                                 events, NHC TCRs, documented international
+                                 totals; "est." rows are early estimates)
   - FEMA OpenFEMA             -> counties declared, states, major-disaster flag
+  - fallback                  -> completed ATLANTIC storms with zero detected
+                                 landfalls and no damage row get an explicit
+                                 "None recorded (no landfall)" so the compare
+                                 page can distinguish "no damage" from unknown
 
 For every storm already in frontend/compiled_bundle.json we attach an
 ``actual_impact`` block joined by (name, year). Does NOT recompute DPS, so the
@@ -32,6 +42,7 @@ from services.fema_client import FEMAClient
 ROOT = Path(__file__).parent
 BUNDLE = ROOT / "frontend" / "compiled_bundle.json"
 HIST_CSV = ROOT / "historical_storms_db.csv"
+DAMAGE_CSV = ROOT / "data" / "recorded_damage.csv"
 CACHE_DIR = ROOT / "data" / "cache" / "observed"
 
 
@@ -68,13 +79,39 @@ def load_curated() -> dict[tuple[str, int], dict]:
     return out
 
 
+def load_recorded_damage() -> dict[str, dict]:
+    """storm_id (bundle key) -> {damage_billions, source, note}."""
+    out: dict[str, dict] = {}
+    if not DAMAGE_CSV.exists():
+        return out
+    with open(DAMAGE_CSV, encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            sid = (row.get("storm_id") or "").strip()
+            if not sid:
+                continue
+            try:
+                dmg = float(row.get("damage_billions_usd") or 0) or None
+            except ValueError:
+                dmg = None
+            if dmg is None:
+                continue
+            out[sid] = {
+                "damage_billions": dmg,
+                "source": (row.get("source") or "").strip(),
+                "note": (row.get("note") or "").strip(),
+            }
+    return out
+
+
 async def gather_impact(targets: dict[str, dict]) -> dict[str, dict]:
-    """targets: {storm_id: {"name","year"}} -> {storm_id: actual_impact}."""
+    """targets: {storm_id: {"name","year","basin","no_landfall"}} -> {storm_id: actual_impact}."""
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     curated = load_curated()
+    recorded = load_recorded_damage()
     fema = FEMAClient(cache_dir=CACHE_DIR)
     await fema.load()
 
+    current_year = datetime.now(timezone.utc).year
     out: dict[str, dict] = {}
     for sid, meta in targets.items():
         name, year = meta.get("name"), meta.get("year")
@@ -82,8 +119,26 @@ async def gather_impact(targets: dict[str, dict]) -> dict[str, dict]:
             continue
         key = (name.upper(), year)
         cur = curated.get(key)
+        rec = recorded.get(sid)
         dec = fema.get_declaration(name, year)
-        if not cur and not dec:
+        # Atlantic storms whose track never produced a landfall event AND
+        # have no damage row: label "None recorded". Gates:
+        #  - ATLANTIC only — the landfall detector's coastal boxes are
+        #    authoritative there; an empty list for a WP storm may just be
+        #    missing coverage.
+        #  - season closed a FULL year — post-season damage reports settle
+        #    slowly, and the detector's boxes stop south of Atlantic Canada
+        #    (Teddy 2020 / Lee 2023 landfalled NS with landfalls == []), so
+        #    recent "no landfall" is too weak a signal to assert "none".
+        #  - the display string deliberately claims only what the DATASET
+        #    shows ("None recorded"), never "no landfall/no damage happened".
+        no_damage_fallback = (
+            not cur and not rec
+            and meta.get("basin") == "ATLANTIC"
+            and meta.get("no_landfall")
+            and year < current_year - 1
+        )
+        if not cur and not rec and not dec and not no_damage_fallback:
             continue
 
         impact = {"sources": [], "as_of": datetime.now(timezone.utc).strftime("%Y-%m-%d")}
@@ -91,6 +146,18 @@ async def gather_impact(targets: dict[str, dict]) -> dict[str, dict]:
             impact["damage_billions"] = cur["damage_billions"]
             impact["damage_display"] = _fmt_usd_billions(cur["damage_billions"])
             impact["sources"].append("StormDPS curated dataset")
+        elif rec:
+            impact["damage_billions"] = rec["damage_billions"]
+            display = _fmt_usd_billions(rec["damage_billions"])
+            if rec.get("source") == "est.":
+                display = f"~{display} (est.)"
+            impact["damage_display"] = display
+            impact["damage_source"] = rec.get("source") or None
+            impact["sources"].append("StormDPS recorded-damage dataset")
+        elif no_damage_fallback:
+            impact["damage_display"] = "None recorded"
+            impact["damage_none_reason"] = "no landfall event on tracked path"
+            impact["sources"].append("StormDPS track analysis")
         if dec:
             impact.update({
                 "counties_declared": dec.get("counties_declared") or None,
@@ -221,7 +288,11 @@ def main():
 
     only = set(s.strip() for s in args.storms.split(",")) if args.storms else None
     targets = {
-        sid: {"name": s.get("name"), "year": s.get("year")}
+        sid: {
+            "name": s.get("name"), "year": s.get("year"),
+            "basin": s.get("basin"),
+            "no_landfall": not (s.get("landfalls") or []),
+        }
         for sid, s in storms.items()
         if (only is None or sid in only) and s.get("name") and s.get("year")
     }
@@ -243,10 +314,18 @@ def main():
     if args.dry_run:
         print("\n[dry-run] bundle not modified.")
         return
+    # Self-cleaning: a storm evaluated this run but no longer qualifying
+    # (tightened gate, removed damage row) must lose its stale block too —
+    # otherwise re-runs only ever grow the enrichment.
+    removed = 0
+    for sid in targets:
+        if sid not in impact and storms[sid].pop("actual_impact", None) is not None:
+            removed += 1
     for sid, imp in impact.items():
         storms[sid]["actual_impact"] = imp
     bundle_path.write_text(json.dumps(bundle, separators=(",", ":")), encoding="utf-8")
-    print(f"\nWrote actual_impact for {len(impact)} storms -> {bundle_path}")
+    print(f"\nWrote actual_impact for {len(impact)} storms "
+          f"(removed {removed} stale) -> {bundle_path}")
 
 
 if __name__ == "__main__":

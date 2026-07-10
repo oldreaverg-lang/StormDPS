@@ -1,0 +1,79 @@
+storm_id,name,year,damage_billions_usd,source,note
+AL122005,Katrina,2005,125.0,NCEI,US nominal; NCEI billion-dollar events
+AL092008,Ike,2008,38.0,NCEI/NHC,US + Caribbean total nominal
+AL182012,Sandy,2012,65.0,NCEI,US nominal
+2015180N09160,Chan-Hom,2015,1.6,reported,"China coastal provinces, 2015 nominal"
+AL112015,Joaquin,2015,0.2,NHC TCR,Bahamas freighter + island damage
+AL052015,Erika,2015,0.5,NHC TCR,Dominica flooding
+AL022015,Bill,2015,0.1,NHC TCR,Texas/Oklahoma flooding
+AL142016,Matthew,2016,16.5,NCEI/NHC,US $10.3B + Haiti/Cuba/Bahamas
+AL092016,Hermine,2016,0.55,NHC TCR,Florida/US East Coast
+AL162016,Otto,2016,0.19,NHC TCR,Costa Rica/Nicaragua
+AL052016,Earl,2016,0.25,NHC TCR,Belize/Mexico
+AL032016,Colin,2016,0.03,NHC TCR,Florida
+AL152016,Nicole,2016,0.015,NHC TCR,Bermuda
+AL092017,Harvey,2017,125.0,NCEI,US nominal
+AL112017,Irma,2017,77.0,NCEI,US + Caribbean nominal
+AL152017,Maria,2017,90.0,NCEI,Puerto Rico + Caribbean nominal
+AL162017,Nate,2017,0.8,NHC TCR,US Gulf + Central America
+AL172017,Ophelia,2017,0.9,reported,"Ireland/UK windstorm phase, 2017 nominal"
+AL032017,Cindy,2017,0.03,NHC TCR,US Gulf Coast
+AL142018,Michael,2018,25.5,NCEI,US nominal
+AL062018,Florence,2018,24.2,NCEI,US nominal
+AL132018,Leslie,2018,0.5,reported,Portugal/Spain extratropical landfall
+AL072018,Gordon,2018,0.2,NHC TCR,US Gulf Coast
+AL012018,Alberto,2018,0.13,NHC TCR,US Southeast flooding
+AL052019,Dorian,2019,5.1,NHC TCR,Bahamas $3.4B + US
+AL112019,Imelda,2019,5.0,NCEI,Texas flooding
+AL022019,Barry,2019,0.6,NCEI,Louisiana/Arkansas
+AL132019,Lorenzo,2019,0.37,reported,Azores/Ireland
+AL162019,Nestor,2019,0.15,NHC TCR,Florida tornadoes
+AL092019,Humberto,2019,0.025,NHC TCR,Bermuda
+AL132020,Laura,2020,19.2,NCEI,US nominal
+AL192020,Sally,2020,7.3,NCEI,US nominal
+AL092020,Isaias,2020,4.8,NCEI,US East Coast
+AL282020,Zeta,2020,4.4,NCEI,US nominal
+AL262020,Delta,2020,2.9,NCEI,US nominal
+AL292020,Eta,2020,7.9,NHC/EM-DAT,Central America + US total
+AL312020,Iota,2020,1.4,NHC/EM-DAT,Central America
+AL082020,Hanna,2020,1.1,NCEI,Texas/Mexico
+AL032020,Cristobal,2020,0.7,NHC TCR,US + Mexico/Central America
+AL222020,Beta,2020,0.23,NHC TCR,Texas flooding
+AL062020,Fay,2020,0.4,NHC TCR,US Mid-Atlantic
+AL252020,Gamma,2020,0.1,NHC TCR,Yucatan
+AL172020,Paulette,2020,0.05,NHC TCR,Bermuda
+AL162020,Nana,2020,0.02,NHC TCR,Belize
+AL092021,Ida,2021,75.3,NCEI,US nominal
+AL052021,Elsa,2021,1.2,NCEI,Caribbean + US
+AL062021,Fred,2021,1.3,NCEI,US Southeast
+AL142021,Nicholas,2021,1.1,NCEI,Texas/Louisiana
+AL032021,Claudette,2021,0.35,NCEI,US Gulf Coast
+AL082021,Henri,2021,0.6,est.,US Northeast flooding
+AL072021,Grace,2021,0.5,est.,Mexico + Haiti
+AL122021,Larry,2021,0.08,NHC TCR,Newfoundland
+AL092022,Ian,2022,112.9,NCEI,US nominal
+AL072022,Fiona,2022,3.1,NHC/insured,Puerto Rico/DR + Atlantic Canada
+AL172022,Nicole,2022,1.0,NCEI,Florida
+AL132022,Julia,2022,0.4,NHC/EM-DAT,Central America
+AL152022,Lisa,2022,0.1,NHC TCR,Belize
+AL102023,Idalia,2023,3.6,NCEI,US nominal
+AL132023,Lee,2023,0.1,reported,Atlantic Canada + New England (post-tropical landfall NS)
+AL122024,Kirk,2024,0.3,est.,France/Iberia flooding as extratropical remnant
+AL022024,Beryl,2024,8.5,NCEI/NHC,US $7.2B + Caribbean/Mexico
+AL042024,Debby,2024,2.5,NCEI,US Southeast
+AL062024,Francine,2024,1.4,NCEI,Louisiana
+AL092024,Helene,2024,78.7,NCEI,US nominal
+AL142024,Milton,2024,34.3,NCEI,US nominal
+AL052024,Ernesto,2024,0.3,est.,Puerto Rico + Bermuda
+AL192024,Sara,2024,0.4,est.,Honduras/Belize flooding
+AL182024,Rafael,2024,0.3,est.,Cuba
+AL012024,Alberto,2024,0.1,est.,Mexico/Texas coast
+2024201N12133,Gaemi,2024,2.2,est.,"Taiwan/Philippines/China, 2024 nominal"
+2024244N09137,Yagi,2024,14.0,reported,"Vietnam/China/Philippines/Myanmar total"
+2024270N24128,Krathon,2024,0.8,est.,Taiwan
+2024298N13150,Kong-Rey,2024,0.15,est.,Taiwan
+AL032025,Chantal,2025,1.5,est.,North Carolina flooding
+AL132025,Melissa,2025,8.0,est.,"Jamaica Cat 5 landfall + Cuba/Haiti, early estimates"
+2025262N16133,Ragasa,2025,3.0,est.,"Taiwan/Hong Kong/South China, early estimates"
+2025305N10138,Kalmaegi,2025,0.4,est.,"Philippines (Cebu flooding), early estimates"
+2025308N10143,Fung-Wong,2025,0.3,est.,"Philippines/Taiwan, early estimates"

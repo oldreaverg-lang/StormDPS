@@ -2616,6 +2616,89 @@ async def get_storm_analogs(
     }, headers={"Cache-Control": "public, max-age=3600"})
 
 
+# ── Storm identity aliases (docs/DATA_ARCHITECTURE.md roadmap #2) ──────────
+# data/storm_aliases.json maps ATCF ids <-> IBTrACS SIDs for every named
+# storm since 1980 (built by scripts/build_alias_table.py from USA_ATCF_ID).
+# It exists to retire the dual-identity bug class: raw ids rendered as
+# names, and bundle entries (name, actual_impact) unreachable because the
+# caller held the other id form.
+_ALIAS_TABLE: Optional[dict] = None
+_ID_FORM_RE = re.compile(r"^(?:[A-Z]{2}\d{6}|\d{7}[NS]\d{5})$", re.IGNORECASE)
+
+
+def _alias_table() -> dict:
+    global _ALIAS_TABLE
+    if _ALIAS_TABLE is None:
+        try:
+            p = Path(__file__).resolve().parent.parent / "data" / "storm_aliases.json"
+            _ALIAS_TABLE = json.loads(p.read_text(encoding="utf-8"))
+        except Exception as e:  # missing/corrupt table = feature off, not fatal
+            logger.warning(f"[alias] storm_aliases.json unavailable: {e}")
+            _ALIAS_TABLE = {}
+    return _ALIAS_TABLE
+
+
+def _storm_identity(storm_id: str) -> dict:
+    """Canonical {sid, atcf, name, year, basin} for any id form, or {}."""
+    t = _alias_table()
+    if not t:
+        return {}
+    s = (storm_id or "").strip().upper()
+    sid = t.get("by_atcf", {}).get(s)
+    if sid is None and s in t.get("storms", {}):
+        sid = s
+    if sid is None:
+        return {}
+    meta = t.get("storms", {}).get(sid) or {}
+    return {"sid": sid, "atcf": meta.get("atcf"), "name": meta.get("name"),
+            "year": meta.get("year"), "basin": meta.get("basin")}
+
+
+def _overlay_bundle_identity(payload: dict, storm_id: str) -> dict:
+    """Best-effort merge of canonical identity + observed impact onto a /dps
+    payload.
+
+    The compiled bundle keys Atlantic storms by ATCF id and other basins by
+    SID; a caller can hold either form. Try the requested id plus both alias
+    forms against the bundle, then:
+      - replace a missing/raw-id `name` with the bundle's (or alias table's),
+      - fill a missing `year`,
+      - attach the bundle's `actual_impact` (recorded damage + FEMA) so the
+        compare page's Recorded Damage row works for every id form.
+    Applied AFTER the DPS cache write on purpose — impact data must not be
+    frozen into DPS cache entries; the bundle stays its source of truth.
+    Fail-open: any error returns the payload untouched.
+    """
+    try:
+        ident = _storm_identity(storm_id)
+        entry = None
+        try:
+            from seo import _read_compiled_bundle
+            storms = _read_compiled_bundle().get("storms", {})
+            for key in (storm_id, (storm_id or "").upper(),
+                        ident.get("atcf"), ident.get("sid")):
+                if key and key in storms and isinstance(storms[key], dict):
+                    entry = storms[key]
+                    break
+        except Exception:
+            entry = None
+        cur_name = str(payload.get("name") or "")
+        if not cur_name or _ID_FORM_RE.match(cur_name):
+            for cand in ((entry or {}).get("name"), ident.get("name")):
+                if cand and not _ID_FORM_RE.match(str(cand)):
+                    payload["name"] = cand
+                    break
+        if not payload.get("year"):
+            payload["year"] = (entry or {}).get("year") or ident.get("year") or payload.get("year")
+        if entry and entry.get("actual_impact") and not payload.get("actual_impact"):
+            # copy — the entry dict belongs to seo's module-cached bundle;
+            # never hand consumers a reference into that shared state
+            payload["actual_impact"] = dict(entry["actual_impact"])
+    except Exception as e:
+        logger.debug(f"[alias] overlay skipped for {storm_id}: {e}")
+    return payload
+
+
 @router.get("/storms/{storm_id}/dps")
 async def get_storm_dps(
     storm_id: str,
@@ -2646,7 +2729,7 @@ async def get_storm_dps(
     if not force:
         cached = _load_dps_cache(storm_id)
         if cached and not _dps_cache_needs_rearm(cached):
-            return JSONResponse(content=cached)
+            return JSONResponse(content=_overlay_bundle_identity(cached, storm_id))
 
     # 2) Fetch snapshots via the unified track endpoint (which itself caches IKE).
     # Pass explicit ints — when called internally (not as a FastAPI route) the
@@ -2695,8 +2778,10 @@ async def get_storm_dps(
             derived_year = _y
     if derived_year is None:
         derived_year = 0
-    # Fall back to the catalog name so live bundles say "Bavi", not "WP092026".
-    storm_name = name or _lookup_storm_name_from_catalog(storm_id) or storm_id
+    # Fall back to the catalog name, then the alias table, so bundles say
+    # "Bavi", not "WP092026" — for any id form IBTrACS has ever named.
+    storm_name = (name or _lookup_storm_name_from_catalog(storm_id)
+                  or _storm_identity(storm_id).get("name") or storm_id)
 
     # 3) Compute via the unified engine (same code path as compile_cache.py)
     from core.dps_engine import compute_storm_dps
@@ -2716,7 +2801,7 @@ async def get_storm_dps(
     # layer detect when a deferred no-landfall dampener must re-arm.
     bundle["_last_fix_ts"] = engine_snaps[-1].get("timestamp") or None
     _save_dps_cache(storm_id, bundle)
-    return JSONResponse(content=bundle)
+    return JSONResponse(content=_overlay_bundle_identity(bundle, storm_id))
 
 
 @router.delete("/cache/dps/{storm_id}", dependencies=[Depends(require_admin)])

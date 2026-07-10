@@ -17,7 +17,11 @@
 // v12: econ_zones.json gained Guam / Northern Marianas / Mindanao zones
 // (Bavi 2026 ERS audit) — bump so cache-first statics refresh for returning
 // visitors during the Marianas passage.
-const CACHE_NAME = 'stormdps-v12';
+// v13: compiled_bundle.json enriched with actual_impact (recorded damage,
+// 35 → 190 storms). The SPA's ?v=12 buster already misses the old cache,
+// but bump per the every-re-bake convention so any unversioned runtime-
+// cached bundle copy is evicted too.
+const CACHE_NAME = 'stormdps-v13';
 const STATIC_ASSETS = [
   '/',
   '/frontend/index.html',
