@@ -1580,11 +1580,13 @@ function _startPreload(){ if(!preloadPromise) preloadPromise = loadPreloadBundle
 // Mobile (≤900px): skip the AUTOMATIC preload — a casual "how dangerous is
 // this storm" phone visit renders entirely from live endpoints and never
 // needs the 3.5 MB bundle parse (main-thread jank on mid-range phones).
-// The bundle still loads on demand: opening the storm browser warms it
-// (toggleMobileMenu) and fetchStorm() force-starts it inline for direct
-// historic-storm URLs, so nothing functional is lost.
+// Nothing functional is lost: opening the storm browser warms the bundle
+// (toggleMobileMenu → _startPreload), and a direct storm URL with no
+// menu-open renders via the API/volume fallback in fetchStorm — the mobile
+// fetchStorm branch deliberately does NOT force-start the preload (that
+// blocking wait was the fix). Desktop still force-starts it inline.
 if (window.matchMedia('(max-width: 900px)').matches) {
-    /* on-demand only — see toggleMobileMenu + fetchStorm */
+    /* on-demand only — see toggleMobileMenu; direct URLs use the API fallback */
 } else if ('requestIdleCallback' in window) {
     requestIdleCallback(_startPreload, { timeout: 2500 });
 } else {

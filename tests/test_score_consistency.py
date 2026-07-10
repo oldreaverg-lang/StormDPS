@@ -108,15 +108,26 @@ def test_cross_site_drift_detects_stale_snapshot():
         {"storm_id": "katrina_2005", "name": "Hurricane Katrina", "year": 2005, "dps_score": 94.0},
         # the actual 2026-07-10 drift case
         {"storm_id": "ike_2008", "name": "Hurricane Ike", "year": 2008, "dps_score": 86.5},
-        # unknown storm and unscored storm are skipped, not flagged
+        # no canonical match → skipped, not flagged
         {"storm_id": "x_1999", "name": "Hurricane Nobody", "year": 1999, "dps_score": 50},
-        {"storm_id": "y_2008", "name": "Hurricane Ike", "year": 2008, "dps_score": 0},
+        # MISSING score (None) → skipped, not flagged (contrast with 0.0 below)
+        {"storm_id": "z_2005", "name": "Hurricane Katrina", "year": 2005},
     ]
     out = cross_site_score_drift(rows, bundle)
     assert out["compared"] == 2
     assert len(out["drifted"]) == 1
     d = out["drifted"][0]
     assert d["id"] == "ike_2008" and d["theirs"] == 86.5 and d["canonical"] == 88.9
+
+
+def test_cross_site_drift_zero_score_is_real_drift():
+    # 0.0 is a legitimate score, not "unscored": a storm showing 0 when canon
+    # says 88.9 is exactly the drift class the probe exists to catch.
+    bundle = {"AL092008": {"name": "Ike", "year": 2008, "dps": 88.8501}}
+    rows = [{"storm_id": "ike_2008", "name": "Hurricane Ike", "year": 2008, "dps_score": 0.0}]
+    out = cross_site_score_drift(rows, bundle)
+    assert out["compared"] == 1
+    assert len(out["drifted"]) == 1 and out["drifted"][0]["theirs"] == 0.0
 
 
 def test_cross_site_drift_against_real_repos():

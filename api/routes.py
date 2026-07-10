@@ -33,6 +33,7 @@ Endpoints:
 
 import asyncio
 import contextvars
+import copy
 import csv
 import hashlib
 import io
@@ -2704,9 +2705,11 @@ def _overlay_bundle_identity(payload: dict, storm_id: str) -> dict:
         if not payload.get("year"):
             payload["year"] = (entry or {}).get("year") or ident.get("year") or payload.get("year")
         if entry and entry.get("actual_impact") and not payload.get("actual_impact"):
-            # copy — the entry dict belongs to seo's module-cached bundle;
-            # never hand consumers a reference into that shared state
-            payload["actual_impact"] = dict(entry["actual_impact"])
+            # DEEP copy — the entry dict belongs to seo's module-cached
+            # bundle; a shallow dict() would still share the nested `sources`
+            # / `states_declared` lists, so a consumer mutating those would
+            # corrupt the shared bundle. deepcopy severs it completely.
+            payload["actual_impact"] = copy.deepcopy(entry["actual_impact"])
     except Exception as e:
         logger.debug(f"[alias] overlay skipped for {storm_id}: {e}")
     return payload

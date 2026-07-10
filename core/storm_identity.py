@@ -83,6 +83,12 @@ def cross_site_score_drift(rows: list, bundle_storms: dict,
     Returns {"compared": n, "drifted": [{id, name, year, theirs,
     canonical}, ...]}. Rows with no canonical match or no score are
     skipped, not flagged. Tolerance covers their round(x, 1) storage.
+
+    Matching is (name, year) only — two different storms reusing a name in
+    the same year (a cross-basin AL/EP/WP name collision) could false-match.
+    Accepted: this is an advisory drift probe over SurgeDPS's Atlantic-only
+    catalog, where such a collision can't occur; the alias table would be
+    the exact-identity fix if this ever widens to other basins.
     """
     by_name_year = {}
     for s in bundle_storms.values():
@@ -100,7 +106,9 @@ def cross_site_score_drift(rows: list, bundle_storms: dict,
                 break
         canonical = by_name_year.get((name.upper(), row.get("year")))
         theirs = row.get("dps_score")
-        if canonical is None or not theirs:
+        # `theirs is None`, not `not theirs`: 0.0 is a legitimate score (a
+        # real Minimal storm) and drift TO/FROM zero must still be caught.
+        if canonical is None or theirs is None:
             continue
         compared += 1
         if abs(float(theirs) - canonical) > tolerance:
