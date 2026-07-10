@@ -126,10 +126,17 @@ carries its detail in git log + the docs listed in §4.
 5. **Flood banner a11y** (review nit): tabindex="0" + keydown toggle.
 
 **Medium**
-6. **Bundle diet** — compiled_bundle.json is 3.56 MB raw, parsed on every
-   first visit. Split: slim eager index (~40 KB: id/name/year/dps/label/
-   category) + per-storm detail on demand. Requires bake + sw + BUNDLE_VERSION
-   ceremony. Biggest mobile win left (see PERF_AUDIT §4.5).
+6. ~~**Bundle diet**~~ **SHIPPED 2026-07-10** (`80c263b`): the SPA eager-
+   loads `frontend/bundle_index.json` (~175 KB raw / ~35 KB wire; light
+   fields + detail_ids) and fetches `frontend/bundle_storm/<id>.json`
+   (median ~13 KB) on storm open via `ensureStormDetail()`. Measured:
+   desktop storm page 501 KB total (was ~4 MB); mobile chips scored
+   instantly. Artifacts are DERIVED from the monolith by
+   `scripts/build_bundle_split.py` — rebake.py + auto-rebake.yml chain it,
+   and `tests/test_bundle_split.py` fails CI on drift. Slim entries are
+   `_light`-tagged (missing heavy fields: dpi_timeseries/actual_impact/
+   rainfall_text/landfalls/ground_truth); `ensureCompiledBundle` self-heals
+   them via /dps. Monolith still serves the server side + old cached SPAs.
 7. **Catalog cold-start** (CLAUDE.md open item): move IBTrACS warm in
    main.py lifespan after `yield`.
 8. **Season dashboard** `/season/2026` and **"on this day"** homepage module
