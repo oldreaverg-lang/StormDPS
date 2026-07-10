@@ -9,9 +9,18 @@ point-in-time snapshot, not a spec; verify against current code before acting.
 push to `main` → Railway auto-deploy (~30 s–4 min). Repo:
 `C:\Users\Ryan\APPS\StormDPS-recovered`.
 
-**Deploy state:** local HEAD == origin/main == `6a1b99d` (storm identity +
-recorded damage), deployed and verified live. Working tree clean.
+**Deploy state:** local HEAD == origin/main == `67d1c2d` (cross-surface
+score consistency), deployed and verified live. Working tree clean.
 BAVI (WP092026) has been the live test storm all week.
+
+**Shipped 2026-07-10 (`67d1c2d`):** "one storm, one story" — sidebar
+catalog now serves the hero's engine scores (bundle first, live DPS cache
+for unbaked storms) via `core/storm_identity.harmonize_catalog`; five
+pre-canon label-scheme copies eliminated; SID+ATCF catalog twins collapsed;
+`/health/selfcheck` gains a `score_consistency` probe that pages on drift.
+Backlog quick-win #3 (catalog label vocabulary) and DATA_ARCHITECTURE
+roadmap #3 + #5 are DONE. Full audit + verification:
+docs/audits/CROSS_SURFACE_SCORE_AUDIT_2026-07-10.md.
 
 **Shipped 2026-07-10 (`6a1b99d`):** the ALIAS TABLE (backlog #11's core +
 DATA_ARCHITECTURE roadmap #2) — `data/storm_aliases.json` (3,804 storms,

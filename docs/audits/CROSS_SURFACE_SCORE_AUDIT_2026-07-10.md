@@ -59,7 +59,20 @@ C. **Pre-canon label schemes.** BOTH `core/ike.calculate_dps` (ike.py ~1474)
    lockstep so no surface disagrees") was honored on the frontend but never
    propagated to these two server functions.
 
-## Recommended fix (not yet applied — operator to approve)
+## Recommended fix — **SHIPPED 2026-07-10 (`67d1c2d`), operator-approved**
+
+All four fixes below are live and verified: catalog 3,766 rows (21 twins
+collapsed), 0 off-canon labels, Sinlaku = one row at 82 "Devastating"
+(engine) == hero, selfcheck `score_consistency` probe green (208 joined,
+0 mismatched). Implementation: `core/storm_identity.harmonize_catalog`
+applied at all three catalog serve boundaries (engine scores from the
+compiled bundle first, then the live DPS volume cache for unbaked
+current-season storms); five copies of the pre-canon label scheme
+(core/ike.calculate_dps, noaa_client fallback, index.html calculateDPS,
+DPS_ZONES, DPS chart tooltip) now route through categorize_dpi/getDPSBand;
+faq.html's stale "Ike 84 (Catastrophic)" corrected to 89 (Devastating).
+Original plan follows.
+
 
 Ranked, all scoring-neutral (no formula change, no bake):
 
