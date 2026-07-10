@@ -546,6 +546,12 @@
             #rainfallBar::after{content:'\25BE';color:#64748b;opacity:.7;font-size:.75rem;flex-shrink:0;align-self:center}
             #rainfallBar.rain-expanded #rainfallBarText{display:inline-block;overflow:visible}
             #rainfallBar.rain-expanded::after{content:'\25B4'}
+            /* Landfall panel reuses the flood banner's one-line + tap-to-expand fold */
+            #landfallBar{cursor:pointer}
+            #landfallBar #landfallBarText{display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+            #landfallBar::after{content:'\25BE';color:#64748b;opacity:.7;font-size:.75rem;flex-shrink:0;align-self:center}
+            #landfallBar.rain-expanded #landfallBarText{display:inline-block;overflow:visible}
+            #landfallBar.rain-expanded::after{content:'\25B4'}
         }
 
         /* ── Breakdown Bars ── */
@@ -735,6 +741,13 @@
             <span class="stall-bar-score" id="rainfallBarScore" style="color:#b3261e;white-space:nowrap"></span>
             <div class="rainfall-text-scroll">
                 <span class="stall-bar-text" id="rainfallBarText" style="color:#b3261e;font-size:.78rem;line-height:1.4"></span>
+            </div>
+        </div>
+        <div id="landfallBar" class="stall-bar" style="display:none;border-color:rgba(32,84,147,.35);background:rgba(32,84,147,.06)" role="status" onclick="this.classList.toggle('rain-expanded')">
+            <span class="stall-bar-icon" style="font-size:1.05rem">&#128205;</span>
+            <span class="stall-bar-score" id="landfallBarScore" style="color:#205493;white-space:nowrap"></span>
+            <div class="rainfall-text-scroll">
+                <span class="stall-bar-text" id="landfallBarText" style="color:#16406f;font-size:.78rem;line-height:1.4"></span>
             </div>
         </div>
         <div id="stallRiskBar" class="stall-bar">
@@ -2429,8 +2442,9 @@ function calculateERS(dataPoint, useNRI = false) {
 // path?" before landfall. Each forecast fix carries lat/lon + intensity;
 // size (R34) is persisted from the latest observed fix because forecasts
 // publish position + intensity but not wind radii.
-// Climatological cone radii (nm by forecast hour) — mirror of routes.py
-// _CONE_ERR_NM; used for cone-aware sampling below.
+// Climatological cone radii (nm by forecast hour) — mirror of the single
+// server-side copy in core/landfall_forecast.py CONE_ERR_NM (routes.py
+// imports it for JTWC cone synthesis); used for cone-aware sampling below.
 const CONE_ERR_NM = {0: 0, 12: 22, 24: 38, 36: 50, 48: 64, 72: 95, 96: 125, 120: 165};
 function coneErrNm(hour) {
     const keys = Object.keys(CONE_ERR_NM).map(Number).sort((a, b) => a - b);
@@ -2527,6 +2541,180 @@ function displayForecastERS(fcErs) {
     el.innerHTML = '&#8599; Forecast ' + when + ': <b>' + fcErs.score + '</b> ' + fcErs.label + escapeHtml(where) + edge + '<span style="opacity:.6">' + age + '</span>';
     el.title = 'Projected economic risk along the forecast track' + (fcErs.in_cone_edge ? ' (zone sits inside the uncertainty cone, off the centerline — scored at half weight)' : '') + '. Uncertainty grows with lead time — see the cone on the map.';
     el.style.display = 'block';
+}
+
+// ── Landfall panel ("when and how hard") ───────────────────────────────────
+// Server side: /storms/{id}/forecast → fc.landfall (core/landfall_forecast.py
+// walks the forecast track against the coastline waypoint DB). The DPS shown
+// here reuses computeForecastDpsBand's methodology — current storm size and
+// motion held, pressure deficit scaled with wind² — evaluated at the landfall
+// hour instead of the peak fix, so the two numbers can never disagree about
+// method. Copy is DESCRIPTIVE ONLY (deAuthorize-sanitized); protective-action
+// wording is the authorities' job, not ours.
+function computeLandfallDps(forecastTrack, etaHour) {
+    var obs = window.stormData;
+    if (!Array.isArray(forecastTrack) || !forecastTrack.length || !obs || !obs.length) return null;
+    var tmpl = null, curR34 = 0, curR64 = 0, curFwd = 0;
+    for (var i = obs.length - 1; i >= 0; i--) { if (obs[i] && obs[i].max_wind_ms) { tmpl = obs[i]; break; } }
+    if (!tmpl) return null;
+    for (var i = obs.length - 1; i >= 0; i--) { if (obs[i] && obs[i].r34_nm) { curR34 = obs[i].r34_nm; break; } }
+    for (var i = obs.length - 1; i >= 0; i--) { if (obs[i] && obs[i].r64_nm) { curR64 = obs[i].r64_nm; break; } }
+    for (var i = obs.length - 1; i >= 0; i--) { if (obs[i] && obs[i].forward_speed_knots) { curFwd = obs[i].forward_speed_knots; break; } }
+    var pts = forecastTrack.filter(function (p) { return p && p.lat != null && p.lon != null; });
+    if (pts.length < 2) return null;
+    // Interpolate the forecast position + intensity at the landfall hour.
+    var lat = null, lon = null, wkt = null;
+    for (var i = 0; i < pts.length - 1; i++) {
+        var a = pts[i], b = pts[i + 1];
+        var h0 = a.hour || 0, h1 = b.hour || 0;
+        if (h1 <= h0 || etaHour < h0 || etaHour > h1) continue;
+        var f = (etaHour - h0) / (h1 - h0);
+        lat = a.lat + f * (b.lat - a.lat);
+        lon = a.lon + f * (b.lon - a.lon);
+        var w0 = a.max_wind_kt, w1 = b.max_wind_kt;
+        wkt = (w0 != null && w1 != null) ? (w0 + f * (w1 - w0)) : (w1 != null ? w1 : w0);
+        break;
+    }
+    if (lat == null || !wkt) return null;
+    var curWkt = tmpl.max_wind_ms / 0.514444;
+    var curDp = Math.max(0, 1013 - (tmpl.min_pressure_hpa || 1013));
+    var basin = 'ATLANTIC';
+    try { if (window.BasinDPS) basin = window.BasinDPS.detectBasin(lat, lon); } catch (e) {}
+    var err = intensityErrorKt(etaHour, basin);
+    function dpsAt(w) {
+        var dp = curWkt > 0 ? curDp * Math.pow(w / curWkt, 2) : curDp;
+        var r = calculateDPS({ lat: lat, lon: lon, max_wind_ms: w * 0.514444,
+            r34_nm: curR34, r64_nm: curR64, forward_speed_knots: curFwd,
+            min_pressure_hpa: 1013 - dp });
+        return (r && r.score) || 0;
+    }
+    return {
+        central: Math.round(dpsAt(wkt)),
+        low: Math.round(dpsAt(Math.max(20, wkt - err))),
+        high: Math.round(dpsAt(wkt + err)),
+        err: Math.round(err), lat: lat, lon: lon, wind_kt: Math.round(wkt)
+    };
+}
+
+function clearLandfallPanel() {
+    window._activeLandfallEta = null;
+    var bar = document.getElementById('landfallBar');
+    if (bar) { bar.style.display = 'none'; bar.classList.remove('rain-expanded'); }
+}
+
+// Advisory-sourced time label of the forecast fix nearest `hour` (both NHC
+// FLDATELBL and JTWC "Wed 07/09 18Z" strings ride the track points).
+function _nearestFixLabel(forecastTrack, hour) {
+    try {
+        var best = null;
+        (forecastTrack || []).forEach(function (p) {
+            if (!p || !p.time) return;
+            if (!best || Math.abs((p.hour || 0) - hour) < Math.abs((best.hour || 0) - hour)) best = p;
+        });
+        return (best && best.time) ? ' (~' + best.time + ')' : '';
+    } catch (e) { return ''; }
+}
+
+// Out-of-coverage fallback (WP/IO/SH): the server's coastline estimator has
+// no waypoints outside the Atlantic basin, so it reports coverage:false
+// rather than a fake "offshore". Here the GLOBAL economic-zone machinery
+// (same engine as the ERS card's forecast line) answers "when and how hard"
+// instead — phrased as zone approach, never as shoreline arrival.
+function renderZoneApproachPanel(fc) {
+    var bar = document.getElementById('landfallBar');
+    var scoreEl = document.getElementById('landfallBarScore');
+    var textEl = document.getElementById('landfallBarText');
+    if (!bar || !scoreEl || !textEl) return;
+    var ers = null;
+    try { ers = computeForecastERS(fc.forecast_track, true); } catch (e) {}
+    if (!ers || !ers.score || !ers.hour || ers.hour <= 0) { clearLandfallPanel(); return; }
+    bar.classList.remove('rain-expanded');
+    var dpsTxt = '';
+    try {
+        var d = computeLandfallDps(fc.forecast_track, ers.hour);
+        if (d && d.central > 0) {
+            dpsTxt = ' Projected DPS at that time ' + (d.high > d.low ? (d.low + '–' + d.high) : d.central) +
+                     ' (intensity ±' + d.err + ' kt).';
+        }
+    } catch (e) {}
+    scoreEl.textContent = 'Coastal approach in ~' + ers.hour + ' h —';
+    var body = 'The forecast track reaches the ' + (ers.zone || 'coastal') + ' economic-risk zone around +' +
+        ers.hour + ' h' + _nearestFixLabel(fc.forecast_track, ers.hour) + '.' + dpsTxt +
+        ' Zone risk ' + ers.score + '/100' + (ers.label ? ' (' + ers.label + ')' : '') +
+        (ers.in_cone_edge ? ', with the zone inside the forecast cone off the centerline' : '') +
+        '. Timing reflects the risk-zone boundary, not the shoreline.' +
+        ' Timing and location shift with each advisory — see official NHC/JTWC forecasts.';
+    textEl.textContent = deAuthorize(body);
+    // Deliberately NOT setting the storm card's "Landfall" slot here — a
+    // zone approach is not a landfall claim.
+    bar.style.display = 'flex';
+}
+
+function renderLandfallPanel(fc, sid) {
+    var bar = document.getElementById('landfallBar');
+    if (!bar) return;
+    var lf = fc && fc.landfall;
+    if (!lf) { clearLandfallPanel(); return; }
+    if (!lf.expected) {
+        if (lf.coverage === false) { renderZoneApproachPanel(fc); return; }
+        clearLandfallPanel(); return;
+    }
+    bar.classList.remove('rain-expanded');   // new storm starts collapsed on mobile
+    var scoreEl = document.getElementById('landfallBarScore');
+    var textEl = document.getElementById('landfallBarText');
+    if (!scoreEl || !textEl) return;
+
+    // When: relative hours from the latest advisory + the nearest forecast
+    // fix's advisory-sourced time label (present for both NHC and JTWC).
+    var whenRel = lf.eta_hour <= 0 ? 'now' : 'in ~' + lf.eta_hour + ' h';
+    var fixLabel = _nearestFixLabel(fc.forecast_track, lf.eta_hour);
+
+    var where = lf.nearest_name ? ' near ' + lf.nearest_name : '';
+    var windowTxt = (lf.eta_hour > 0 && lf.window_start_hour != null && lf.window_end_hour > lf.window_start_hour)
+        ? ' Arrival window +' + lf.window_start_hour + ' to +' + lf.window_end_hour + ' h, from the official track-error cone.'
+        : '';
+
+    // How hard: DPS evaluated at the landfall hour (band methodology).
+    var dpsTxt = '';
+    var d = null;
+    try { d = computeLandfallDps(fc.forecast_track, Math.max(lf.eta_hour, 1)); } catch (e) {}
+    if (d && d.central > 0) {
+        dpsTxt = ' Projected DPS at landfall ' + (d.high > d.low ? (d.low + '–' + d.high) : d.central) +
+                 ' (intensity ±' + d.err + ' kt).';
+    }
+
+    // Which economy: ERS zone at the landfall point (fallback: cone-aware
+    // track maximum, same engine as the ERS card's forecast line).
+    var ersTxt = '';
+    try {
+        var curR34 = 0, obs = window.stormData || [];
+        for (var i = obs.length - 1; i >= 0; i--) { if (obs[i] && obs[i].r34_nm) { curR34 = obs[i].r34_nm; break; } }
+        var wm = ((d && d.wind_kt) || lf.wind_kt || 0) * 0.514444;
+        var ers = wm > 0 ? calculateERS({ lat: lf.lat, lon: lf.lon, max_wind_ms: wm, r34_nm: curR34 }, true) : null;
+        if (!ers || !ers.score) ers = computeForecastERS(fc.forecast_track, true);
+        if (ers && ers.score) ersTxt = ' Economic-risk zone: ' + (ers.zone || 'coastal') + ' — ' + (ers.label ? ers.label + ' ' : '') + '(' + ers.score + '/100).';
+    } catch (e) {}
+
+    scoreEl.textContent = lf.eta_hour <= 0 ? 'Landfall —' : 'Landfall ' + whenRel + ' —';
+    var body = (lf.eta_hour <= 0
+        ? 'The forecast center is at or near the coast' + where + ' now.'
+        : 'The forecast track brings the center to the coast' + where + ' ' + whenRel + fixLabel + '.' + windowTxt)
+        + dpsTxt + ersTxt + ' Timing and location shift with each advisory — see official NHC/JTWC forecasts.';
+    textEl.textContent = deAuthorize(body);
+    // Atlantic storms: deep link into SurgeDPS's building-level surge model
+    // (appended as HTML AFTER textContent so the body stays escaped).
+    if (sid && /^AL\d{6}$/i.test(sid)) {
+        textEl.innerHTML = textEl.innerHTML +
+            ' <a href="/surgedps?storm=active_' + sid.toLowerCase() + '" target="_blank" rel="noopener"' +
+            ' style="color:#205493;font-weight:700;white-space:nowrap">View modeled surge &amp; building damage →</a>';
+    }
+    // Storm-card ETA slot (short form) + refresh the card so it shows now,
+    // not on the next timeline interaction.
+    window._activeLandfallEta = lf.eta_hour <= 0
+        ? 'near coast now'
+        : '~' + lf.eta_hour + ' h' + (lf.nearest_name ? ' · ' + lf.nearest_name : '');
+    try { if (window.updateStormCard && window._lastCardSnap) window.updateStormCard(window._lastCardSnap); } catch (e) {}
+    bar.style.display = 'flex';
 }
 
 function calculateIAS(dataPoint) {
@@ -2719,8 +2907,9 @@ function applyStallRiskToIAS(data, stallRisk) {
 
 function clearStallRisk() {
     window._activeStallRisk = null;
-    window._activeLandfallEta = null;
     window._stormDisplayName = null;
+    window._lastCardSnap = null;   // don't let a late forecast resurrect the prior storm's card
+    try { clearLandfallPanel(); } catch (e) {}
     document.getElementById('stallRiskBar').classList.remove('visible');
     const card = document.getElementById('stormCard');
     if (card) card.style.display = 'none';
@@ -5658,6 +5847,10 @@ function renderMap(data){
             window._forecastFetchedSid = sid;
             fetch(`${API_BASE}/storms/${sid}/forecast`).then(r=>r.ok?r.json():null).then(fc=>{
                 if(!fc||!currentMap)return;
+                // Staleness guard: a slow response for storm A resolving after
+                // a switch to storm B must not paint A's cone/stall/landfall
+                // panel over B. _forecastFetchedSid tracks the CURRENT storm.
+                if(window._forecastFetchedSid !== sid)return;
                 window._forecastValidUtc = fc.valid_time_utc || null;  // forecast age for ERS line / tooltips
 
                 // ── Forecast-uncertainty DPS band (public, live storms) ──
@@ -5694,6 +5887,11 @@ function renderMap(data){
                         _renderRainBanner('warning', ' Forecast track approaches land.');
                     }
                 } catch(e) {}
+
+                // ── Landfall panel ("when and how hard") ──
+                // Guarded like the blocks above: a render error here must
+                // never drop the cone/track drawing below.
+                try { renderLandfallPanel(fc, sid); } catch(e) { console.warn('[FORECAST] landfall panel failed:', e); }
 
                 // Draw forecast cone
                 if(fc.cone_polygon&&fc.cone_polygon.length>2){
@@ -6028,6 +6226,9 @@ function _dpsBandLabel(score) {
 window.updateStormCard = function(snap) {
     const card = document.getElementById('stormCard');
     if (!card || !snap) return;
+    // Cache so async forecast handlers (landfall panel) can refresh the card
+    // once ETA/stall data arrives, instead of waiting for a slider move.
+    window._lastCardSnap = snap;
     card.style.display = 'block';
 
     // Storm name from the input (uppercased ID is fine fallback)

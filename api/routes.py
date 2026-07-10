@@ -1035,27 +1035,17 @@ async def search_storms(
 # GeoJSON cone like NHC. We synthesize an NHC-style uncertainty cone by
 # offsetting each forecast point perpendicular to the local track heading by
 # the climatological ~5-yr-average track-error radius at that lead time.
-# Climatological track-error radii for the synthesized JTWC cone, nm by
-# forecast hour. Refreshed 2026-07 to recent JTWC annual-report five-year
-# mean track errors (WestPac); the previous table (30/50/70/90/135/180/230)
-# was 2010s-era and drew cones ~25-35% wider than modern JTWC verification,
-# overstating uncertainty. Keep in lockstep with CONE_ERR_NM in
-# frontend/index.html (cone-aware forecast ERS sampling).
-_CONE_ERR_NM = {0: 0, 12: 22, 24: 38, 36: 50, 48: 64, 72: 95, 96: 125, 120: 165}
-
-
-def _interp_err_nm(hour: float) -> float:
-    keys = sorted(_CONE_ERR_NM)
-    if hour <= keys[0]:
-        return _CONE_ERR_NM[keys[0]]
-    if hour >= keys[-1]:
-        return _CONE_ERR_NM[keys[-1]]
-    for i in range(1, len(keys)):
-        if hour <= keys[i]:
-            h0, h1 = keys[i - 1], keys[i]
-            f = (hour - h0) / (h1 - h0)
-            return _CONE_ERR_NM[h0] + f * (_CONE_ERR_NM[h1] - _CONE_ERR_NM[h0])
-    return _CONE_ERR_NM[keys[-1]]
+# Climatological track-error radii table + interpolation now live in
+# core/landfall_forecast.py (single server-side copy — the landfall-window
+# estimator uses the same numbers). Refreshed 2026-07 to recent JTWC
+# annual-report five-year mean track errors (WestPac); the previous table
+# (30/50/70/90/135/180/230) was 2010s-era and drew cones ~25-35% wider than
+# modern JTWC verification, overstating uncertainty. Keep in lockstep with
+# CONE_ERR_NM in frontend/index.html (cone-aware forecast ERS sampling).
+from core.landfall_forecast import (
+    CONE_ERR_NM as _CONE_ERR_NM,
+    interp_err_nm as _interp_err_nm,
+)
 
 
 def _synthesize_cone(forecast_track: list[dict]) -> list[list[float]]:
@@ -1150,6 +1140,17 @@ async def get_storm_forecast(request: Request, storm_id: str):
     # Implied forward speed between consecutive forecast positions (Haversine /
     # time delta); flags stall risk when forecast speeds drop below thresholds.
     forecast["stall_risk"] = _compute_stall_risk(forecast.get("forecast_track", []))
+
+    # ── Forecast landfall window (public landfall panel) ──
+    # Fail-open: an estimator error must never drop the cone/track/stall data
+    # this endpoint already serves.
+    try:
+        from core.landfall_forecast import compute_forecast_landfall
+        forecast["landfall"] = compute_forecast_landfall(
+            forecast.get("forecast_track", []))
+    except Exception as e:
+        logger.warning(f"[forecast] landfall estimate failed for {storm_id}: {e}")
+        forecast["landfall"] = {"expected": False, "coverage": True, "description": ""}
 
     from datetime import datetime as _dt, timezone as _tz
     forecast["fetched_at_utc"] = _dt.now(_tz.utc).isoformat()
