@@ -500,6 +500,56 @@ async def health_selfcheck():
     except Exception as e:
         checks["sources"] = {"ok": True, "error": str(e)[:200]}
 
+    # 4) Cross-surface score consistency (seam 3, DATA_ARCHITECTURE roadmap
+    #    #3): the sidebar catalog must tell the hero card's story. After the
+    #    2026-07-10 harmonize fix these agree BY CONSTRUCTION, so any
+    #    mismatch here means the overlay regressed (stale default-view file,
+    #    alias table missing, harmonize exception falling open) — page it
+    #    instead of waiting for a user to notice. Advisory-grade errors in
+    #    the probe itself never fail the check.
+    try:
+        from api.routes import _build_global_catalog, _harmonized
+        from core.dpi import categorize_dpi
+        from core.storm_identity import storm_identity
+        from seo import _read_compiled_bundle
+        bundle_storms = _read_compiled_bundle().get("storms", {})
+        catalog = _harmonized(await _build_global_catalog())
+        canon = {"Historic", "Devastating", "Extreme", "Severe",
+                 "Moderate", "Low", "Minimal"}
+        mismatched, off_canon, joined = [], [], 0
+        for row in catalog:
+            lbl = row.get("dps_label")
+            if lbl is not None and lbl not in canon:
+                off_canon.append(row.get("id"))
+            rid = str(row.get("id") or "")
+            ident = storm_identity(rid)
+            entry = None
+            for key in (rid, rid.upper(), ident.get("atcf"), ident.get("sid")):
+                if key and key in bundle_storms:
+                    entry = bundle_storms[key]
+                    break
+            if not entry or entry.get("dps") is None or row.get("peak_dps") is None:
+                continue
+            joined += 1
+            hero = float(entry["dps"])
+            if abs(float(row["peak_dps"]) - hero) > 1.0 or (
+                    lbl and lbl != (entry.get("dps_label") or categorize_dpi(hero))):
+                mismatched.append(rid)
+        probe_ok = not mismatched and not off_canon
+        checks["score_consistency"] = {
+            "ok": probe_ok,
+            "joined": joined,
+            "mismatched": len(mismatched),
+            "off_canon_labels": len(off_canon),
+            "sample": (mismatched or off_canon)[:5],
+        }
+        if not probe_ok:
+            failures.append(
+                f"catalog/hero score drift: {len(mismatched)} mismatched, "
+                f"{len(off_canon)} off-canon labels")
+    except Exception as e:
+        checks["score_consistency"] = {"ok": True, "error": str(e)[:200]}
+
     ok = not failures
     from fastapi.responses import JSONResponse
     return JSONResponse(

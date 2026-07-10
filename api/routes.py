@@ -1934,7 +1934,7 @@ async def get_storm_catalog(
     catalog = await _build_global_catalog()
     if not catalog:
         return []
-    return [s for s in catalog if min_year <= s.get("year", 0) <= max_year]
+    return _harmonized([s for s in catalog if min_year <= s.get("year", 0) <= max_year])
 
 
 def _lookup_storm_name_from_catalog(storm_id: str) -> Optional[str]:
@@ -2621,37 +2621,50 @@ async def get_storm_analogs(
 # storm since 1980 (built by scripts/build_alias_table.py from USA_ATCF_ID).
 # It exists to retire the dual-identity bug class: raw ids rendered as
 # names, and bundle entries (name, actual_impact) unreachable because the
-# caller held the other id form.
-_ALIAS_TABLE: Optional[dict] = None
-_ID_FORM_RE = re.compile(r"^(?:[A-Z]{2}\d{6}|\d{7}[NS]\d{5})$", re.IGNORECASE)
+# caller held the other id form. Implementation lives in the dependency-
+# light core/storm_identity.py so the offline suite can test it.
+from core.storm_identity import (
+    ID_FORM_RE as _ID_FORM_RE,
+    harmonize_catalog as _harmonize_catalog_rows,
+    storm_identity as _storm_identity,
+)
 
 
-def _alias_table() -> dict:
-    global _ALIAS_TABLE
-    if _ALIAS_TABLE is None:
-        try:
-            p = Path(__file__).resolve().parent.parent / "data" / "storm_aliases.json"
-            _ALIAS_TABLE = json.loads(p.read_text(encoding="utf-8"))
-        except Exception as e:  # missing/corrupt table = feature off, not fatal
-            logger.warning(f"[alias] storm_aliases.json unavailable: {e}")
-            _ALIAS_TABLE = {}
-    return _ALIAS_TABLE
+def _dps_cache_scores() -> dict:
+    """{storm_id: {dps, dps_label}} for every DPS volume-cache entry at the
+    current cache version. Live/unbaked storms (e.g. a current-season WP
+    system) aren't in the compiled bundle — their hero score lives in this
+    cache, written by the hourly warm loop and by page views. Letting the
+    catalog overlay read it closes the Sinlaku case: sidebar 36 vs hero 82.
+    Bounded: the cache dir holds tens of entries (storage.py eviction caps).
+    """
+    out: dict = {}
+    try:
+        suffix = f"_{_DPS_CACHE_VERSION}.json"
+        for f in _DPS_CACHE_DIR.glob(f"*{suffix}"):
+            data = _cache_read(f)
+            if isinstance(data, dict) and data.get("dps") is not None:
+                out[f.name[: -len(suffix)]] = {
+                    "dps": data["dps"], "dps_label": data.get("dps_label")}
+    except Exception:
+        logger.exception("[catalog] dps-cache score scan failed")
+    return out
 
 
-def _storm_identity(storm_id: str) -> dict:
-    """Canonical {sid, atcf, name, year, basin} for any id form, or {}."""
-    t = _alias_table()
-    if not t:
-        return {}
-    s = (storm_id or "").strip().upper()
-    sid = t.get("by_atcf", {}).get(s)
-    if sid is None and s in t.get("storms", {}):
-        sid = s
-    if sid is None:
-        return {}
-    meta = t.get("storms", {}).get(sid) or {}
-    return {"sid": sid, "atcf": meta.get("atcf"), "name": meta.get("name"),
-            "year": meta.get("year"), "basin": meta.get("basin")}
+def _harmonized(catalog: list) -> list:
+    """Sidebar catalog rows with the hero's engine scores overlaid, labels
+    canonicalized, and SID+ATCF twins collapsed (cross-surface score audit
+    2026-07-10). Engine scores come from the compiled bundle first, then the
+    live DPS cache (bundle wins on conflict). Fail-open: any error serves
+    the raw catalog."""
+    try:
+        from seo import _read_compiled_bundle
+        lookup = _dps_cache_scores()
+        lookup.update(_read_compiled_bundle().get("storms", {}))
+        return _harmonize_catalog_rows(catalog, lookup)
+    except Exception:
+        logger.exception("[catalog] harmonize wrapper failed")
+        return catalog
 
 
 def _overlay_bundle_identity(payload: dict, storm_id: str) -> dict:
@@ -3431,7 +3444,11 @@ def _load_ibtracs_index_if_present() -> list[dict] | None:
 # bytes via FileResponse instead of filtering + JSON-serializing on every
 # call. FileResponse delegates I/O to a thread, so the hot path is immune
 # to event-loop contention from concurrent warm tasks during cold-start.
-_CATALOG_DEFAULT_VIEW_FILE = _GLOBAL_IBTRACS_CACHE_FILE.parent / "catalog_default_view.json"
+# _v2: harmonized rows (engine-score overlay + canonical labels + dedup —
+# cross-surface score audit 2026-07-10). New filename so a volume file
+# written by pre-harmonize code is orphaned and regenerated at boot warm
+# instead of being served stale.
+_CATALOG_DEFAULT_VIEW_FILE = _GLOBAL_IBTRACS_CACHE_FILE.parent / "catalog_default_view_v2.json"
 _CATALOG_DEFAULT_MIN_YEAR = 2015
 _CATALOG_DEFAULT_MAX_YEAR = 2099
 
@@ -3445,10 +3462,10 @@ def _write_catalog_default_view(catalog: list[dict]) -> None:
     still have an in-memory path).
     """
     try:
-        filtered = [
+        filtered = _harmonized([
             s for s in (catalog or [])
             if _CATALOG_DEFAULT_MIN_YEAR <= s.get("year", 0) <= _CATALOG_DEFAULT_MAX_YEAR
-        ]
+        ])
         _atomic_write_json(_CATALOG_DEFAULT_VIEW_FILE, filtered)
         logger.info(
             f"[IBTRACS] Wrote default-view response cache "
@@ -3927,7 +3944,7 @@ async def get_global_storm_catalog(
         return []
 
     # Filter by requested years
-    return [s for s in catalog if min_year <= s.get("year", 0) <= max_year]
+    return _harmonized([s for s in catalog if min_year <= s.get("year", 0) <= max_year])
 
 
 @router.get("/storms/catalog/custom")

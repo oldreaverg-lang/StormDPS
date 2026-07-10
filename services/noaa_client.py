@@ -1295,18 +1295,11 @@ class NOAAClient:
                     S = min(1.0, (v_mph - 40) / 150)  # Wind-derived pseudo-surge (60% of 100)
                     raw = 60.0 * S + 40.0 * V
                     score = min(100, round(raw))
-                    label = "Minimal"
-                    if score >= 80:
-                        label = "Catastrophic"
-                    elif score >= 60:
-                        label = "Extreme"
-                    elif score >= 40:
-                        label = "Severe"
-                    elif score >= 20:
-                        label = "Moderate"
-                    elif score >= 10:
-                        label = "Minor"
-                    dps = {"score": score, "label": label}
+                    # Canonical banding — this fallback previously carried the
+                    # pre-canon "Catastrophic"/"Minor" scheme (cross-surface
+                    # score audit 2026-07-10).
+                    from core.dpi import categorize_dpi
+                    dps = {"score": score, "label": categorize_dpi(score)}
                 
                 entry["peak_dps"] = dps["score"]
                 entry["dps_label"] = dps["label"]

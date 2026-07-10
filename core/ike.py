@@ -1471,19 +1471,13 @@ def calculate_dps(
     raw = 40 * S + 40 * Wf + 10 * V + 10 * F
     score = min(100, round(raw))
 
-    label = "Minimal"
-    if score >= 80:
-        label = "Catastrophic"
-    elif score >= 60:
-        label = "Extreme"
-    elif score >= 40:
-        label = "Severe"
-    elif score >= 20:
-        label = "Moderate"
-    elif score >= 10:
-        label = "Minor"
-
-    return {"score": score, "label": label}
+    # Canonical banding (core/dpi.categorize_dpi) — this function previously
+    # carried its own pre-canon scheme ("Catastrophic"/"Minor", no Historic),
+    # which is how 1,034 off-canon labels reached the sidebar catalog (see
+    # docs/audits/CROSS_SURFACE_SCORE_AUDIT_2026-07-10.md). Lazy import:
+    # core.dpi imports from core.ike, so a top-level import would cycle.
+    from core.dpi import categorize_dpi
+    return {"score": score, "label": categorize_dpi(score)}
 
 
 def calculate_ias(

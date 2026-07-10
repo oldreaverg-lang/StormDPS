@@ -1986,24 +1986,31 @@ const SURGE_ZONES=[
     {min:20,max:35,label:'Severe+',color:'rgba(239,68,68,0.07)'}
 ];
 
-// DPS (Destructive Potential Score) zone bands — matches the DPS label thresholds
+// DPS (Destructive Potential Score) zone bands — MUST mirror the canonical
+// 7-band scheme (getDPSBand / core/dpi.categorize_dpi). This table was the
+// 5th copy of the pre-canon labels ("Minor"/"Catastrophic", no Historic) —
+// cross-surface score audit 2026-07-10.
 const DPS_ZONES=[
     {min:0,  max:10, label:'Minimal',      color:'rgba(148,163,184,0.06)'},
-    {min:10, max:20, label:'Minor',         color:'rgba(96,165,250,0.08)'},
-    {min:20, max:40, label:'Moderate',      color:'rgba(52,211,153,0.08)'},
-    {min:40, max:60, label:'Severe',        color:'rgba(251,191,36,0.09)'},
-    {min:60, max:80, label:'Extreme',       color:'rgba(249,115,22,0.10)'},
-    {min:80, max:100,label:'Catastrophic',  color:'rgba(239,68,68,0.12)'}
+    {min:10, max:20, label:'Low',          color:'rgba(96,165,250,0.08)'},
+    {min:20, max:40, label:'Moderate',     color:'rgba(52,211,153,0.08)'},
+    {min:40, max:60, label:'Severe',       color:'rgba(251,191,36,0.09)'},
+    {min:60, max:80, label:'Extreme',      color:'rgba(249,115,22,0.10)'},
+    {min:80, max:90, label:'Devastating',  color:'rgba(239,68,68,0.12)'},
+    {min:90, max:100,label:'Historic',     color:'rgba(190,18,60,0.14)'}
 ];
 
 const ZONE_LABEL_COLORS={
     'Minimal':'rgba(71,85,105,0.7)',
-    'Minor':'rgba(161,98,7,0.75)',
+    'Minor':'rgba(161,98,7,0.75)',          /* IKE/pressure/surge scales only */
+    'Low':'rgba(30,64,175,0.75)',
     'Moderate':'rgba(194,65,12,0.75)',
     'Severe':'rgba(185,28,28,0.75)',
     'Severe+':'rgba(185,28,28,0.75)',
     'Extreme':'rgba(157,23,77,0.75)',
-    'Catastrophic':'rgba(126,34,206,0.75)'
+    'Devastating':'rgba(185,28,28,0.75)',
+    'Historic':'rgba(126,34,206,0.75)',
+    'Catastrophic':'rgba(126,34,206,0.75)'  /* IKE scale only */
 };
 
 // Chart.js plugin: draws colored horizontal zone bands behind chart data
@@ -2982,14 +2989,16 @@ function calculateDPS(dataPoint) {
 
     let scoreObj = Math.min(100, Math.round(dpsResult.finalScore));
 
-    // Determine Label and Color based on DPS score
-    let label = "Minimal";
+    // Canonical band label via getDPSBand — this block was the 4th copy of
+    // the pre-canon "Catastrophic"/"Minor" scheme (cross-surface score audit
+    // 2026-07-10); labels must come from ONE place so no surface disagrees.
+    const label = getDPSBand(scoreObj);
     let color = "var(--text-muted)";
-    if(scoreObj >= 80)      { label="Catastrophic"; color="var(--cat5)"; }
-    else if(scoreObj >= 60) { label="Extreme";      color="var(--cat4)"; }
-    else if(scoreObj >= 40) { label="Severe";       color="var(--cat3)"; }
-    else if(scoreObj >= 20) { label="Moderate";     color="var(--cat2)"; }
-    else if(scoreObj >= 10) { label="Minor";        color="var(--cat1)"; }
+    if(scoreObj >= 80)      color = "var(--cat5)";
+    else if(scoreObj >= 60) color = "var(--cat4)";
+    else if(scoreObj >= 40) color = "var(--cat3)";
+    else if(scoreObj >= 20) color = "var(--cat2)";
+    else if(scoreObj >= 10) color = "var(--cat1)";
 
     return {
         score: scoreObj,
@@ -4746,7 +4755,7 @@ function renderDPSChart(data){
 
     currentDPSChart=_buildScoreChart('dpsCanvas',dpsScores,data,'Destructive Potential (DPS)','#f43f5e',
         [[0,'rgba(239,68,68,0.18)'],[0.4,'rgba(249,115,22,0.10)'],[1,'rgba(32,84,147,0.02)']],
-        c=>{const score=Math.round(c.parsed.y);const d=data[c.dataIndex];const lbl=d&&d.dps?d.dps.label:'—';return`DPS: ${score} / 100  —  ${lbl} Threat`;}
+        c=>{const score=Math.round(c.parsed.y);return`DPS: ${score} / 100  —  ${getDPSBand(score)} Threat`;}  // banded from the SCORE — stored labels can be pre-canon (baked bundles)
     );
 
     currentIASChart=_buildScoreChart('iasCanvas',iasScores,data,'Impact Area (IAS)','#f97316',
