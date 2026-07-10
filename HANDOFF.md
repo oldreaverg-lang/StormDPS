@@ -22,8 +22,12 @@ FAQ's third band vocabulary (visible + JSON-LD), static-header collisions
 (all 7 pages), clustered map forecast labels (tap-to-show ≤900px).
 Backlog #4 (stall-bar fold) + #5 (banner keyboard a11y) DONE. SurgeDPS:
 deep link closes the mobile overlay sidebar; "Step 4 of 1" progress clamp.
-Known follow-up (chip spawned): SurgeDPS data/dps_scores.json drifts from
-the canonical bundle (Ike 87 vs 89).
+Follow-up DONE (SurgeDPS `51c39a4`): data/dps_scores.json + catalog.py
+resynced to the canonical bundle (430/446 keys had drifted; Ike 87→88.9,
+Beryl 55→79.6). **After any future bake, rerun SurgeDPS
+`scripts/build_dps_scores.py --bundle <this repo>/frontend/compiled_bundle.json`
+and patch the printed catalog.py diffs** — cross-SITE score parity is not
+yet probed by selfcheck.
 
 **Shipped 2026-07-10 (`67d1c2d`):** "one storm, one story" — sidebar
 catalog now serves the hero's engine scores (bundle first, live DPS cache
