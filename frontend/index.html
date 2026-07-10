@@ -968,6 +968,16 @@ const DEG_TO_M=111320; // meters per degree at equator (approximate)
 // Populated on startup from /api/v1/preload, used by fetchHistory()
 // to skip API calls for cached storms.
 const PRELOAD_CACHE = {};
+// ── Bundle diet (PERF_AUDIT §4 item 5) ──
+// The eager artifact is now bundle_index.json (~175 KB raw / ~35 KB wire:
+// every storm's light fields + the list of ids that have a detail file).
+// Per-storm heavy data (raw snapshots, dpi_timeseries, landfalls, impact)
+// lives in bundle_storm/<id>.json (median ~13 KB) fetched on storm open by
+// ensureStormDetail(). The 3.56 MB monolith is only a fallback for stale
+// edges/old deploys — and still feeds the server side untouched.
+const BUNDLE_DETAIL_IDS = new Set();
+let _bundleBase = '/frontend/';
+const _detailInflight = {};
 const COMPILED_SCORES = {};  // Pre-computed DPS/rainfall from compile_cache.py
 const COMPILED_BY_NAME_YEAR = {};  // Reverse lookup: "NAME_YEAR" → compiled score (for IBTrACS SID mismatches)
 let preloadReady = false;
@@ -1066,7 +1076,11 @@ function getCompiledScore(stormId, stormName, stormYear) {
 // numbers. Returns the bundle (or null if the fetch fails).
 async function ensureCompiledBundle(stormId, stormName, stormYear) {
     const existing = getCompiledScore(stormId, stormName, stormYear);
-    if (existing) return existing;
+    // A slim-index entry (_light) is NOT "available" — it lacks the heavy
+    // fields (landfalls, actual_impact, rainfall_text). Fall through to the
+    // /dps fetch, which returns the full per-storm schema and replaces it —
+    // the self-heal when a detail-file fetch failed earlier in the session.
+    if (existing && !existing._light) return existing;
     try {
         const params = new URLSearchParams();
         if (stormName) params.set('name', stormName);
@@ -1095,7 +1109,7 @@ async function ensureCompiledBundle(stormId, stormName, stormYear) {
 // Bundle cache version — bumped on every bake (by scripts/rebake.py) so the
 // versioned URL changes and the server can serve it immutably without ever
 // handing back a stale copy after a deploy. Keep in step with sw.js CACHE_NAME.
-const BUNDLE_VERSION = 12;
+const BUNDLE_VERSION = 13;
 async function loadPreloadBundle() {
     // Try multiple paths: Railway serves at /frontend/, GitHub Pages at relative path
     const pathDir = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1);
@@ -1103,47 +1117,29 @@ async function loadPreloadBundle() {
     // Deduplicate
     const paths = [...new Set(candidates)];
 
-    async function tryFetchBundle(base) {
+    async function tryFetchJson(base, file, timeoutMs) {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 30000);
-        const r = await fetch(base + 'compiled_bundle.json?v=' + BUNDLE_VERSION, { signal: controller.signal });
-        clearTimeout(timeout);
-        if (!r.ok) throw new Error(`HTTP ${r.status} from ${base}`);
-        return r.json();
-    }
-
-    let bundle = null;
-    for (const base of paths) {
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
         try {
-            bundle = await tryFetchBundle(base);
-            console.log(`[PRELOAD] Compiled bundle fetched from ${base}compiled_bundle.json`);
-            break;
-        } catch (e) {
-            console.warn(`[PRELOAD] Failed to fetch from ${base}: ${e.message}`);
-        }
+            const r = await fetch(base + file + '?v=' + BUNDLE_VERSION, { signal: controller.signal });
+            if (!r.ok) throw new Error(`HTTP ${r.status} from ${base}`);
+            return await r.json();
+        } finally { clearTimeout(timeout); }
     }
 
-    try {
-        if (!bundle) throw new Error('All compiled bundle paths failed');
-        // Load pre-computed scores (instant — no client-side computation needed)
-        if (bundle.storms) {
-            Object.keys(bundle.storms).forEach(sid => {
-                COMPILED_SCORES[sid] = bundle.storms[sid];
-                // Build reverse name+year lookup for IBTrACS SID → AL ID mismatches
-                const sc = bundle.storms[sid];
-                if (sc.name && sc.year) {
-                    COMPILED_BY_NAME_YEAR[sc.name.toUpperCase() + '_' + sc.year] = sc;
-                }
-            });
-        }
-        // Load raw snapshots for visualization (map, charts, scrubber)
-        if (bundle.raw_snapshots) {
-            Object.keys(bundle.raw_snapshots).forEach(sid => {
-                PRELOAD_CACHE[sid] = bundle.raw_snapshots[sid];
-            });
-        }
-        preloadReady = true;
-        console.log(`[PRELOAD] Compiled bundle loaded: ${bundle.storm_count || 0} storms with pre-computed DPS (${Object.keys(PRELOAD_CACHE).length} in cache)`);
+    // Everything downstream of "compiled scores arrived" — shared by the
+    // slim-index path (isLight: entries lack the heavy fields and get tagged
+    // so ensureCompiledBundle knows to self-heal) and the monolith fallback.
+    function applyCompiledStorms(stormsDict, isLight) {
+        Object.keys(stormsDict).forEach(sid => {
+            const sc = stormsDict[sid];
+            if (isLight) sc._light = 1;
+            COMPILED_SCORES[sid] = sc;
+            // Build reverse name+year lookup for IBTrACS SID → AL ID mismatches
+            if (sc.name && sc.year) {
+                COMPILED_BY_NAME_YEAR[sc.name.toUpperCase() + '_' + sc.year] = sc;
+            }
+        });
         // Build stormCatalog from compiled scores as fallback when API catalogs aren't available
         // This enables name-only search on static deployments (e.g. GitHub Pages)
         if (!window.stormCatalog || window.stormCatalog.length === 0) {
@@ -1169,11 +1165,67 @@ async function loadPreloadBundle() {
         // Re-render year accordion chips now that compiled scores are available
         refreshAccordionChipsDPS();
         // If a storm is already displayed, re-render it with compiled scores
-        // (handles case where bundle loads after user clicks a storm)
+        // (handles case where bundle loads after user clicks a storm). On the
+        // slim-index path, pull the storm's detail FIRST — re-rendering with
+        // a light entry would blank the flood-banner text and landfall tabs.
         if (window.stormData && window.stormData.length > 0 && window._currentStormId) {
             console.log('[PRELOAD] Re-rendering current storm with compiled scores');
-            renderAll(window._currentStormId, window.stormData);
+            const _sid = window._currentStormId;
+            Promise.resolve()
+                .then(() => (isLight ? ensureStormDetail(_sid) : true))
+                .catch(() => false)
+                .then(() => {
+                    // storm may have been switched while the detail loaded
+                    if (window._currentStormId === _sid && window.stormData && window.stormData.length) {
+                        renderAll(_sid, window.stormData);
+                    }
+                });
         }
+    }
+
+    // ---- Bundle diet: slim index first (light fields for every storm; the
+    // heavy per-storm data arrives via ensureStormDetail on storm open) ----
+    for (const base of paths) {
+        try {
+            const idx = await tryFetchJson(base, 'bundle_index.json', 15000);
+            if (!idx || !idx.split || !idx.storms) throw new Error('not a split index');
+            _bundleBase = base;
+            (idx.detail_ids || []).forEach(sid => BUNDLE_DETAIL_IDS.add(sid));
+            applyCompiledStorms(idx.storms, true);
+            preloadReady = true;
+            console.log(`[PRELOAD] Slim bundle index loaded from ${base} — ${idx.storm_count || 0} storms, ${BUNDLE_DETAIL_IDS.size} with on-demand detail`);
+            return;
+        } catch (e) {
+            console.warn(`[PRELOAD] bundle_index.json unavailable from ${base}: ${e.message}`);
+        }
+    }
+
+    // ---- Fallback: the 3.5 MB monolith (stale edge cache / older deploy) ----
+    let bundle = null;
+    for (const base of paths) {
+        try {
+            bundle = await tryFetchJson(base, 'compiled_bundle.json', 30000);
+            console.log(`[PRELOAD] Compiled bundle fetched from ${base}compiled_bundle.json`);
+            break;
+        } catch (e) {
+            console.warn(`[PRELOAD] Failed to fetch from ${base}: ${e.message}`);
+        }
+    }
+
+    try {
+        if (!bundle) throw new Error('All compiled bundle paths failed');
+        // Load raw snapshots for visualization (map, charts, scrubber)
+        if (bundle.raw_snapshots) {
+            Object.keys(bundle.raw_snapshots).forEach(sid => {
+                PRELOAD_CACHE[sid] = bundle.raw_snapshots[sid];
+            });
+        }
+        // Load pre-computed scores (instant — no client-side computation needed)
+        if (bundle.storms) {
+            applyCompiledStorms(bundle.storms, false);
+        }
+        preloadReady = true;
+        console.log(`[PRELOAD] Compiled bundle loaded: ${bundle.storm_count || 0} storms with pre-computed DPS (${Object.keys(PRELOAD_CACHE).length} in cache)`);
     } catch (e) {
         // Fallback: raw preload_bundle.json (requires client-side DPS computation)
         console.warn('[PRELOAD] Compiled bundle unavailable, falling back to raw:', e.message);
@@ -1194,6 +1246,46 @@ async function loadPreloadBundle() {
         }
         preloadReady = true;
     }
+}
+
+// Bundle diet: fetch ONE storm's detail file (full compiled entry incl.
+// landfalls/impact + raw snapshots — median ~13 KB, edge-cached) and fill
+// the same caches the monolith used to fill for every storm at once.
+// Returns true when snapshots are now in PRELOAD_CACHE; false lets the
+// caller fall through to the API path. Fail-open, de-duplicated in flight.
+async function ensureStormDetail(sid) {
+    if (!sid || (PRELOAD_CACHE[sid] && PRELOAD_CACHE[sid].length > 0)) return true;
+    if (!BUNDLE_DETAIL_IDS.has(sid)) return false;
+    if (!_detailInflight[sid]) {
+        _detailInflight[sid] = (async () => {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 10000);
+            try {
+                const r = await fetch(_bundleBase + 'bundle_storm/' + encodeURIComponent(sid) + '.json?v=' + BUNDLE_VERSION,
+                    { signal: controller.signal });
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                const d = await r.json();
+                if (d.storm) {
+                    COMPILED_SCORES[sid] = d.storm;   // full entry replaces the index's light one
+                    if (d.storm.name && d.storm.year) {
+                        COMPILED_BY_NAME_YEAR[d.storm.name.toUpperCase() + '_' + d.storm.year] = d.storm;
+                    }
+                }
+                if (d.snapshots && d.snapshots.length) {
+                    PRELOAD_CACHE[sid] = d.snapshots;
+                    console.log(`[PRELOAD] Detail loaded for ${sid} — ${d.snapshots.length} snapshots`);
+                }
+                return !!(d.snapshots && d.snapshots.length);
+            } catch (e) {
+                console.warn(`[PRELOAD] Detail fetch failed for ${sid} (falling back to API): ${e.message}`);
+                return false;
+            } finally {
+                clearTimeout(timeout);
+                delete _detailInflight[sid];   // failed fetches retry on next open
+            }
+        })();
+    }
+    return _detailInflight[sid];
 }
 
 // Apply pre-computed DPS from compiled cache (instant — no computation)
@@ -1577,17 +1669,11 @@ function updateBreakdownBars(heroDPS, peakDpsObj, _unused, peakIasObj, peakErsOb
 // self-hosting fonts. fetchStorm() force-starts the preload inline if
 // the user picks a storm before requestIdleCallback fires.
 function _startPreload(){ if(!preloadPromise) preloadPromise = loadPreloadBundle(); }
-// Mobile (≤900px): skip the AUTOMATIC preload — a casual "how dangerous is
-// this storm" phone visit renders entirely from live endpoints and never
-// needs the 3.5 MB bundle parse (main-thread jank on mid-range phones).
-// Nothing functional is lost: opening the storm browser warms the bundle
-// (toggleMobileMenu → _startPreload), and a direct storm URL with no
-// menu-open renders via the API/volume fallback in fetchStorm — the mobile
-// fetchStorm branch deliberately does NOT force-start the preload (that
-// blocking wait was the fix). Desktop still force-starts it inline.
-if (window.matchMedia('(max-width: 900px)').matches) {
-    /* on-demand only — see toggleMobileMenu; direct URLs use the API fallback */
-} else if ('requestIdleCallback' in window) {
+// Bundle diet: the eager artifact is the slim bundle_index.json (~35 KB
+// wire), so the idle preload is safe on every viewport — including the
+// phones the old ≤900px gate protected from the 3.5 MB monolith parse.
+// Per-storm heavy data stays on-demand (ensureStormDetail, ~13 KB each).
+if ('requestIdleCallback' in window) {
     requestIdleCallback(_startPreload, { timeout: 2500 });
 } else {
     setTimeout(_startPreload, 200);
@@ -1948,8 +2034,11 @@ function refreshPresetDPSFromPreload(){
 
 // Legacy: update from catalog (only used as fallback when preload is unavailable)
 function refreshPresetDPS(catalog){
-    // Skip if preload already computed accurate DPS values
-    if(preloadReady && Object.keys(PRELOAD_CACHE).length>0) return;
+    // Skip if preload already delivered accurate DPS values. On the slim-
+    // index path PRELOAD_CACHE stays empty (snapshots load per-storm), so
+    // the compiled-scores check is what actually protects the chips from a
+    // late catalog overwrite.
+    if(preloadReady && (Object.keys(PRELOAD_CACHE).length>0 || Object.keys(COMPILED_SCORES).length>0)) return;
     let changed=false;
     PRESETS.forEach(p=>{
         const entry=catalog.find(s=>s.id===p.id)||catalog.find(s=>s.name&&s.name.toUpperCase()===p.name.toUpperCase()&&s.year===p.year);
@@ -4007,8 +4096,8 @@ function _setMobileMenuState(isOpen) {
 function toggleMobileMenu() {
     const sidebar = document.querySelector('.sidebar');
     const isOpen = sidebar && !sidebar.classList.contains('mobile-open');
-    // First open on mobile = the user wants the storm browser — warm the
-    // preload bundle now (skipped at boot on ≤900px to keep first visits light).
+    // Opening the storm browser = the user wants storm scores — make sure
+    // the slim index is loading (no-op if the idle preload already fired).
     if (isOpen) { try { _startPreload(); } catch (e) {} }
     _setMobileMenuState(isOpen);
 }
@@ -4146,22 +4235,19 @@ async function fetchHistory(){
         const _libsReady = Promise.all([loadChart(), loadLeaflet()]);
 
         // ---- CHECK PRELOAD CACHE FIRST ----
-        // Desktop: if the user picks a storm before idle fires, force-start
-        // the preload inline and wait for the instant-render path.
-        // Mobile (≤900px): NEVER force-start here — the automatic preload is
-        // disabled on phones (see _startPreload), and the old behavior of
-        // blocking a storm load up to 8 s behind the 3.5 MB bundle parse was
-        // the single worst mobile wait. The API fallback below serves the
-        // storm straight from the volume caches instead; if the storm-browser
-        // menu already warmed the bundle we still give it a short window.
-        if (!preloadReady && window.innerWidth > 900) {
+        // Bundle diet: the eager artifact is now the ~35 KB (wire) index, so
+        // force-starting + briefly waiting for it is safe on EVERY viewport —
+        // the old mobile hazard (blocking up to 8 s behind a 3.5 MB parse)
+        // is structurally gone. The index tells us whether this storm has a
+        // ~13 KB detail file; ensureStormDetail fetches it and fills the
+        // caches, and any failure just falls through to the API path below.
+        if (!preloadReady) {
             _startPreload();
             if (preloadPromise) {
-                await Promise.race([preloadPromise, new Promise(r => setTimeout(r, 5000))]);
+                await Promise.race([preloadPromise, new Promise(r => setTimeout(r, 4000))]);
             }
-        } else if (!preloadReady && preloadPromise) {
-            await Promise.race([preloadPromise, new Promise(r => setTimeout(r, 1500))]);
         }
+        try { await ensureStormDetail(rawId); } catch (e) { /* API fallback below */ }
 
         if (PRELOAD_CACHE[rawId] && PRELOAD_CACHE[rawId].length > 0) {
             data = PRELOAD_CACHE[rawId];
@@ -4202,6 +4288,7 @@ async function fetchHistory(){
                     console.log(`[NAME-RESOLVE] "${rawId}" auto-resolved to ${best.name} ${best.year} (${best.id}) — ${matches.length} match(es)`);
                     // Try loading by the catalog ID directly (faster, uses cache/preload)
                     const resolvedId = best.id;
+                    try { await ensureStormDetail(resolvedId); } catch (e) { /* API fallback below */ }
                     if(PRELOAD_CACHE[resolvedId] && PRELOAD_CACHE[resolvedId].length > 0){
                         data = PRELOAD_CACHE[resolvedId];
                         console.log(`[NAME-RESOLVE] Cache hit for ${resolvedId}`);
@@ -4545,7 +4632,10 @@ function renderAll(stormId,data){
     const rainBar = document.getElementById('rainfallBar');
     if (compiled && compiled.rainfall_anomalous) {
         const _rw = Math.round(compiled.rainfall_warning);
-        window._rainBannerData = { rw: _rw, level: compiled.rainfall_level, text: compiled.rainfall_text, heroDPS: heroDPSExact };
+        // `|| ''`: rainfall_text is a HEAVY field — absent from slim index
+        // entries until the storm's detail file loads. Without the fallback
+        // the banner rendered the literal string "undefined".
+        window._rainBannerData = { rw: _rw, level: compiled.rainfall_level, text: compiled.rainfall_text || '', heroDPS: heroDPSExact };
         // Land-relevance gate (fails open to 'warning' for cached bundles
         // that predate the flag): a storm whose observed track never nears
         // land gets "rainfall potential" framing instead of a flood warning.

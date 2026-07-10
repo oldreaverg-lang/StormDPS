@@ -9,9 +9,14 @@ manual and easy to half-do:
                                    dedup-safe + fail-closed on FEMA/names; also
                                    refreshes the methodology validation section
                                    and sitemap.xml via its own hooks)
-  2. tests/gen_scoring_baseline.py re-freeze the golden-master baseline so the
+  2. scripts/build_bundle_split.py regenerate the SPA's derived artifacts
+                                   (bundle_index.json + bundle_storm/*) — the
+                                   frontend eager-loads the slim index, not the
+                                   monolith; tests/test_bundle_split.py fails
+                                   the suite if these drift from the bundle
+  3. tests/gen_scoring_baseline.py re-freeze the golden-master baseline so the
                                    drift-lock test passes on the new scores
-  3. bump frontend/sw.js CACHE_NAME so returning visitors actually get the new
+  4. bump frontend/sw.js CACHE_NAME so returning visitors actually get the new
                                    bundle (it's fetched cache-first, else stale)
 
 It does NOT commit or push — it prints the exact commands so you review the diff
@@ -63,12 +68,14 @@ def _bump_bundle_version() -> None:
 
 def main() -> int:
     _run("compile_cache.py")
+    _run("scripts/build_bundle_split.py")
     _run("tests/gen_scoring_baseline.py")
     _bump_sw()
     _bump_bundle_version()
     print("\n" + "=" * 64)
     print("Re-bake complete. Review the diff, then commit with NATIVE git:")
-    print("  git add frontend/compiled_bundle.json frontend/methodology.html \\")
+    print("  git add frontend/compiled_bundle.json frontend/bundle_index.json \\")
+    print("          frontend/bundle_storm frontend/methodology.html \\")
     print("          frontend/sitemap.xml tests/data/scoring_baseline.json \\")
     print("          frontend/sw.js frontend/index.html")
     print('  git commit -m "Rebake compiled DPS bundle"')

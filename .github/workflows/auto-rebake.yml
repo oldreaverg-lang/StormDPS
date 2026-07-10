@@ -35,7 +35,13 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Rebake bundle
-        run: python compile_cache.py
+        run: |
+          python compile_cache.py
+          # Bundle diet: the SPA eager-loads bundle_index.json and fetches
+          # bundle_storm/<id>.json per storm — both DERIVED from the monolith
+          # and guarded by tests/test_bundle_split.py, so they must be
+          # regenerated in the same bake or CI goes red.
+          python scripts/build_bundle_split.py
 
       - name: Detect substantive change
         id: diff
@@ -78,7 +84,8 @@ jobs:
           git config user.name "stormdps-rebake[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -B auto-rebake
-          git add frontend/compiled_bundle.json frontend/methodology.html \
+          git add frontend/compiled_bundle.json frontend/bundle_index.json \
+                  frontend/bundle_storm frontend/methodology.html \
                   frontend/sitemap.xml tests/data/scoring_baseline.json \
                   frontend/sw.js frontend/index.html
           git commit -m "Auto-rebake: refresh historical scores & impact"

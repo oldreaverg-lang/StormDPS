@@ -33,6 +33,22 @@ expires on its own), or exclude the storm from the bake.
 
    To run a step alone, just run that script directly (e.g. `python compile_cache.py`).
    NB the bake reads `preload_bundle.json` and writes `compiled_bundle.json` only.
+
+   **Then (bundle diet, 2026-07-10): chain the derived artifacts** — the SPA no
+   longer loads the monolith; it eager-loads `frontend/bundle_index.json` and
+   fetches `frontend/bundle_storm/<id>.json` per storm. Both are DERIVED from
+   the monolith and MUST be regenerated in the same bake (the offline suite's
+   `tests/test_bundle_split.py` fails if they drift):
+   ```
+   python build_actual_impact.py          # re-attach observed damage/FEMA
+   python scripts/build_bundle_split.py   # regenerate index + detail files
+   ```
+   Also bump `BUNDLE_VERSION` in `frontend/index.html` (the SPA fetches both
+   artifacts with `?v=<BUNDLE_VERSION>`; they get the standard /frontend
+   .json cache headers) and add
+   `frontend/bundle_index.json frontend/bundle_storm/` to the commit.
+   (`scripts/rebake.py` and `.github/workflows/auto-rebake.yml` already
+   chain all of this — prefer them over running steps by hand.)
 2. Verify structural invariants. `pytest` may be absent in the embedded Python, so
    either `pytest tests/test_compiled_bundle.py tests/test_scoring_baseline.py -q`
    or inline-check: storm_count == len(storms); every storm has a numeric `dps` in

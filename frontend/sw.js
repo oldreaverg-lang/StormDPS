@@ -21,7 +21,10 @@
 // 35 → 190 storms). The SPA's ?v=12 buster already misses the old cache,
 // but bump per the every-re-bake convention so any unversioned runtime-
 // cached bundle copy is evicted too.
-const CACHE_NAME = 'stormdps-v13';
+// v14: bundle diet — the SPA now eager-loads bundle_index.json and fetches
+// bundle_storm/<id>.json on storm open (?v=13). Bump evicts runtime-cached
+// monolith copies so returning visitors get the slim path immediately.
+const CACHE_NAME = 'stormdps-v14';
 const STATIC_ASSETS = [
   '/',
   '/frontend/index.html',
