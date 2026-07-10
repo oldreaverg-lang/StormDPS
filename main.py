@@ -550,6 +550,44 @@ async def health_selfcheck():
     except Exception as e:
         checks["score_consistency"] = {"ok": True, "error": str(e)[:200]}
 
+    # 5) Cross-SITE score parity: SurgeDPS ships a SNAPSHOT of our canonical
+    #    scores (its data/dps_scores.json + curated catalog) that must be
+    #    regenerated after every bake (its scripts/build_dps_scores.py).
+    #    Probe its historic catalog against the live bundle so forgetting
+    #    that step pages the cron instead of a user noticing — by 2026-07-10
+    #    430/446 of its keys had silently drifted. Probe/fetch errors stay
+    #    advisory: SurgeDPS *availability* is its own service's concern; this
+    #    check is only about the numbers disagreeing.
+    try:
+        from core.storm_identity import cross_site_score_drift
+        from seo import _read_compiled_bundle
+        surge_url = os.environ.get(
+            "SURGEDPS_API_URL",
+            "https://surgedps-production.up.railway.app",
+        ).rstrip("/") + "/api/storms/historic"
+        client = getattr(app.state, "http_client", None)
+        if client is not None:
+            resp = await client.get(surge_url, timeout=10.0)
+        else:  # pragma: no cover — lifespan always sets the shared client
+            async with httpx.AsyncClient() as _c:
+                resp = await _c.get(surge_url, timeout=10.0)
+        resp.raise_for_status()
+        parity = cross_site_score_drift(
+            resp.json(), _read_compiled_bundle().get("storms", {}))
+        checks["surgedps_parity"] = {
+            "ok": not parity["drifted"],
+            "compared": parity["compared"],
+            "drifted": len(parity["drifted"]),
+            "sample": parity["drifted"][:5],
+        }
+        if parity["drifted"]:
+            failures.append(
+                f"SurgeDPS score drift: {len(parity['drifted'])}/"
+                f"{parity['compared']} storms disagree with the bundle "
+                f"(rerun SurgeDPS scripts/build_dps_scores.py)")
+    except Exception as e:
+        checks["surgedps_parity"] = {"ok": True, "advisory_error": str(e)[:200]}
+
     ok = not failures
     from fastapi.responses import JSONResponse
     return JSONResponse(

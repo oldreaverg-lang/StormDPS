@@ -10,10 +10,15 @@ import pathlib
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+BUNDLE = ROOT / "frontend" / "compiled_bundle.json"
 
 from core.dpi import categorize_dpi
 from core.ike import calculate_dps
-from core.storm_identity import harmonize_catalog, storm_identity
+from core.storm_identity import (
+    cross_site_score_drift,
+    harmonize_catalog,
+    storm_identity,
+)
 
 CANON = {"Historic", "Devastating", "Extreme", "Severe", "Moderate", "Low", "Minimal"}
 
@@ -91,6 +96,49 @@ def test_harmonize_sorts_year_then_score_and_fails_open():
     assert [r["id"] for r in out] == ["C", "B", "A"]
     assert harmonize_catalog([], {}) == []
     assert harmonize_catalog(None, {}) == []
+
+
+def test_cross_site_drift_detects_stale_snapshot():
+    bundle = {
+        "AL092008": {"name": "Ike", "year": 2008, "dps": 88.8501},
+        "AL122005": {"name": "Katrina", "year": 2005, "dps": 94.03},
+    }
+    rows = [
+        # matches canon within round(x,1) tolerance — not drift
+        {"storm_id": "katrina_2005", "name": "Hurricane Katrina", "year": 2005, "dps_score": 94.0},
+        # the actual 2026-07-10 drift case
+        {"storm_id": "ike_2008", "name": "Hurricane Ike", "year": 2008, "dps_score": 86.5},
+        # unknown storm and unscored storm are skipped, not flagged
+        {"storm_id": "x_1999", "name": "Hurricane Nobody", "year": 1999, "dps_score": 50},
+        {"storm_id": "y_2008", "name": "Hurricane Ike", "year": 2008, "dps_score": 0},
+    ]
+    out = cross_site_score_drift(rows, bundle)
+    assert out["compared"] == 2
+    assert len(out["drifted"]) == 1
+    d = out["drifted"][0]
+    assert d["id"] == "ike_2008" and d["theirs"] == 86.5 and d["canonical"] == 88.9
+
+
+def test_cross_site_drift_against_real_repos():
+    # The synced SurgeDPS catalog (2026-07-10) must agree with the real
+    # bundle — guards this repo's side of the contract offline.
+    import json
+    surge_catalog = pathlib.Path(
+        r"C:\Users\Ryan\APPS\SurgeDPS-recovered\src\storm_catalog\catalog.py")
+    if not surge_catalog.exists():
+        return  # other machines: the live selfcheck probe covers it
+    import re as _re
+    rows = []
+    src = surge_catalog.read_text(encoding="utf-8")
+    for m in _re.finditer(
+            r'storm_id="([a-z0-9_-]+)"(.{0,600}?)name="([^"]+)"(.{0,600}?)'
+            r'year=(\d{4})(.{0,600}?)dps_score=([\d.]+)', src, _re.DOTALL):
+        rows.append({"storm_id": m.group(1), "name": m.group(3),
+                     "year": int(m.group(5)), "dps_score": float(m.group(7))})
+    bundle = json.loads(BUNDLE.read_text(encoding="utf-8"))["storms"]
+    out = cross_site_score_drift(rows, bundle)
+    assert out["compared"] >= 10, "regex should find the curated storms"
+    assert not out["drifted"], f"SurgeDPS curated catalog drifted: {out['drifted'][:3]}"
 
 
 def test_live_shapes_stay_canonical_against_real_bundle():

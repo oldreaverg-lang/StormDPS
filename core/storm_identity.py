@@ -70,6 +70,49 @@ def _bundle_entry(storm_id: str, bundle_storms: dict, ident: dict) -> Optional[d
     return None
 
 
+def cross_site_score_drift(rows: list, bundle_storms: dict,
+                           tolerance: float = 0.25) -> dict:
+    """Compare another surface's storm list against canonical bundle scores.
+
+    `rows` is SurgeDPS-shaped (/api/storms/historic): dicts carrying
+    name ("Hurricane Katrina"), year, dps_score. SurgeDPS ships a SNAPSHOT
+    of our scores (its data/dps_scores.json + curated catalog, regenerated
+    by its scripts/build_dps_scores.py) — every StormDPS bake silently
+    invalidates it, which is how 430/446 keys drifted by 2026-07-10.
+
+    Returns {"compared": n, "drifted": [{id, name, year, theirs,
+    canonical}, ...]}. Rows with no canonical match or no score are
+    skipped, not flagged. Tolerance covers their round(x, 1) storage.
+    """
+    by_name_year = {}
+    for s in bundle_storms.values():
+        n, y = str(s.get("name") or "").upper(), s.get("year")
+        if n and y and s.get("dps") is not None:
+            by_name_year[(n, y)] = float(s["dps"])
+    compared, drifted = 0, []
+    for row in rows or []:
+        name = str(row.get("name") or "").strip()
+        upper = name.upper()
+        for prefix in ("HURRICANE ", "TYPHOON ", "TROPICAL STORM ",
+                       "TROPICAL DEPRESSION ", "SUBTROPICAL STORM "):
+            if upper.startswith(prefix):
+                name = name[len(prefix):].strip()
+                break
+        canonical = by_name_year.get((name.upper(), row.get("year")))
+        theirs = row.get("dps_score")
+        if canonical is None or not theirs:
+            continue
+        compared += 1
+        if abs(float(theirs) - canonical) > tolerance:
+            drifted.append({
+                "id": row.get("storm_id"), "name": name,
+                "year": row.get("year"),
+                "theirs": round(float(theirs), 1),
+                "canonical": round(canonical, 1),
+            })
+    return {"compared": compared, "drifted": drifted}
+
+
 def harmonize_catalog(rows: list, bundle_storms: dict) -> list:
     """Return a harmonized copy of the catalog rows (input never mutated).
 
