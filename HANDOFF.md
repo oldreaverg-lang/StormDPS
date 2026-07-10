@@ -9,9 +9,20 @@ point-in-time snapshot, not a spec; verify against current code before acting.
 push to `main` → Railway auto-deploy (~30 s–4 min). Repo:
 `C:\Users\Ryan\APPS\StormDPS-recovered`.
 
-**Deploy state:** local HEAD == origin/main == `5b105cb` (landfall panel),
-deployed and verified live. Working tree clean.
+**Deploy state:** local HEAD == origin/main == `6a1b99d` (storm identity +
+recorded damage), deployed and verified live. Working tree clean.
 BAVI (WP092026) has been the live test storm all week.
+
+**Shipped 2026-07-10 (`6a1b99d`):** the ALIAS TABLE (backlog #11's core +
+DATA_ARCHITECTURE roadmap #2) — `data/storm_aliases.json` (3,804 storms,
+rebuild via `scripts/build_alias_table.py`, IBTrACS since1980 CSV) +
+`/dps` identity overlay: any id form now returns the canonical name and the
+bundle's `actual_impact`. Plus `data/recorded_damage.csv` (~79 curated
+figures; the 24-row calibration CSV WINS conflicts — so Helene displays its
+calibration $32B, not NCEI's $78.7B; flip precedence deliberately if ever
+desired) → bundle enriched 35→181 storms with damage; compare page now
+shows "Michael (2018)" + Recorded Damage for every lookup. NB: embedded
+python now has pytest (`python -m pytest tests/ -q` works, 133 offline).
 
 ---
 
