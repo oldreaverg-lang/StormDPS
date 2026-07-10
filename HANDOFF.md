@@ -9,9 +9,21 @@ point-in-time snapshot, not a spec; verify against current code before acting.
 push to `main` → Railway auto-deploy (~30 s–4 min). Repo:
 `C:\Users\Ryan\APPS\StormDPS-recovered`.
 
-**Deploy state:** local HEAD == origin/main == `67d1c2d` (cross-surface
-score consistency), deployed and verified live. Working tree clean.
+**Deploy state:** local HEAD == origin/main == `78f1337` (mobile review),
+deployed and verified live. Working tree clean.
 BAVI (WP092026) has been the live test storm all week.
+
+**Shipped 2026-07-10 (`78f1337` + SurgeDPS `4ace988`) — mobile pass:**
+phones no longer auto-load the 3.5 MB bundle (first visit 3.9 MB → 344 KB
+raw; storm-browser open warms it, desktop unchanged; fetchStorm's mobile
+8-s bundle wait removed — API/volume path serves immediately). Fixed:
+storm-title name clipping ("B…"), /compare one-column unattributed grid,
+FAQ's third band vocabulary (visible + JSON-LD), static-header collisions
+(all 7 pages), clustered map forecast labels (tap-to-show ≤900px).
+Backlog #4 (stall-bar fold) + #5 (banner keyboard a11y) DONE. SurgeDPS:
+deep link closes the mobile overlay sidebar; "Step 4 of 1" progress clamp.
+Known follow-up (chip spawned): SurgeDPS data/dps_scores.json drifts from
+the canonical bundle (Ike 87 vs 89).
 
 **Shipped 2026-07-10 (`67d1c2d`):** "one storm, one story" — sidebar
 catalog now serves the hero's engine scores (bundle first, live DPS cache
