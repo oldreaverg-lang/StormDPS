@@ -9,8 +9,18 @@ point-in-time snapshot, not a spec; verify against current code before acting.
 push to `main` → Railway auto-deploy (~30 s–4 min). Repo:
 `C:\Users\Ryan\APPS\StormDPS-recovered`.
 
-**Deploy state:** local HEAD == origin/main == `78f1337` (mobile review),
-deployed and verified live. Working tree clean.
+**Deploy state:** local HEAD == origin/main == `4c61dd5` (PSI mobile perf
+round: Carto preconnects + server-injected __ACTIVE_HINT__ so the live
+storm's /track starts at ~340 ms instead of serializing behind
+/storms/active; tried-and-removed a /track preload — API cache headers
+block reuse, it double-downloaded). Also shipped since the mobile review:
+Lighthouse fixes for /surgedps (meta description/canonical/OG + WCAG AA
+contrast on the dark sidebar — dpsColor ramp lightened, slate-600→400;
+SurgeDPS `5e6568b`), catalog cache headers on dynamic year ranges
+(`ff41100`, pairs with the operator's new Cloudflare Cache Rule — verified
+MISS→HIT on all variants). KNOWN CEILING: PSI mobile TBT (~2 s) is
+dominated by the ~350 KB inline-script eval — the structural fix is
+splitting the SPA / deferring chart render (backlog).
 BAVI (WP092026) has been the live test storm all week.
 
 **Shipped 2026-07-10 (`78f1337` + SurgeDPS `4ace988`) — mobile pass:**
