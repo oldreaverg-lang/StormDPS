@@ -9,11 +9,15 @@ point-in-time snapshot, not a spec; verify against current code before acting.
 push to `main` → Railway auto-deploy (~30 s–4 min). Repo:
 `C:\Users\Ryan\APPS\StormDPS-recovered`.
 
-**Deploy state:** local HEAD == origin/main == `4c61dd5` (PSI mobile perf
-round: Carto preconnects + server-injected __ACTIVE_HINT__ so the live
-storm's /track starts at ~340 ms instead of serializing behind
-/storms/active; tried-and-removed a /track preload — API cache headers
-block reuse, it double-downloaded). Also shipped since the mobile review:
+**Deploy state:** local HEAD == origin/main == `c5e9fb8` (PSI mobile perf
+rounds 2-3: server-injected __ACTIVE_HINT__ so the live storm's /track
+starts at ~340 ms instead of serializing behind /storms/active; map
+preconnect + VERIFIED-reused Leaflet preload are injected ONLY when a
+storm will auto-load — a storm-free shell ships zero map hints. PSI moved
+47→55 with TBT halved; tried-and-removed a /track as=fetch preload — API
+cache headers block reuse, it double-downloaded. NB: BAVI left the active
+list 2026-07-11, so PSI runs now measure the storm-FREE homepage until the
+next system.) Also shipped since the mobile review:
 Lighthouse fixes for /surgedps (meta description/canonical/OG + WCAG AA
 contrast on the dark sidebar — dpsColor ramp lightened, slate-600→400;
 SurgeDPS `5e6568b`), catalog cache headers on dynamic year ranges
