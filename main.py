@@ -749,14 +749,32 @@ async def serve_frontend():
         storms = (cache_read(ACTIVE_STORMS_FILE) or {}).get("storms") or []
         if storms:
             import json as _json
-            # NB: no <link rel=preload as=fetch> for /track — measured in the
-            # preview: the API's cache headers keep the preloaded response
-            # from being reused, so it double-downloaded the 41 KB track. The
-            # hint alone lets the SPA start that fetch at ~250 ms instead of
-            # ~1 s, which is the bulk of the win.
+            # A storm WILL auto-load, so the map is coming: open the tile-CDN
+            # connection and start Leaflet downloading during HTML parse.
+            # These are injected (not static in index.html) because on a
+            # storm-free homepage no map ever renders and they'd be dead
+            # weight + PSI "unused preload" flags. Notes from measurement:
+            #  - ONE carto preconnect (a-d share a cert; Chrome coalesces
+            #    onto one h2 connection — extra preconnects sit unused).
+            #    No crossorigin: Leaflet tiles are plain <img>.
+            #  - Leaflet preload integrity/crossorigin MUST stay in lockstep
+            #    with loadLeaflet's _loadScript attrs in index.html or the
+            #    preload is wasted (as=script preloads ARE reused, unlike
+            #    the as=fetch /track attempt: API cache headers blocked
+            #    reuse and it double-downloaded 41 KB).
             # "</" escaped so feed-sourced strings can never close the tag.
             hint_json = _json.dumps(storms).replace("</", "<\\/")
-            inject = f"<script>window.__ACTIVE_HINT__={hint_json};</script>\n"
+            inject = (
+                '<link rel="preconnect" href="https://c.basemaps.cartocdn.com">\n    '
+                '<link rel="dns-prefetch" href="https://a.basemaps.cartocdn.com">\n    '
+                '<link rel="dns-prefetch" href="https://b.basemaps.cartocdn.com">\n    '
+                '<link rel="dns-prefetch" href="https://d.basemaps.cartocdn.com">\n    '
+                '<link rel="preload" as="script" '
+                'href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" '
+                'integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" '
+                'crossorigin="">\n    '
+                f"<script>window.__ACTIVE_HINT__={hint_json};</script>\n"
+            )
             html = html.replace("</head>", inject + "</head>", 1)
         return HTMLResponse(html, headers=headers)
     except Exception:

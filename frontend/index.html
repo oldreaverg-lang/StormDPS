@@ -92,15 +92,12 @@
          in parallel with the HTML parse rather than blocking on first use. -->
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
     <link rel="preconnect" href="https://unpkg.com" crossorigin>
-    <!-- The mobile LCP element is a Carto basemap tile (PSI 2026-07-10):
-         open those connections during HTML parse (~310 ms est. saving per
-         origin). Leaflet loads tiles as plain <img> — NO crossorigin here,
-         or the preconnected socket sits in the wrong connection pool.
-         Subdomains a-d rotate per tile; dns-prefetch covers the rest. -->
-    <link rel="preconnect" href="https://a.basemaps.cartocdn.com">
-    <link rel="preconnect" href="https://b.basemaps.cartocdn.com">
-    <link rel="preconnect" href="https://c.basemaps.cartocdn.com">
-    <link rel="dns-prefetch" href="https://d.basemaps.cartocdn.com">
+    <!-- Map-related preconnects/preloads (Carto tiles, Leaflet) are NOT
+         static: with no active storm the homepage renders no map, and they
+         would be pure dead weight + PSI "unused preload" flags. When a live
+         storm will auto-load, main.py serve_frontend injects them alongside
+         window.__ACTIVE_HINT__ (see that route). -->
+
     <!-- Self-hosted Public Sans (variable woff2). Same-origin removes the
          fonts.googleapis.com CSS round-trip that PageSpeed flagged as a
          ~750 ms render-blocker. Preload the latin subset so it's in cache
