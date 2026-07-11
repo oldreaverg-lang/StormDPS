@@ -381,14 +381,19 @@ async def security_headers(request: Request, call_next):
     # exact hosts already wired into preconnects + the service worker so
     # a future supply-chain attack on a random CDN can't pivot through us.
     # img-src is permissive (NASA GIBS tile servers + dynamic IBTrACS plot URLs).
+    # cloudflareinsights: Cloudflare Web Analytics injects its RUM beacon at
+    # the edge; the CSP blocked it on EVERY page view (console error on each
+    # load + zero field data collected — found via Lighthouse Best Practices
+    # 2026-07-11). script-src loads beacon.min.js; connect-src lets it POST
+    # its measurements to /cdn-cgi/rum, or it fails silently one step later.
     headers.setdefault(
         "Content-Security-Policy",
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com https://static.cloudflareinsights.com; "
         "style-src 'self' 'unsafe-inline' https://unpkg.com; "
         "font-src 'self' data:; "
         "img-src 'self' data: blob: https:; "
-        "connect-src 'self' https://*.stormdps.com https://api.open-meteo.com; "
+        "connect-src 'self' https://*.stormdps.com https://api.open-meteo.com https://cloudflareinsights.com; "
         "frame-ancestors 'self'; "
         "base-uri 'self'; "
         "form-action 'self'",
