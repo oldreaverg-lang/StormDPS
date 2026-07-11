@@ -1935,7 +1935,16 @@ async def get_storm_catalog(
     catalog = await _build_global_catalog()
     if not catalog:
         return []
-    return _harmonized([s for s in catalog if min_year <= s.get("year", 0) <= max_year])
+    # Same cache headers as the default-view FileResponse above: without
+    # them the Cache Rule for /api/v1/storms/catalog* BYPASSes every
+    # non-default year range (Cloudflare's "use cache-control if present,
+    # bypass if not" Edge TTL default) — observed 2026-07-11 on the
+    # min_year=1980 variant /compare's picker fetches.
+    return JSONResponse(
+        content=_harmonized([s for s in catalog
+                             if min_year <= s.get("year", 0) <= max_year]),
+        headers={"Cache-Control": "public, max-age=300, s-maxage=900"},
+    )
 
 
 def _lookup_storm_name_from_catalog(storm_id: str) -> Optional[str]:
@@ -3946,8 +3955,12 @@ async def get_global_storm_catalog(
     if not catalog:
         return []
 
-    # Filter by requested years
-    return _harmonized([s for s in catalog if min_year <= s.get("year", 0) <= max_year])
+    # Filter by requested years (cache headers: see get_storm_catalog)
+    return JSONResponse(
+        content=_harmonized([s for s in catalog
+                             if min_year <= s.get("year", 0) <= max_year]),
+        headers={"Cache-Control": "public, max-age=300, s-maxage=900"},
+    )
 
 
 @router.get("/storms/catalog/custom")
