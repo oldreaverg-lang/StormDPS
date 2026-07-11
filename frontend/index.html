@@ -92,6 +92,15 @@
          in parallel with the HTML parse rather than blocking on first use. -->
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
     <link rel="preconnect" href="https://unpkg.com" crossorigin>
+    <!-- The mobile LCP element is a Carto basemap tile (PSI 2026-07-10):
+         open those connections during HTML parse (~310 ms est. saving per
+         origin). Leaflet loads tiles as plain <img> — NO crossorigin here,
+         or the preconnected socket sits in the wrong connection pool.
+         Subdomains a-d rotate per tile; dns-prefetch covers the rest. -->
+    <link rel="preconnect" href="https://a.basemaps.cartocdn.com">
+    <link rel="preconnect" href="https://b.basemaps.cartocdn.com">
+    <link rel="preconnect" href="https://c.basemaps.cartocdn.com">
+    <link rel="dns-prefetch" href="https://d.basemaps.cartocdn.com">
     <!-- Self-hosted Public Sans (variable woff2). Same-origin removes the
          fonts.googleapis.com CSS round-trip that PageSpeed flagged as a
          ~750 ms render-blocker. Preload the latin subset so it's in cache
@@ -3585,8 +3594,10 @@ async function fetchActiveStorms(){
         const storms=await r.json();
         window._activeStorms=storms;  // expose so renderAll can resolve friendly names (e.g. JANGMI, not WP062026)
         renderActiveStorms(storms);
-        // If there are active storms and nothing is currently visualized, auto-load the first one
-        if(storms.length>0 && !document.getElementById('statsRow').classList.contains('visible')){
+        // If there are active storms and nothing is currently visualized, auto-load the first one.
+        // (_autoLoadedFromHint: the server-injected hint already started this load —
+        // without the guard, this response landing mid-load would start it twice.)
+        if(storms.length>0 && !window._autoLoadedFromHint && !document.getElementById('statsRow').classList.contains('visible')){
             loadActiveStorm(storms[0].id);
         }
     }catch(e){
@@ -3613,6 +3624,21 @@ async function fetchActiveStorms(){
 }
 
 function startActiveStormPolling(intervalMs=300000){ // 5 minutes
+    // Server-injected hint (main.py serve_frontend): render + auto-load the
+    // live storm IMMEDIATELY instead of serializing behind the ~560 ms
+    // /storms/active fetch. Measured: the /track fetch (the gate on the map
+    // tiles that are the mobile LCP) starts at ~250 ms instead of ~1 s.
+    // fetchActiveStorms still runs for the authoritative refresh;
+    // _autoLoadedFromHint stops it double-loading the same storm.
+    try {
+        const hint = window.__ACTIVE_HINT__;
+        if (Array.isArray(hint) && hint.length > 0 && !window._activeStorms) {
+            window._activeStorms = hint;
+            renderActiveStorms(hint);
+            window._autoLoadedFromHint = true;
+            loadActiveStorm(hint[0].id);
+        }
+    } catch (e) { console.warn('[HINT] active-storm bootstrap failed:', e); }
     fetchActiveStorms();
     activeStormsPollTimer=setInterval(fetchActiveStorms,intervalMs);
 }

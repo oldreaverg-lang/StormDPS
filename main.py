@@ -715,6 +715,11 @@ async def internal_error_handler(request: Request, exc):
     )
 
 
+# mtime-keyed cache of the SPA shell so the hint injection below never
+# re-reads the ~350 KB file per request.
+_INDEX_HTML_CACHE: dict = {"mtime": None, "html": None}
+
+
 @app.get("/")
 async def serve_frontend():
     # Cache-Control lets Cloudflare cache the SPA shell at the edge so the
@@ -722,10 +727,41 @@ async def serve_frontend():
     # document request as 1,259 ms server time — likely Railway cold-start
     # contention with the lifespan warm tasks. Edge cache hides that from
     # everyone after the first hit.
-    return FileResponse(
-        FRONTEND_DIR / "index.html",
-        headers={"Cache-Control": "public, max-age=300, s-maxage=900"},
-    )
+    #
+    # Active-storm hint (PSI mobile 2026-07-10, perf 47): the LCP is a map
+    # tile, and its critical chain serialized behind the SPA discovering the
+    # live storm (/storms/active ≈560 ms) before it could start the ≈930 ms
+    # /track fetch. Injecting the cached active list + a <link rel=preload>
+    # for the EXACT /track URL fetchStorm will request lets the download
+    # start during HTML parse. The hint may be up to a few minutes stale —
+    # fine: ids change rarely, and the SPA still polls /storms/active for
+    # the authoritative list. Fail-open: any error serves the raw file.
+    path = FRONTEND_DIR / "index.html"
+    headers = {"Cache-Control": "public, max-age=300, s-maxage=900"}
+    try:
+        mtime = path.stat().st_mtime
+        if _INDEX_HTML_CACHE["mtime"] != mtime:
+            _INDEX_HTML_CACHE.update(
+                mtime=mtime, html=path.read_text(encoding="utf-8"))
+        html = _INDEX_HTML_CACHE["html"]
+
+        from storage import ACTIVE_STORMS_FILE, cache_read
+        storms = (cache_read(ACTIVE_STORMS_FILE) or {}).get("storms") or []
+        if storms:
+            import json as _json
+            # NB: no <link rel=preload as=fetch> for /track — measured in the
+            # preview: the API's cache headers keep the preloaded response
+            # from being reused, so it double-downloaded the 41 KB track. The
+            # hint alone lets the SPA start that fetch at ~250 ms instead of
+            # ~1 s, which is the bulk of the win.
+            # "</" escaped so feed-sourced strings can never close the tag.
+            hint_json = _json.dumps(storms).replace("</", "<\\/")
+            inject = f"<script>window.__ACTIVE_HINT__={hint_json};</script>\n"
+            html = html.replace("</head>", inject + "</head>", 1)
+        return HTMLResponse(html, headers=headers)
+    except Exception:
+        logger.exception("[home] active-hint injection failed — serving raw shell")
+        return FileResponse(path, headers=headers)
 
 
 # ---------------------------------------------------------------------------
