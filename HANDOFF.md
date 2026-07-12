@@ -182,6 +182,17 @@ carries its detail in git log + the docs listed in §4.
     from the persistent /dps volume cache (rebake.py now prints the reminder).
 13. Also open, not urgent: `/value` surge null for JTWC storms; dormant-code
     candidates are DONE (excised); Apple submission still paused.
+14. ~~**Current-season sidebar scores**~~ — **SHIPPED 2026-07-12** (commit
+    b6edbdd). Current-season storms fell in the gap between baked (annual
+    bundle) and currently-active (the only set the DPS loop warmed): the
+    hamburger showed a bare Saffir-Simpson category for ingested rows and a
+    crude wind estimate for IBTrACS rows (Sinlaku 36 vs canonical 73).
+    `warm_current_season_dps()` now full-engine-warms every current-year
+    catalog storm at startup + hourly and regenerates the harmonized
+    default-view; `harmonize_catalog` collapses SID/ATCF twins by
+    (name,year,basin) when the alias table lags; `_without_stale_custom`
+    purges demo rows once custom_storms.csv no longer declares them. Live: 47
+    → 36 rows, all canonical, no twins, no fakes; selfcheck 208/0.
 
 ## 3. Known seams the new features deliberately work around
 
