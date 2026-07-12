@@ -31,6 +31,45 @@ sys.path.insert(0, str(Path(__file__).parent))
 from core.cumulative_dpi import compute_cumulative_dpi, categorize_dpi
 from core.rainfall_warning import compute_rainfall_warning
 
+# [WP_DPS_AUDIT_V2 §7, Tranche B] WP land contact / landfall detection /
+# landfall-intensity bonus are waypoint-distance driven (<=50 km of a wp_*
+# coastline point) instead of bounding-box driven: the boxes' Japan entry
+# spans 800 km of Philippine Sea, so box membership rewarded coastal
+# loitering (Saola 2023: 94.4 on $0.58B) and box ENTRY created fake landfall
+# events for offshore recurvers. Fail-soft to boxes if unavailable.
+try:
+    from core import land_proximity as _lp
+except ImportError:  # pragma: no cover
+    _lp = None
+
+# Land-contact gate (km) against the wp_* waypoints
+WP_LAND_KM = 50.0
+
+# LFI contact radius is wider than the land-contact gate: landfall happens
+# BETWEEN 3-6-hourly fixes, so the last offshore fix — the one carrying the
+# landfall intensity — often sits 50-60 km out while the first post-landfall
+# fix has already shed 10+ m/s over terrain (Yagi's Wenchang strike: 64 m/s
+# at 58 km inbound, 57 m/s at 15 km after crossing).
+WP_LFI_KM = 60.0
+
+# LFI population normalizer: the landfall-intensity bonus scales by
+# min(1, waypoint_population_density / 0.5) so contact with a remote islet
+# (Basco 0.15 → 30%) never reads like contact with a populated coast
+# (Tacloban 0.60 → 100%). Land contact itself (dampener, landfall events)
+# is NOT population-weighted — an islet strike is still a landfall.
+WP_LFI_POP_NORM = 0.5
+
+
+def _wp_land_hit(lat, lon):
+    """True/False for WP-window coords (<=50 km of a WP coastline waypoint),
+    None outside the window / module unavailable (caller uses box test)."""
+    if _lp is None:
+        return None
+    hit = _lp.nearest_wp_coast(lat, lon)
+    if hit is None:
+        return None
+    return hit[0] <= WP_LAND_KM
+
 
 # ============================================================================
 # BASIN-SPECIFIC DPS COEFFICIENTS (v2.0)
@@ -78,50 +117,42 @@ BASIN_COEFFICIENTS = {
         "compression_S": 2.5,
     },
     "WESTERN_PACIFIC": {
-        "dps_multiplier": 1.10,  # 10% boost for large wind fields
-        "ri_bonus": 15,  # Typhoons RI more often than EP storms (Haiyan, Rai, Rammasun)
+        # [WP_DPS_AUDIT_V2 §7, Tranche B 2026-07] The compensating layer is
+        # STRIPPED. The 1.10 multiplier, the RI bonus, and the sub-basin
+        # table existed to paper over dead surge/economic legs (WP snapshots
+        # had no coastal/economic profiles, so peak_dpi ran ~half of what an
+        # equivalent Atlantic storm scored). With the wp_* profiles live
+        # (core/land_proximity waypoints → storm_surge / economic_
+        # vulnerability), keeping the old stack saturated every major
+        # typhoon at 90–97 (harness S3).
+        "dps_multiplier": 1.00,
+        # RI is dead, not shrunk: every WP major rapidly intensifies, so any
+        # flat/scaled RI bonus was +7–10 of undiscriminating mush. Replaced
+        # by the landfall-intensity bonus in apply_basin_dps_adjustment —
+        # wind AT LAND CONTACT is what separates Haiyan from a Batanes brush.
+        "ri_bonus": 0,
         "name": "Western Pacific",
-        # Sub-region vulnerability-adjusted destructive-potential multipliers.
-        # These compose with COASTAL_EXPOSURE_WEIGHTS (which already handles
-        # asset density) — they represent OVER/UNDER-delivery of damage
-        # relative to raw wind×pressure (e.g. rainfall-driven Morakot in
-        # Taiwan, surge-amplifying Mekong Delta in Vietnam).
-        #
-        # WP_GENERAL is 1.00 so open-ocean storms don't double-count the
-        # base dps_multiplier (1.10) — previous value 1.10 compounded to
-        # a silent 21% boost.
+        # Sub-basin multipliers flattened to 1.00 (audit §8: do not re-tune
+        # until labels come from landfalls). The wind²-weighted label itself
+        # is still computed — it gates the rainfall-footprint bonus
+        # (RAINFALL_PRONE) and is displayed in adjustment notes.
         "sub_basin_multipliers": {
-            # [v7 AUDIT] WP_JAPAN 1.00 → 1.05. COASTAL_EXPOSURE_WEIGHTS
-            # captures density at the landfall point, but Japanese typhoon
-            # damage cascades inland (Hagibis 2019: $18B mostly from Tokyo-
-            # area river flooding from a small Izu Peninsula landfall). The
-            # 1.00 was a principled choice to avoid double-counting but
-            # systematically underweighted the downstream impact footprint.
-            "WP_JAPAN":        1.05,
-            "WP_KOREA":        0.98,  # Decent resilience, moderate exposure
-            "WP_PHILIPPINES":  1.15,  # High vulnerability, island-arc concentration
-            # [v7 AUDIT] WP_VIETNAM 1.20 → 1.10. De-risk an untested high
-            # multiplier. The 1.20 rationale (Mekong Delta surge amplification)
-            # is physically plausible but not yet validated against a storm
-            # where the multiplier materially changed the score — the v6
-            # ceiling suppressed its effect on every storm it fired on.
-            # Bring in line with WP_HAINAN (1.10) until Yagi-class validation
-            # lands; revisit once rec #6 (exposure integrator) or additional
-            # VN storms are in the validation set.
-            "WP_VIETNAM":      1.10,
-            "WP_TAIWAN":       1.00,  # Orographic bonus handles rainfall separately now
-            "WP_HAINAN":       1.10,  # Dense coast + agriculture, limited hardening
-            "WP_SOUTH_CHINA":  1.08,  # Guangdong / Hong Kong — massive exposure
-            "WP_NORTH_CHINA":  0.98,  # Extratropical transition, lower cumulative exposure
-            "WP_MARIANA":      1.05,  # US territory — Guam Navy / Saipan tourism; dense small-island exposure + military infrastructure
-            "WP_GENERAL":      1.00,  # Default: no extra boost beyond base multiplier
+            "WP_JAPAN":        1.00,
+            "WP_KOREA":        1.00,
+            "WP_PHILIPPINES":  1.00,
+            "WP_VIETNAM":      1.00,
+            "WP_TAIWAN":       1.00,
+            "WP_HAINAN":       1.00,
+            "WP_SOUTH_CHINA":  1.00,
+            "WP_NORTH_CHINA":  1.00,
+            "WP_MARIANA":      1.00,
+            "WP_GENERAL":      1.00,
         },
-        # WP storms with the full bonus stack (sub-basin × 1.10–1.20, RI +5–20,
-        # multi-LF, orographic, rainfall-footprint) routinely land at pre-comp
-        # 180–220. The v7-audit retune to T=70, S=2.5 was specifically motivated
-        # by this — under the Atlantic curve (T=60, S=4) every major typhoon
-        # saturates at 99. See WP_DPS_AUDIT.md §3.
-        "compression_T": 70.0,
+        # With honest (living-legs) peak_dpi, WP scores sit ABOVE the old
+        # T=70 knee, where the curve flattened raw 85–110 into an 85–91
+        # mush. T=80 engages compression later so the honest top end keeps
+        # its ordering spread (Haiyan > Yagi > Ragasa).
+        "compression_T": 80.0,
         "compression_S": 2.5,
     },
     "NORTH_INDIAN": {
@@ -291,6 +322,12 @@ def detect_landfall_events(snapshots):
         return "Coast"
 
     def is_near_coast(lat, lon):
+        # [Tranche B] WP coords: waypoint gate (<=50 km) — box ENTRY used to
+        # mint landfall events for storms crossing into the Japan/China
+        # rectangles hundreds of km offshore. Non-WP coords keep boxes.
+        wp = _wp_land_hit(lat, lon)
+        if wp is not None:
+            return wp
         for lat_min, lat_max, lon_min, lon_max, _ in COASTAL_REGIONS:
             if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
                 return True
@@ -384,10 +421,19 @@ def storm_made_land_contact(snapshots, min_count=2, min_wind_ms=33.0):
             continue
         lat = s.get("lat", 0)
         lon = s.get("lon", 0)
-        for lat_min, lat_max, lon_min, lon_max, _ in COASTAL_REGIONS:
-            if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
+        # [Tranche B] WP fixes use the waypoint gate (<=50 km of a real
+        # coastline point). Box membership let loitering recurvers inside
+        # the Japan/China rectangles defeat the no-landfall dampener from
+        # hundreds of km offshore. Non-WP coords keep the box test.
+        wp = _wp_land_hit(lat, lon)
+        if wp is not None:
+            if wp:
                 hits += 1
-                break
+        else:
+            for lat_min, lat_max, lon_min, lon_max, _ in COASTAL_REGIONS:
+                if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
+                    hits += 1
+                    break
         if hits >= min_count:
             return True
     return False
@@ -967,7 +1013,35 @@ def apply_basin_dps_adjustment(cum_dpi, basin, snapshots,
                 adjusted_dps += rainfall_bonus
                 adjustment_notes.append(f"+{rainfall_bonus:.1f}RAIN")
 
-        # 4. [v7 AUDIT] No-landfall dampener.
+        # 4. [Tranche B] Landfall-intensity bonus — the RI replacement.
+        #    Wind while within 50 km of a wp_* coastline waypoint, scaled by
+        #    that waypoint's population density (WP_LFI_POP_NORM). This is
+        #    the Haiyan discriminator: Haiyan crossed Guiuan/Tacloban at
+        #    ~85 m/s (full +12); a Batanes-islet brush at Cat 5 is worth
+        #    ~30% of its wind bonus; an offshore recurver contributes
+        #    nothing. Linear from 50 m/s (Cat 3) to the +12 cap at 78 m/s
+        #    (Haiyan-class). Requires the waypoint module — no box fallback,
+        #    because wind-at-land-BOX rewarded coastal loitering (Saola
+        #    2023: 94.4 on $0.58B).
+        lfi_bonus = 0.0
+        if _lp is not None:
+            for s in snapshots:
+                w = s.get("max_wind_ms", 0) or 0
+                if w < 50.0:
+                    continue
+                hit = _lp.nearest_wp_coast(s.get("lat", 0) or 0,
+                                           s.get("lon", 0) or 0)
+                if hit is None or hit[0] > WP_LFI_KM:
+                    continue
+                pop_scale = min(1.0, hit[2] / WP_LFI_POP_NORM)
+                cand = min(12.0, 12.0 * (w - 50.0) / 28.0) * pop_scale
+                if cand > lfi_bonus:
+                    lfi_bonus = cand
+        if lfi_bonus > 0.1:
+            adjusted_dps += lfi_bonus
+            adjustment_notes.append(f"+{lfi_bonus:.1f}LFI")
+
+        # 5. [v7 AUDIT] No-landfall dampener.
         #    An intensity-extreme open-ocean typhoon (Surigae 2021, Nepartak
         #    2016 recurves, etc.) has real destructive potential but did
         #    not realize it. The formula without this penalty scored pure
@@ -977,7 +1051,7 @@ def apply_basin_dps_adjustment(cum_dpi, basin, snapshots,
         #
         #    Apply a 0.60 dampener when the storm never made a significant
         #    landfall. This is applied LAST so it dampens the full score
-        #    (base × sub-basin + RI + LF + ORO).
+        #    (base + LF + ORO + RAIN + LFI).
         #
         #    "No landfall" is judged by storm_made_land_contact (near a coast at
         #    hurricane intensity), NOT the ocean->coast event count — the event

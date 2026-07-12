@@ -114,6 +114,12 @@ class CoastlineDatabase:
     def __init__(self):
         """Initialize the coastline database with curated waypoints."""
         self.waypoints: List[CoastlineWaypoint] = self._build_waypoints()
+        # WP subset for the Tranche B distance gates (profile assignment,
+        # coastal hours, land contact/LFI) — scanning ~130 points instead of
+        # the full DB keeps the WP predicates cheap and unambiguous.
+        self.wp_waypoints: List[CoastlineWaypoint] = [
+            w for w in self.waypoints if w.region_key.startswith("wp_")
+        ]
 
     def _build_waypoints(self) -> List[CoastlineWaypoint]:
         """
@@ -363,6 +369,222 @@ class CoastlineDatabase:
         waypoints.extend([
             CoastlineWaypoint(23.630, -109.973, "mex_baja", 0.50, "La Paz, Mexico"),
             CoastlineWaypoint(24.283, -110.308, "mex_baja", 0.40, "Todos Santos, Mexico"),
+        ])
+
+        # ================================================================
+        # WESTERN PACIFIC — [WP_DPS_AUDIT_V2 §7, Tranche B 2026-07]
+        # ================================================================
+        # ~130 waypoints activating the WP "living legs": region keys are
+        # wp_* entries in storm_surge.COASTAL_PROFILES / economic_vulnerability
+        # .ECONOMIC_PROFILES. Distance-to-coast from these points drives WP
+        # profile assignment, coastal-hours accrual, land contact, landfall
+        # detection, and the landfall-intensity bonus — replacing the coarse
+        # rectangles whose Japan box spanned 800 km of open Philippine Sea
+        # (Saola 2023 loitering inflation) and whose entry transitions created
+        # fake landfalls. Same curation principle as the Atlantic set:
+        # population centers, surge-prone bays, and canonical landfall points
+        # (Guiuan/Tacloban for Haiyan, Wenchang for Yagi/Rammasun, Shionomisaki
+        # and Izu for Honshu recurvers), not uniform spacing.
+        #
+        # All points sit at lon >= 99.1E so Bay-of-Bengal / Arabian Sea storms
+        # (no NI waypoints yet) keep resolving to open_ocean.
+
+        # ====== PHILIPPINES ====== (region: wp_philippines)
+        waypoints.extend([
+            # Luzon — west coast
+            CoastlineWaypoint(18.200, 120.530, "wp_philippines", 0.40, "Laoag, Ilocos Norte"),
+            CoastlineWaypoint(17.570, 120.390, "wp_philippines", 0.40, "Vigan, Ilocos Sur"),
+            CoastlineWaypoint(16.620, 120.320, "wp_philippines", 0.45, "San Fernando, La Union"),
+            CoastlineWaypoint(16.040, 120.330, "wp_philippines", 0.55, "Dagupan / Lingayen Gulf"),
+            CoastlineWaypoint(15.330, 119.980, "wp_philippines", 0.30, "Iba, Zambales"),
+            CoastlineWaypoint(14.830, 120.280, "wp_philippines", 0.55, "Subic Bay / Olongapo"),
+            CoastlineWaypoint(14.600, 120.980, "wp_philippines", 1.00, "Manila"),
+            CoastlineWaypoint(13.760, 121.060, "wp_philippines", 0.55, "Batangas City"),
+            # Luzon — north & east coast (Pacific-facing landfall corridor)
+            CoastlineWaypoint(18.360, 121.640, "wp_philippines", 0.35, "Aparri, Cagayan"),
+            CoastlineWaypoint(18.470, 122.150, "wp_philippines", 0.20, "Santa Ana, Cagayan"),
+            CoastlineWaypoint(17.060, 122.430, "wp_philippines", 0.15, "Palanan, Isabela"),
+            CoastlineWaypoint(16.280, 122.120, "wp_philippines", 0.25, "Casiguran, Aurora"),
+            CoastlineWaypoint(15.760, 121.560, "wp_philippines", 0.30, "Baler, Aurora"),
+            CoastlineWaypoint(14.750, 121.650, "wp_philippines", 0.35, "Infanta, Quezon"),
+            # Batanes / Babuyan (Luzon Strait)
+            CoastlineWaypoint(20.450, 121.970, "wp_philippines", 0.15, "Basco, Batanes"),
+            CoastlineWaypoint(19.260, 121.470, "wp_philippines", 0.10, "Calayan, Babuyan Is."),
+            # Bicol / Catanduanes
+            CoastlineWaypoint(14.110, 122.960, "wp_philippines", 0.40, "Daet, Camarines Norte"),
+            CoastlineWaypoint(13.620, 123.190, "wp_philippines", 0.45, "Naga / San Miguel Bay"),
+            CoastlineWaypoint(13.140, 123.740, "wp_philippines", 0.55, "Legazpi, Albay"),
+            CoastlineWaypoint(13.580, 124.230, "wp_philippines", 0.35, "Virac, Catanduanes"),
+            CoastlineWaypoint(12.970, 124.010, "wp_philippines", 0.40, "Sorsogon City"),
+            CoastlineWaypoint(12.370, 123.620, "wp_philippines", 0.35, "Masbate City"),
+            # Samar / Leyte (Haiyan corridor)
+            CoastlineWaypoint(12.500, 124.640, "wp_philippines", 0.35, "Catarman, N. Samar"),
+            CoastlineWaypoint(11.610, 125.430, "wp_philippines", 0.30, "Borongan, E. Samar"),
+            CoastlineWaypoint(11.030, 125.720, "wp_philippines", 0.30, "Guiuan, E. Samar"),
+            CoastlineWaypoint(11.240, 125.000, "wp_philippines", 0.60, "Tacloban, Leyte"),
+            CoastlineWaypoint(11.010, 124.610, "wp_philippines", 0.45, "Ormoc, Leyte"),
+            # Visayas — central & western
+            CoastlineWaypoint(11.050, 124.000, "wp_philippines", 0.35, "Bogo, N. Cebu"),
+            CoastlineWaypoint(10.320, 123.900, "wp_philippines", 0.85, "Cebu City"),
+            CoastlineWaypoint(10.680, 122.950, "wp_philippines", 0.60, "Bacolod, Negros"),
+            CoastlineWaypoint(10.700, 122.560, "wp_philippines", 0.60, "Iloilo City"),
+            CoastlineWaypoint(11.590, 122.750, "wp_philippines", 0.45, "Roxas City, Capiz"),
+            CoastlineWaypoint(11.700, 122.370, "wp_philippines", 0.40, "Kalibo, Aklan"),
+            CoastlineWaypoint(9.650, 123.850, "wp_philippines", 0.45, "Tagbilaran, Bohol"),
+            # Mindanao
+            CoastlineWaypoint(9.850, 126.050, "wp_philippines", 0.25, "Siargao Island"),
+            CoastlineWaypoint(9.790, 125.490, "wp_philippines", 0.45, "Surigao City"),
+            CoastlineWaypoint(8.950, 125.540, "wp_philippines", 0.45, "Butuan City"),
+            CoastlineWaypoint(8.480, 124.650, "wp_philippines", 0.60, "Cagayan de Oro"),
+            CoastlineWaypoint(8.370, 126.340, "wp_philippines", 0.20, "Hinatuan, Surigao del Sur"),
+            CoastlineWaypoint(7.070, 125.610, "wp_philippines", 0.70, "Davao City"),
+            CoastlineWaypoint(6.910, 122.080, "wp_philippines", 0.55, "Zamboanga City"),
+            # Palawan / Mindoro (west-exiting storms)
+            CoastlineWaypoint(9.740, 118.740, "wp_philippines", 0.45, "Puerto Princesa, Palawan"),
+            CoastlineWaypoint(12.000, 120.200, "wp_philippines", 0.25, "Coron, Palawan"),
+            CoastlineWaypoint(13.400, 121.180, "wp_philippines", 0.35, "Calapan, Mindoro"),
+        ])
+
+        # ====== TAIWAN ====== (region: wp_taiwan)
+        waypoints.extend([
+            CoastlineWaypoint(25.170, 121.440, "wp_taiwan", 0.95, "Taipei / Tamsui"),
+            CoastlineWaypoint(25.130, 121.740, "wp_taiwan", 0.70, "Keelung"),
+            CoastlineWaypoint(24.600, 121.850, "wp_taiwan", 0.30, "Su'ao, Yilan"),
+            CoastlineWaypoint(23.980, 121.610, "wp_taiwan", 0.45, "Hualien"),
+            CoastlineWaypoint(22.760, 121.150, "wp_taiwan", 0.40, "Taitung"),
+            CoastlineWaypoint(22.000, 120.740, "wp_taiwan", 0.30, "Hengchun / Kenting"),
+            CoastlineWaypoint(22.620, 120.270, "wp_taiwan", 0.85, "Kaohsiung"),
+            CoastlineWaypoint(23.000, 120.180, "wp_taiwan", 0.70, "Tainan"),
+            CoastlineWaypoint(24.250, 120.520, "wp_taiwan", 0.75, "Taichung"),
+        ])
+
+        # ====== JAPAN (incl. Ryukyus) ====== (region: wp_japan)
+        waypoints.extend([
+            # Ryukyu arc
+            CoastlineWaypoint(24.340, 124.160, "wp_japan", 0.35, "Ishigaki, Yaeyama"),
+            CoastlineWaypoint(24.790, 125.280, "wp_japan", 0.35, "Miyakojima"),
+            CoastlineWaypoint(26.210, 127.680, "wp_japan", 0.65, "Naha, Okinawa"),
+            CoastlineWaypoint(26.590, 127.980, "wp_japan", 0.35, "Nago, Okinawa"),
+            CoastlineWaypoint(28.380, 129.490, "wp_japan", 0.30, "Amami Oshima"),
+            CoastlineWaypoint(30.360, 130.520, "wp_japan", 0.15, "Yakushima"),
+            # Kyushu
+            CoastlineWaypoint(31.600, 130.560, "wp_japan", 0.65, "Kagoshima"),
+            CoastlineWaypoint(31.910, 131.420, "wp_japan", 0.55, "Miyazaki"),
+            CoastlineWaypoint(33.240, 131.610, "wp_japan", 0.55, "Oita"),
+            CoastlineWaypoint(32.750, 129.880, "wp_japan", 0.60, "Nagasaki"),
+            CoastlineWaypoint(33.590, 130.400, "wp_japan", 0.80, "Fukuoka / Hakata Bay"),
+            # Shikoku
+            CoastlineWaypoint(33.560, 133.530, "wp_japan", 0.55, "Kochi"),
+            CoastlineWaypoint(33.250, 134.180, "wp_japan", 0.25, "Cape Muroto"),
+            CoastlineWaypoint(33.840, 132.770, "wp_japan", 0.55, "Matsuyama"),
+            CoastlineWaypoint(34.070, 134.550, "wp_japan", 0.50, "Tokushima"),
+            # Honshu — Pacific side (main recurver landfall corridor)
+            CoastlineWaypoint(33.450, 135.760, "wp_japan", 0.35, "Shionomisaki, Wakayama"),
+            CoastlineWaypoint(34.650, 135.430, "wp_japan", 1.00, "Osaka Bay"),
+            CoastlineWaypoint(35.050, 136.850, "wp_japan", 0.95, "Nagoya / Ise Bay"),
+            CoastlineWaypoint(34.680, 137.720, "wp_japan", 0.60, "Hamamatsu"),
+            CoastlineWaypoint(34.680, 138.950, "wp_japan", 0.35, "Izu Peninsula / Shimoda"),
+            CoastlineWaypoint(35.440, 139.640, "wp_japan", 1.00, "Tokyo / Yokohama"),
+            CoastlineWaypoint(35.130, 140.100, "wp_japan", 0.70, "Boso Peninsula, Chiba"),
+            CoastlineWaypoint(35.730, 140.830, "wp_japan", 0.40, "Choshi"),
+            CoastlineWaypoint(38.260, 141.020, "wp_japan", 0.65, "Sendai"),
+            # Sea of Japan side + Hokkaido (ET-transition tracks)
+            CoastlineWaypoint(37.920, 139.040, "wp_japan", 0.55, "Niigata"),
+            CoastlineWaypoint(36.600, 136.620, "wp_japan", 0.50, "Kanazawa"),
+            CoastlineWaypoint(41.770, 140.730, "wp_japan", 0.45, "Hakodate, Hokkaido"),
+            CoastlineWaypoint(42.630, 141.600, "wp_japan", 0.55, "Tomakomai, Hokkaido"),
+        ])
+
+        # ====== KOREAN PENINSULA ====== (region: wp_korea)
+        waypoints.extend([
+            CoastlineWaypoint(33.510, 126.520, "wp_korea", 0.55, "Jeju City"),
+            CoastlineWaypoint(34.790, 126.390, "wp_korea", 0.45, "Mokpo"),
+            CoastlineWaypoint(34.740, 127.740, "wp_korea", 0.45, "Yeosu"),
+            CoastlineWaypoint(35.100, 129.040, "wp_korea", 0.85, "Busan"),
+            CoastlineWaypoint(35.500, 129.420, "wp_korea", 0.60, "Ulsan"),
+            CoastlineWaypoint(36.030, 129.370, "wp_korea", 0.50, "Pohang"),
+            CoastlineWaypoint(37.460, 126.620, "wp_korea", 0.85, "Incheon / Seoul coast"),
+            CoastlineWaypoint(37.770, 128.900, "wp_korea", 0.45, "Gangneung"),
+        ])
+
+        # ====== SOUTH / EAST CHINA COAST ====== (region: wp_south_china)
+        waypoints.extend([
+            # Pearl River Delta & Guangdong
+            CoastlineWaypoint(22.300, 114.170, "wp_south_china", 1.00, "Hong Kong"),
+            CoastlineWaypoint(22.190, 113.540, "wp_south_china", 0.80, "Macau / Zhuhai"),
+            CoastlineWaypoint(22.550, 114.100, "wp_south_china", 1.00, "Shenzhen"),
+            CoastlineWaypoint(21.860, 111.980, "wp_south_china", 0.50, "Yangjiang, Guangdong"),
+            CoastlineWaypoint(21.510, 111.010, "wp_south_china", 0.45, "Maoming, Guangdong"),
+            CoastlineWaypoint(21.270, 110.360, "wp_south_china", 0.55, "Zhanjiang, Guangdong"),
+            CoastlineWaypoint(22.790, 115.350, "wp_south_china", 0.45, "Shanwei, Guangdong"),
+            CoastlineWaypoint(23.350, 116.680, "wp_south_china", 0.60, "Shantou"),
+            # Fujian
+            CoastlineWaypoint(24.480, 118.080, "wp_south_china", 0.75, "Xiamen"),
+            CoastlineWaypoint(24.870, 118.680, "wp_south_china", 0.60, "Quanzhou"),
+            CoastlineWaypoint(26.050, 119.550, "wp_south_china", 0.65, "Fuzhou"),
+            CoastlineWaypoint(26.660, 119.550, "wp_south_china", 0.40, "Ningde, Fujian"),
+            # Zhejiang / Shanghai (Krathon/Bavi-class approach corridor)
+            CoastlineWaypoint(27.990, 120.700, "wp_south_china", 0.65, "Wenzhou"),
+            CoastlineWaypoint(28.660, 121.420, "wp_south_china", 0.55, "Taizhou, Zhejiang"),
+            CoastlineWaypoint(29.880, 121.550, "wp_south_china", 0.70, "Ningbo / Zhoushan"),
+            CoastlineWaypoint(31.230, 121.470, "wp_south_china", 1.00, "Shanghai"),
+            # North of the Yangtze — sparse coverage for ET-transition strikes
+            # (Lekima 2019-class). Keyed wp_south_china: the shallow-shelf,
+            # defended-coast profile is the closest fit for Jiangsu/Bohai.
+            CoastlineWaypoint(32.010, 120.860, "wp_south_china", 0.55, "Nantong, Jiangsu"),
+            CoastlineWaypoint(33.380, 120.160, "wp_south_china", 0.35, "Yancheng coast, Jiangsu"),
+            CoastlineWaypoint(36.070, 120.380, "wp_south_china", 0.70, "Qingdao"),
+            CoastlineWaypoint(37.510, 122.120, "wp_south_china", 0.45, "Weihai"),
+            CoastlineWaypoint(38.910, 121.600, "wp_south_china", 0.65, "Dalian"),
+            CoastlineWaypoint(39.020, 117.710, "wp_south_china", 0.75, "Tianjin / Tanggu"),
+        ])
+
+        # ====== HAINAN / GULF OF TONKIN ====== (region: wp_hainan)
+        waypoints.extend([
+            CoastlineWaypoint(20.040, 110.340, "wp_hainan", 0.60, "Haikou"),
+            CoastlineWaypoint(19.610, 110.750, "wp_hainan", 0.45, "Wenchang, Hainan"),
+            CoastlineWaypoint(19.240, 110.470, "wp_hainan", 0.35, "Qionghai, Hainan"),
+            CoastlineWaypoint(18.250, 109.510, "wp_hainan", 0.55, "Sanya"),
+            CoastlineWaypoint(19.100, 108.650, "wp_hainan", 0.30, "Dongfang, Hainan"),
+            CoastlineWaypoint(20.910, 110.090, "wp_hainan", 0.35, "Leizhou Peninsula"),
+            CoastlineWaypoint(21.480, 109.120, "wp_hainan", 0.45, "Beihai, Guangxi"),
+        ])
+
+        # ====== VIETNAM + GULF OF THAILAND ====== (region: wp_vietnam)
+        waypoints.extend([
+            CoastlineWaypoint(21.530, 107.970, "wp_vietnam", 0.35, "Mong Cai"),
+            CoastlineWaypoint(20.950, 107.080, "wp_vietnam", 0.50, "Ha Long, Quang Ninh"),
+            CoastlineWaypoint(20.860, 106.680, "wp_vietnam", 0.75, "Haiphong"),
+            CoastlineWaypoint(20.210, 106.320, "wp_vietnam", 0.45, "Red River Delta / Nam Dinh"),
+            CoastlineWaypoint(19.730, 105.900, "wp_vietnam", 0.45, "Sam Son, Thanh Hoa"),
+            CoastlineWaypoint(18.680, 105.690, "wp_vietnam", 0.45, "Vinh"),
+            CoastlineWaypoint(17.470, 106.600, "wp_vietnam", 0.35, "Dong Hoi"),
+            CoastlineWaypoint(16.460, 107.590, "wp_vietnam", 0.50, "Hue"),
+            CoastlineWaypoint(16.070, 108.220, "wp_vietnam", 0.70, "Da Nang"),
+            CoastlineWaypoint(15.120, 108.800, "wp_vietnam", 0.40, "Quang Ngai"),
+            CoastlineWaypoint(13.780, 109.220, "wp_vietnam", 0.45, "Quy Nhon"),
+            CoastlineWaypoint(13.080, 109.300, "wp_vietnam", 0.40, "Tuy Hoa"),
+            CoastlineWaypoint(12.240, 109.190, "wp_vietnam", 0.55, "Nha Trang"),
+            CoastlineWaypoint(10.930, 108.100, "wp_vietnam", 0.40, "Phan Thiet"),
+            CoastlineWaypoint(10.350, 107.080, "wp_vietnam", 0.55, "Vung Tau"),
+            CoastlineWaypoint(9.180, 105.150, "wp_vietnam", 0.30, "Ca Mau"),
+            # Gulf of Thailand (rare but real strikes: Linda 1997, Gay 1989,
+            # Pabuk 2019). Keyed wp_vietnam — closest profile fit (low-lying
+            # delta coast, minimal defenses). All points >= 99.1E.
+            CoastlineWaypoint(13.360, 100.980, "wp_vietnam", 0.90, "Bangkok / Gulf head"),
+            CoastlineWaypoint(12.930, 100.880, "wp_vietnam", 0.55, "Pattaya / Chonburi"),
+            CoastlineWaypoint(12.570, 99.960, "wp_vietnam", 0.40, "Hua Hin"),
+            CoastlineWaypoint(10.490, 99.180, "wp_vietnam", 0.35, "Chumphon"),
+            CoastlineWaypoint(9.140, 99.330, "wp_vietnam", 0.35, "Surat Thani / Ko Samui"),
+        ])
+
+        # ====== MARIANA ISLANDS ====== (region: wp_marianas — US territory)
+        waypoints.extend([
+            CoastlineWaypoint(13.480, 144.750, "wp_marianas", 0.60, "Hagåtña, Guam"),
+            CoastlineWaypoint(13.580, 144.920, "wp_marianas", 0.40, "Yigo / Andersen AFB, Guam"),
+            CoastlineWaypoint(15.180, 145.750, "wp_marianas", 0.45, "Saipan"),
+            CoastlineWaypoint(14.980, 145.630, "wp_marianas", 0.20, "Tinian"),
+            CoastlineWaypoint(14.150, 145.200, "wp_marianas", 0.15, "Rota"),
         ])
 
         # ====== OPEN OCEAN REFERENCE POINTS (for fallback distances) ======
@@ -679,6 +901,65 @@ def get_nearest_region(lat: float, lon: float) -> str:
         return "open_ocean"
 
     return region_key
+
+
+# ============================================================================
+#  WESTERN PACIFIC DISTANCE GATES — [WP_DPS_AUDIT_V2 §7, Tranche B]
+# ============================================================================
+# The WP scoring activation is longitude-gated so no Atlantic / EP / southern-
+# hemisphere code path can ever observe a wp_* region: callers outside the
+# window get None and fall through to their pre-Tranche-B behavior, keeping
+# every non-WP baked score bit-identical.
+
+WP_WINDOW_LON_MIN = 95.0
+WP_WINDOW_LON_MAX = 150.0
+WP_WINDOW_LAT_MIN = 0.0
+WP_WINDOW_LAT_MAX = 46.0
+
+
+def in_wp_window(lat: float, lon: float) -> bool:
+    """True if the coordinate is inside the WP scoring-activation window."""
+    return (WP_WINDOW_LAT_MIN <= lat <= WP_WINDOW_LAT_MAX
+            and WP_WINDOW_LON_MIN <= lon <= WP_WINDOW_LON_MAX)
+
+
+@_lru_cache(maxsize=16384)
+def _wp_coast_cached(lat_bin: float, lon_bin: float) -> tuple:
+    """Nearest WP waypoint (distance_km, region_key, population_density)."""
+    db = _get_coastline_db()
+    best_d = float("inf")
+    best = None
+    for wp in db.wp_waypoints:
+        d = db._haversine(lat_bin, lon_bin, wp.lat, wp.lon)
+        if d < best_d:
+            best_d = d
+            best = wp
+    if best is None:  # defensive — wp list is never empty
+        return (float("inf"), "open_ocean", 0.0)
+    return (best_d, best.region_key, best.population_density)
+
+
+def nearest_wp_coast(lat: float, lon: float) -> Optional[Tuple[float, str, float]]:
+    """
+    Distance to the nearest WESTERN PACIFIC coastline waypoint.
+
+    Returns (distance_km, wp_region_key, population_density) for coordinates
+    inside the WP activation window, None outside it. No distance threshold
+    is applied here — callers own their own gates (Tranche B convention:
+    <=150 km profile assignment, <=100 km coastal hours, <=50 km land
+    contact / landfall / landfall-intensity bonus). population_density is
+    the nearest waypoint's 0-1 coastal-exposure proxy: sub-0.20 waypoints
+    are remote islets (Batanes, Calayan, Yakushima, Rota) that anchor
+    landfall DETECTION but confer no living-legs exposure profile, and the
+    landfall-intensity bonus scales by it so an islet brush at Cat 5 never
+    reads like a Tacloban strike.
+    """
+    if not in_wp_window(lat, lon):
+        return None
+    lat_bin = round(float(lat), 1)
+    lon_bin = round(float(lon), 1)
+    dist_km, region_key, pop = _wp_coast_cached(lat_bin, lon_bin)
+    return dist_km, region_key, pop
 
 
 # ============================================================================

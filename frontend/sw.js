@@ -24,7 +24,7 @@
 // v14: bundle diet — the SPA now eager-loads bundle_index.json and fetches
 // bundle_storm/<id>.json on storm open (?v=13). Bump evicts runtime-cached
 // monolith copies so returning visitors get the slim path immediately.
-const CACHE_NAME = 'stormdps-v14';
+const CACHE_NAME = 'stormdps-v15';
 const STATIC_ASSETS = [
   '/',
   '/frontend/index.html',

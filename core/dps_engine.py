@@ -111,9 +111,12 @@ def compute_storm_dps(
     _truth = _gt.get(storm_id) or _gt.get_by_name_year(storm_name, storm_year)
     _observed_rain_in: Optional[float] = None
     # DPS-side rainfall score: the rain_inland / inland_pen factors below gate
-    # and scale on THIS value. It keeps the original 500mm observed-rain boost
-    # so every baked score stays bit-identical — recalibrating the scoring side
-    # belongs to the WP Tranche B ceremony (re-bake + golden-master refreeze).
+    # and scale on THIS value. [Tranche B 2026-07] Recalibrated 500mm → 1000mm
+    # to match the displayed reference below: the 500mm scale rated a
+    # routine 300mm typhoon accumulation at 60/100 and saturated most
+    # landfalling majors, over-feeding the rain_inland factor. This is the
+    # one Tranche B change that can move NON-WP scores (any storm with an
+    # authoritative observed-rain total); movers are audited in the bake A/B.
     _rain_score_for_dps = rain_result.warning_score
     if _truth is not None and _truth.peak_rainfall_in is not None:
         _observed_rain_in = _truth.peak_rainfall_in
@@ -122,7 +125,7 @@ def compute_storm_dps(
         # heuristic estimate.
         rain_result.estimated_total_mm = _observed_rain_mm
         _rain_score_for_dps = max(
-            _rain_score_for_dps, min(100.0, (_observed_rain_mm / 500.0) * 100.0)
+            _rain_score_for_dps, min(100.0, (_observed_rain_mm / 1000.0) * 100.0)
         )
         # DISPLAYED score: 100 ≡ 1000mm (~40 in) observed peak rainfall —
         # genuinely Harvey-class (Harvey peaked at 1539mm / 60.58in). The old

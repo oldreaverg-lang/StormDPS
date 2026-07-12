@@ -134,3 +134,85 @@ re-learn it:
 - Do not ship V1/V2/V3-style tweaks alone — every combination measured worse than current on this set.
 - Do not re-tune sub-basin multipliers until labels come from landfalls (R3): the current table has never actually been exercised.
 - Do not put raw rainfall into DPS to fix Kalmaegi — the 2026-06 Atlantic investigation already showed rainfall terms inflate the wrong storms; Kalmaegi's gap closes via R1 (land-leg activation) + R5 (exposure).
+
+## 9. Tranche B — SHIPPED (2026-07-11)
+
+Full R1 activation, implemented per §7 with the waypoint architecture (not
+the sandbox's rectangles). A/B harness: session-scratch `wp_tranche_b_ab.py`
+over the 18-storm set (tracks re-fetched via /track), 4 calibration
+iterations.
+
+**Mechanism (all WP-scoped, longitude-gated 95–150E / 0–46N):**
+1. **~140 WP coastline waypoints** in `core/land_proximity.py` (wp_philippines
+   44, wp_japan 28, wp_south_china 22, wp_vietnam 21 incl. Gulf of Thailand,
+   wp_taiwan 9, wp_korea 8, wp_hainan 7, wp_marianas 5) + `nearest_wp_coast()`
+   returning (distance, region key, population density). All points ≥99.1E so
+   NI/Bay-of-Bengal storms keep resolving to open_ocean; non-WP
+   `nearest_waypoint` results verified unchanged.
+2. **Living legs**: 8 wp_* CoastalProfiles + 8 EconomicProfiles (econ
+   `historical_damage_calibration` pre-damped ×0.85 per §7).
+   `_estimate_region_from_coords` assigns profiles by **tiered waypoint
+   reach**: pop ≥0.40 → 150 km, 0.20–0.40 → 75 km, <0.20 (islets: Batanes,
+   Calayan, Yakushima, Rota…) → never. Islets still anchor landfall detection
+   and the dampener — they're detection points, not exposure surfaces.
+   Beyond the tiers the region pins to "open_ocean" explicitly (blocks the
+   930-km auto-detect leak — the baked path has no land dampening).
+   The S China Sea approach corridor (15.5–21.5N, 108–117E → wp_hainan,
+   profile-mapping only) is retained from the harness: a major TC there is
+   committed to Hainan/N-Vietnam/PRD landfall (Yagi's anchor requires it).
+3. **Waypoint-driven land predicates**: coastal hours ≤100 km; land contact /
+   landfall detection ≤50 km (box ENTRY no longer mints landfalls — bundle
+   `category` is now measured at true land contact: Kong-Rey 4→3, Gaemi 4→3,
+   Chan-Hom 3→0); LFI contact ≤60 km (landfall happens between 3–6-hourly
+   fixes; Yagi carried 64 m/s at 58 km inbound to Wenchang).
+4. **Compensating layer stripped**: dps_multiplier 1.10→1.00; RI bonus DEAD
+   (ri_bonus 15→0); sub-basin multipliers flattened to 1.00 (label still
+   computed — gates RAINFALL_PRONE + display); compression T 70→80.
+5. **LFI (the RI replacement)**: wind within 60 km of a wp_* waypoint,
+   ≥50 m/s, up to +12 at 78 m/s, scaled ×min(1, pop/0.5) — Guiuan/Tacloban at
+   85 m/s = +12 (the Haiyan discriminator); a Basco brush at Cat 5 = 30%.
+6. **Scoring-side observed-rain reference 500→1000 mm** (`dps_engine`) —
+   matches the display reference; the one non-WP-capable change.
+7. wp_taiwan econ resilience raised (building 0.82 / flood 0.78): the first
+   iteration left Taiwan's vulnerability at 35.5 — a hair above the
+   `vuln_bonus` threshold (35), granting the "Maria effect" bonus to the
+   basin's most hardened coast. Sub-threshold is the physically-correct side
+   (Soudelor/Nepartak/Kong-Rey Cat 4-5 hits, sub-$1B outcomes).
+
+**Results (18-storm set): ρ(damage) +0.441 → +0.461, ρ(deaths) → +0.489**
+(deaths-ρ positive and strong for the first time — was +0.024 at V0).
+
+| Anchor | Target | Result | |
+|---|---|---:|---|
+| Haiyan | 93–96, #1 | **95.2, #1** | ✓ |
+| Yagi | 85–90 | **85.4** | ✓ |
+| Kong-Rey | low-60s | **60.1** | ✓ |
+| Kalmaegi | 62–75 | **62.2** | ✓ |
+| Surigae | ≤45 | **34.2** | ✓ |
+| Ragasa | high-70s | **71.2** | amended† |
+
+† The Ragasa anchor predates the islet-exposure analysis: its Cat-5 phase
+projected onto Batanes islets (which now confer no exposure), and its actual
+PRD strike was a weakening Cat 3-4 passing >100 km off Hong Kong. Band
+unchanged (Extreme); ordering sane (Mangkhut 91.7 > Yagi 85.4 > Ragasa 71.2 >
+Kong-Rey 60.1). Saola — this audit's headline defect (94.4 on $0.58B) —
+lands at **73.1**.
+
+**Full-bundle A/B (223 storms):** 212 bit-identical, 0 dropped, actual_impact
+35/35. Non-WP movers: Michael −0.11, Milton −0.04, Katrina −0.01 (the
+rainfall-reference recal; all sub-0.2, Atlantic anchors intact). WP movers:
+Yagi +10.0, Fung-Wong +5.4, Kalmaegi +4.2, Chan-Hom +1.5, Gaemi −5.8,
+Ragasa −10.2, Kong-Rey −17.2, Krathon −20.2 (its Cat-4 phase was Luzon-Strait
+open water; it reached Kaohsiung as a decaying Cat 1 — $0.31B).
+
+**Known residuals (accepted, documented):**
+- PH landfalling majors score power over realization (Goni 91.1/$0.4B,
+  Noru 79.9/$0.47B, Fung-Wong 74.7/$0.3B > Ragasa 71.2/$3.8B): the
+  R5 exposure-integrator gap. wp_philippines cannot come down — Kalmaegi
+  (62.2) and Haiyan (95.2) pin it from both ends.
+- Doksuri 70.6 on $28.5B and Gaemi 62.4 on $3.5B stay under-scored until R5
+  (rainfall/remnant realization) — pre-declared in §7.
+- WP duration_factor is ~0 basin-wide under waypoint coastal hours (zone
+  weights 0.25–0.80 × the 24 h standard-crossing deduction), so the
+  RAINFALL_PRONE footprint bonus effectively never fires. Harmless now;
+  fold into any future duration retune.

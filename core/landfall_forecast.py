@@ -24,14 +24,18 @@ the forecast center reaches a coastline:
      arrive given the official cone — clamped to [±MIN_HALF_WINDOW_H,
      ±MAX_HALF_WINDOW_H] and to the forecast horizon.
 
-COVERAGE: the waypoint DB is Atlantic-basin only (Gulf, US East Coast,
-Caribbean, Mexico/Central America — lon ≈ −110..−30). For a track wholly
-outside that envelope we must NOT claim "stays offshore" (a typhoon about to
-hit Taiwan is not offshore); instead `coverage` is False and the frontend
-falls back to the global economic-zone machinery (computeForecastERS), which
-covers every basin. Do NOT extend the waypoint DB casually — it feeds the
-DPS scoring path (compute_land_proximity_factor), so new waypoints change
-scores and require the basin-audit + golden-master ceremony.
+COVERAGE: the waypoint DB spans the Atlantic basin (Gulf, US East Coast,
+Caribbean, Mexico/Central America — lon ≈ −110..−30) and, since the
+WP_DPS_AUDIT_V2 Tranche B ceremony (2026-07), the Western Pacific
+(Philippines/Taiwan/Japan/China/Vietnam/Korea/Marianas — lon ≈ 99..146).
+For a track wholly outside those envelopes we must NOT claim "stays
+offshore" (a Bay of Bengal cyclone about to hit Bangladesh is not
+offshore); instead `coverage` is False and the frontend falls back to the
+global economic-zone machinery (computeForecastERS), which covers every
+basin. Do NOT extend the waypoint DB casually — it feeds the DPS scoring
+path (compute_land_proximity_factor and the WP Tranche B distance gates),
+so new waypoints change scores and require the basin-audit +
+golden-master ceremony.
 
 The output is DESCRIPTIVE ONLY. It feeds the public landfall panel; the
 no-protective-action-directives copy policy is enforced at the render layer
@@ -78,6 +82,13 @@ COVERAGE_MARGIN_DEG = 5.0
 # PACIFIC_GAP_LON) means "no coastline data", not "offshore".
 COASTAL_GAP_KM = 500.0
 PACIFIC_GAP_LON = -85.0
+
+# Indian-Ocean gap [Tranche B]: with WP waypoints in the DB the coverage
+# bounding box now spans the whole Indian Ocean, but there are no NI/Arabian
+# Sea coastline waypoints. A closest approach far from the westernmost WP
+# points (Gulf of Thailand, ~99.2E) at eastern longitudes below
+# INDIAN_GAP_LON_MAX is "no coastline data", never "offshore".
+INDIAN_GAP_LON_MAX = 99.0
 
 
 def interp_err_nm(hour: float) -> float:
@@ -231,6 +242,14 @@ def compute_forecast_landfall(forecast_track) -> dict:
     # East-Pacific gap (see constants above): far from every known coastline
     # on the Pacific side means "no data", never "offshore".
     if min_d > COASTAL_GAP_KM and min_lon < PACIFIC_GAP_LON:
+        base["coverage"] = False
+        base["nearest_name"] = None
+        return base
+
+    # Indian-Ocean gap (see constants above): eastern-longitude tracks west
+    # of the Gulf-of-Thailand waypoints with no close coastline are in the
+    # un-waypointed NI basin, not "offshore".
+    if min_d > COASTAL_GAP_KM and 0.0 <= min_lon < INDIAN_GAP_LON_MAX:
         base["coverage"] = False
         base["nearest_name"] = None
         return base

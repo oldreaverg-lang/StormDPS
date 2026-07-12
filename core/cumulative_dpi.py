@@ -53,6 +53,17 @@ from dataclasses import dataclass
 
 from core.dpi import compute_dpi_simple, DPIResult, categorize_dpi
 
+# [WP_DPS_AUDIT_V2 §7, Tranche B] WP land predicates are waypoint-distance
+# driven (core/land_proximity wp_* points), not bounding-box driven — the
+# rectangles couldn't represent the Japan/China coasts (the "tight" Japan box
+# still spanned 800 km of Philippine Sea, so loitering recurvers accrued
+# coastal hours and profile credit they never earned). Fail-soft: if the
+# module is unavailable the box fallback keeps pre-Tranche-B behavior.
+try:
+    from core import land_proximity as _lp
+except ImportError:  # pragma: no cover — land_proximity has no heavy deps
+    _lp = None
+
 logger = logging.getLogger(__name__)
 
 NM_TO_M = 1852.0
@@ -118,6 +129,10 @@ ZONE_WEIGHTS = {
     "Philippines":         0.35,
     "Vietnam / Cambodia":  0.30,
     "Thailand / Laos":     0.25,
+    # [Tranche B] Korea gets its own zone: pre-waypoint geometry lumped the
+    # Korean coast into the Japan box (0.80). 0.55 sits between Taiwan and
+    # Japan — dense, hardened coast but a smaller exposed corridor.
+    "Korea":               0.55,
     # Eastern Pacific — added 2026-05-15 ahead of El Niño 2026 season.
     # Without these entries every EP storm got duration_factor=0 and
     # breadth_factor=0, the same way WP did pre-v9. Calibrated against
@@ -129,6 +144,44 @@ ZONE_WEIGHTS = {
     # Default for any near-coast snapshot not in the above list
     "Open Ocean":          0.0,
 }
+
+# [Tranche B] wp_* waypoint region key → coastal-zone label. Keeps the
+# zone-weight system (and its US-centric calibration) unchanged while the
+# WP near-coast predicate moves from boxes to waypoint distance.
+WP_KEY_TO_ZONE = {
+    "wp_philippines": "Philippines",
+    "wp_taiwan":      "Taiwan",
+    "wp_japan":       "Japan",
+    "wp_korea":       "Korea",
+    "wp_south_china": "China",
+    "wp_hainan":      "China",
+    "wp_vietnam":     "Vietnam / Cambodia",
+    "wp_marianas":    "Mariana Islands",
+}
+
+# Tranche B distance gate (km) against the wp_* waypoints
+WP_COASTAL_KM = 100.0   # coastal-hours / duration / breadth accrual
+
+# Living-legs profile reach is TIERED by the waypoint's population density —
+# the distance at which a coast projects economic/surge exposure scales with
+# how much coast that waypoint represents. Sub-0.20 points are remote islets
+# (Batanes, Calayan, Palanan, Yakushima, Rota) that anchor landfall detection
+# and the no-landfall dampener but represent no exposure surface: without
+# the gate a Luzon-Strait Cat 5 brushing Basco collected the full Philippines
+# surge/econ legs and out-scored actual PRD strikes (Ragasa 89 / Kong-Rey 74 /
+# Saola 86 in calibration run 1). Mid-density points (small coastal towns)
+# reach 75 km; city-scale coasts reach the full 150 km.
+WP_PROFILE_TIERS = (
+    (0.40, 150.0),   # city-scale coast: full profile reach
+    (0.20, 75.0),    # town-scale coast: storm must be closing in
+)                    # < 0.20: islet — no exposure profile at any distance
+
+# South China Sea approach corridor (Paracels): a major TC here is hours
+# from Hainan / N Vietnam / PRD landfall — the semi-enclosed sea leaves no
+# recurve exit, so peak intensity in the corridor is committed destructive
+# power (Yagi 2024, Rammasun 2014). Profile-mapping ONLY: never counts as
+# land contact, landfall, or coastal hours. (From wp_recal_harness S5.)
+WP_SCS_CORRIDOR = (15.5, 21.5, 108.0, 117.0)
 
 # Simple land proximity check: lat/lon bounding boxes for US coastal zones
 # A snapshot is "near coast" if it falls within these boxes.
@@ -225,8 +278,33 @@ def _plausible_ike_tj(snapshot: Dict) -> float:
     return min(ike, 20.0) if implausible else ike
 
 
+def _wp_coast_hit(lat: float, lon: float, radius_km: float):
+    """
+    [Tranche B] Waypoint-distance test for WP-window coordinates.
+
+    Returns the wp_* region key if the point is within radius_km of a WP
+    coastline waypoint, "" if it's in the WP window but too far from land,
+    or None if outside the window / module unavailable (caller falls back
+    to the bounding-box test — pre-Tranche-B behavior).
+    """
+    if _lp is None:
+        return None
+    hit = _lp.nearest_wp_coast(lat, lon)
+    if hit is None:
+        return None
+    dist_km, region_key, _pop = hit
+    return region_key if dist_km <= radius_km else ""
+
+
 def _is_near_coast(lat: float, lon: float) -> bool:
-    """Quick check if a lat/lon is within a US coastal bounding box."""
+    """Quick check if a lat/lon is near a populated coast.
+
+    WP-window coordinates use waypoint distance (<=100 km) — see
+    _wp_coast_hit. Everything else keeps the bounding-box test.
+    """
+    wp = _wp_coast_hit(lat, lon, WP_COASTAL_KM)
+    if wp is not None:
+        return bool(wp)
     for lat_min, lat_max, lon_min, lon_max, _ in COASTAL_BOXES:
         if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
             return True
@@ -235,6 +313,9 @@ def _is_near_coast(lat: float, lon: float) -> bool:
 
 def _get_coastal_label(lat: float, lon: float) -> str:
     """Get the coastal zone label for a lat/lon."""
+    wp = _wp_coast_hit(lat, lon, WP_COASTAL_KM)
+    if wp is not None:
+        return WP_KEY_TO_ZONE.get(wp, "Open Ocean") if wp else "Open Ocean"
     for lat_min, lat_max, lon_min, lon_max, label in COASTAL_BOXES:
         if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
             return label
@@ -305,6 +386,25 @@ def _estimate_region_from_coords(lat: float, lon: float) -> Optional[str]:
         return "carib_pr"
     if 22.0 <= lat <= 27.5 and -80.0 <= lon <= -72.0:
         return "carib_bahamas"
+    # [WP_DPS_AUDIT_V2 §7, Tranche B] Western Pacific living legs: within
+    # the tiered profile reach of a wp_* coastline waypoint the snapshot
+    # gets the matching coastal/economic profile. Beyond the gates the
+    # region is pinned to "open_ocean" EXPLICITLY — returning None here
+    # would let the surge/econ formulas auto-detect via
+    # land_proximity.get_nearest_region, whose 930 km threshold would light
+    # the legs up for storms sitting half a basin offshore (the baked path
+    # applies no land dampening, so that generosity would be undamped).
+    if _lp is not None:
+        hit = _lp.nearest_wp_coast(lat, lon)
+        if hit is not None:
+            dist_km, key, pop = hit
+            for min_pop, max_km in WP_PROFILE_TIERS:
+                if pop >= min_pop and dist_km <= max_km:
+                    return key
+            la0, la1, lo0, lo1 = WP_SCS_CORRIDOR
+            if la0 <= lat <= la1 and lo0 <= lon <= lo1:
+                return "wp_hainan"
+            return "open_ocean"
     return None
 
 

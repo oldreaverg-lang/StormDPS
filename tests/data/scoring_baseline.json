@@ -1,33 +1,33 @@
 {
 "2015180N09160": {
-"category": 3,
-"dps": 68.31651076,
+"category": 0,
+"dps": 69.775,
 "dps_label": "Extreme"
 },
 "2024201N12133": {
-"category": 4,
-"dps": 68.21004444444446,
+"category": 3,
+"dps": 62.40615873015874,
 "dps_label": "Extreme"
 },
 "2024244N09137": {
 "category": 3,
-"dps": 75.37174087624837,
-"dps_label": "Extreme"
+"dps": 85.38134071208215,
+"dps_label": "Devastating"
 },
 "2024270N24128": {
 "category": 4,
-"dps": 65.06486999999998,
-"dps_label": "Extreme"
+"dps": 44.87956571428571,
+"dps_label": "Severe"
 },
 "2024298N13150": {
-"category": 4,
-"dps": 77.28754290190895,
+"category": 3,
+"dps": 60.062555555555555,
 "dps_label": "Extreme"
 },
 "2025262N16133": {
 "category": 5,
-"dps": 81.4441789270227,
-"dps_label": "Devastating"
+"dps": 71.24828,
+"dps_label": "Extreme"
 },
 "2025278N15254": {
 "category": 3,
@@ -36,12 +36,12 @@
 },
 "2025305N10138": {
 "category": 3,
-"dps": 57.96087888888889,
-"dps_label": "Severe"
+"dps": 62.19923174603175,
+"dps_label": "Extreme"
 },
 "2025308N10143": {
 "category": 3,
-"dps": 69.22292300000001,
+"dps": 74.66220714285714,
 "dps_label": "Extreme"
 },
 "2025322S10131": {
@@ -681,7 +681,7 @@
 },
 "AL122005": {
 "category": 4,
-"dps": 93.98299350047567,
+"dps": 93.9752091006914,
 "dps_label": "Historic"
 },
 "AL122015": {
@@ -801,7 +801,7 @@
 },
 "AL142018": {
 "category": 5,
-"dps": 81.68919083644761,
+"dps": 81.57423833667578,
 "dps_label": "Devastating"
 },
 "AL142019": {
@@ -831,7 +831,7 @@
 },
 "AL142024": {
 "category": 3,
-"dps": 81.06872739286244,
+"dps": 81.03724977867216,
 "dps_label": "Devastating"
 },
 "AL152016": {

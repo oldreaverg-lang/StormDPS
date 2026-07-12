@@ -104,9 +104,10 @@ def test_offshore_closest_approach_names_real_coast():
     assert "reference" not in lf["nearest_name"].lower()
 
 
-def test_west_pacific_track_reports_no_coverage_not_offshore():
-    # BAVI-like WP typhoon heading for Taiwan — the Atlantic-only waypoint DB
-    # must flag missing coverage, NEVER claim "stays offshore".
+def test_west_pacific_track_is_covered_and_lands_on_taiwan():
+    # [Tranche B] BAVI-like WP typhoon heading for Taiwan — the WP waypoints
+    # now give the panel real coverage and a forecast landfall with a wp_*
+    # region key.
     wp_track = [
         _pt(0, 20.8, 127.3, 75),
         _pt(24, 22.5, 124.5, 85),
@@ -114,10 +115,27 @@ def test_west_pacific_track_reports_no_coverage_not_offshore():
         _pt(72, 24.5, 119.5, 70),
     ]
     lf = compute_forecast_landfall(wp_track)
+    assert lf["coverage"] is True
+    assert lf["expected"] is True
+    assert lf["region_key"] == "wp_taiwan"
+    assert lf["nearest_name"], "landfall waypoint name should be populated"
+    assert 24 <= lf["eta_hour"] <= 60
+
+
+def test_north_indian_track_reports_no_coverage_not_offshore():
+    # Bay of Bengal cyclone heading for Bangladesh — inside the (now
+    # Atlantic+WP-wide) coverage bounding box but far from every waypoint.
+    # Must flag missing coverage, NEVER claim "stays offshore".
+    ni_track = [
+        _pt(0, 12.0, 88.0, 70),
+        _pt(24, 15.0, 89.0, 85),
+        _pt(48, 18.5, 90.0, 90),
+        _pt(72, 21.5, 91.0, 75),   # ~Bangladesh coast
+    ]
+    lf = compute_forecast_landfall(ni_track)
     assert lf["coverage"] is False
     assert lf["expected"] is False
     assert lf["description"] == ""  # frontend switches to zone-approach mode
-    assert "offshore" not in lf["description"]
 
 
 def test_already_at_coast_reports_now():

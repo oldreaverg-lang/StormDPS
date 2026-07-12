@@ -413,6 +413,92 @@ COASTAL_PROFILES = {
         antecedent_moisture=0.75,  # Tropical forests, high year-round moisture
         bathymetric_concavity=0.10,  # Varied coastline, some bays (Honduras)
     ),
+    # === Western Pacific — [WP_DPS_AUDIT_V2 §7, Tranche B 2026-07] ===
+    # First-iteration profiles prototyped in scratch/wp_recal_harness.py
+    # (stages S3–S5) and validated against the 18-storm WP set. Region keys
+    # are assigned by the wp_* coastline waypoints in core/land_proximity.py
+    # (<=150 km profile gate in cumulative_dpi._estimate_region_from_coords).
+    "wp_philippines": CoastalProfile(
+        name="Philippines Archipelago",
+        shelf_width_km=40, avg_slope=0.002, surge_amplification=1.30,
+        rain_enhancement=1.30, tidal_range_m=1.2, wetland_buffer=0.06,
+        bay_funneling=1.35,   # San Pedro Bay funneled Haiyan's 5-7 m surge onto Tacloban
+        coastal_defense=0.02,
+        river_basin_factor=1.10,
+        antecedent_moisture=0.75,  # wet-season archipelago, saturated uplands
+        bathymetric_concavity=0.35,  # Leyte Gulf / Lingayen Gulf embayments
+    ),
+    "wp_taiwan": CoastalProfile(
+        name="Taiwan",
+        shelf_width_km=25, avg_slope=0.01, surge_amplification=0.95,
+        rain_enhancement=1.60,  # Central Mountain Range — Morakot 2009: 2,777 mm
+        tidal_range_m=2.0, wetland_buffer=0.02, bay_funneling=1.05,
+        coastal_defense=0.20,
+        river_basin_factor=1.15,
+        antecedent_moisture=0.65,
+        bathymetric_concavity=0.05,  # steep east coast drops to 4,000 m offshore
+    ),
+    "wp_south_china": CoastalProfile(
+        name="South/East China Coast (PRD to Zhejiang)",
+        shelf_width_km=150, avg_slope=0.0004, surge_amplification=1.45,
+        rain_enhancement=1.15, tidal_range_m=1.6, wetland_buffer=0.08,
+        bay_funneling=1.30,   # Pearl River estuary (Hato 2017, Mangkhut 2018 surge)
+        coastal_defense=0.25,  # extensive seawall program post-2010s
+        river_basin_factor=1.15,
+        antecedent_moisture=0.70,
+        bathymetric_concavity=0.25,
+    ),
+    "wp_vietnam": CoastalProfile(
+        name="Vietnam Coast",
+        shelf_width_km=120, avg_slope=0.0005, surge_amplification=1.35,
+        rain_enhancement=1.25, tidal_range_m=2.2, wetland_buffer=0.12,
+        bay_funneling=1.15,
+        coastal_defense=0.08,
+        river_basin_factor=1.30,  # Red River / Mekong delta flood cascades (Yagi 2024)
+        antecedent_moisture=0.80,  # monsoon-saturated lowlands
+        bathymetric_concavity=0.15,
+    ),
+    "wp_japan": CoastalProfile(
+        name="Japan (incl. Ryukyus)",
+        shelf_width_km=60, avg_slope=0.003, surge_amplification=1.10,
+        rain_enhancement=1.35,  # steep river basins — Hagibis 2019 inland flooding
+        tidal_range_m=1.5, wetland_buffer=0.02,
+        bay_funneling=1.30,   # Tokyo / Ise / Osaka Bay funneling (Isewan 1959: 3.5 m)
+        coastal_defense=0.35,  # most engineered coast in the basin
+        river_basin_factor=1.20,
+        antecedent_moisture=0.60,
+        bathymetric_concavity=0.20,
+    ),
+    "wp_korea": CoastalProfile(
+        name="Korean Peninsula",
+        shelf_width_km=80, avg_slope=0.001, surge_amplification=1.20,
+        rain_enhancement=1.15, tidal_range_m=2.5,  # Yellow Sea macro-tidal
+        wetland_buffer=0.05, bay_funneling=1.15,
+        coastal_defense=0.25,
+        river_basin_factor=1.10,
+        antecedent_moisture=0.60,
+        bathymetric_concavity=0.10,
+    ),
+    "wp_hainan": CoastalProfile(
+        name="Hainan / Gulf of Tonkin",
+        shelf_width_km=90, avg_slope=0.0008, surge_amplification=1.25,
+        rain_enhancement=1.15, tidal_range_m=1.8, wetland_buffer=0.08,
+        bay_funneling=1.10,
+        coastal_defense=0.08,
+        river_basin_factor=1.05,
+        antecedent_moisture=0.70,
+        bathymetric_concavity=0.10,
+    ),
+    "wp_marianas": CoastalProfile(
+        name="Mariana Islands",
+        shelf_width_km=5, avg_slope=0.05, surge_amplification=0.75,
+        rain_enhancement=1.05, tidal_range_m=0.7, wetland_buffer=0.02,
+        bay_funneling=1.00,
+        coastal_defense=0.05,
+        river_basin_factor=1.00,
+        antecedent_moisture=0.60,
+        bathymetric_concavity=0.05,  # no shelf — reef drops straight to trench
+    ),
     "open_ocean": CoastalProfile(
         name="Open Ocean (No Coastal Effects)",
         shelf_width_km=0, avg_slope=0, surge_amplification=0.0,
