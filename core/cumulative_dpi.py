@@ -141,6 +141,20 @@ ZONE_WEIGHTS = {
     "Baja California":     0.30,  # Cabo, La Paz — sparse coast, low density
     "Central America Pacific": 0.40,  # El Salvador, Guatemala, Nicaragua coast
     "Hawaii":              0.55,  # Oahu metro / Hilo / Maui — dense small islands, high-value
+    # Southern Hemisphere — [SH_DPS_AUDIT 2026-07]. Without these every SI/SP
+    # storm accrued duration_factor=0 / breadth_factor=0 (open-ocean).
+    "E Australia":         0.70,  # Queensland — hardened, high value
+    "New Zealand":         0.70,  # N Island — high value, ex-TC river floods
+    "Mascarene":           0.45,  # Mauritius / Réunion — dense, wealthy islands
+    "Fiji":                0.45,
+    "Mozambique":          0.35,  # dense, poor, surge/flood-prone
+    "Madagascar":          0.35,
+    "New Caledonia":       0.45,
+    "Tonga / Samoa":       0.30,
+    "Vanuatu":             0.30,
+    "Solomon":             0.25,
+    "Timor":               0.30,
+    "W Australia":         0.20,  # Pilbara/Kimberley — among the emptiest coasts
     # Default for any near-coast snapshot not in the above list
     "Open Ocean":          0.0,
 }
@@ -182,6 +196,29 @@ WP_PROFILE_TIERS = (
 # power (Yagi 2024, Rammasun 2014). Profile-mapping ONLY: never counts as
 # land contact, landfall, or coastal hours. (From wp_recal_harness S5.)
 WP_SCS_CORRIDOR = (15.5, 21.5, 108.0, 117.0)
+
+# [SH_DPS_AUDIT 2026-07] sh_* waypoint region key → coastal-zone label +
+# the same tiered profile reach as WP. Southern-latitude gated in
+# land_proximity so no NH storm can observe these.
+SH_KEY_TO_ZONE = {
+    "sh_mozambique":     "Mozambique",
+    "sh_madagascar":     "Madagascar",
+    "sh_mascarene":      "Mascarene",
+    "sh_w_australia":    "W Australia",
+    "sh_e_australia":    "E Australia",
+    "sh_fiji":           "Fiji",
+    "sh_vanuatu":        "Vanuatu",
+    "sh_new_caledonia":  "New Caledonia",
+    "sh_tonga_samoa":    "Tonga / Samoa",
+    "sh_new_zealand":    "New Zealand",
+    "sh_solomon":        "Solomon",
+    "sh_timor":          "Timor",
+}
+SH_COASTAL_KM = 100.0
+SH_PROFILE_TIERS = (
+    (0.40, 150.0),   # city-scale coast: full profile reach
+    (0.20, 75.0),    # town-scale coast: storm must be closing in
+)                    # < 0.20: sparse coast (Pilbara/remote islands) — detection only
 
 # Simple land proximity check: lat/lon bounding boxes for US coastal zones
 # A snapshot is "near coast" if it falls within these boxes.
@@ -296,15 +333,29 @@ def _wp_coast_hit(lat: float, lon: float, radius_km: float):
     return region_key if dist_km <= radius_km else ""
 
 
+def _sh_coast_hit(lat: float, lon: float, radius_km: float):
+    """[SH_DPS_AUDIT] Southern-hemisphere analog of _wp_coast_hit."""
+    if _lp is None:
+        return None
+    hit = _lp.nearest_sh_coast(lat, lon)
+    if hit is None:
+        return None
+    dist_km, region_key, _pop = hit
+    return region_key if dist_km <= radius_km else ""
+
+
 def _is_near_coast(lat: float, lon: float) -> bool:
     """Quick check if a lat/lon is near a populated coast.
 
-    WP-window coordinates use waypoint distance (<=100 km) — see
-    _wp_coast_hit. Everything else keeps the bounding-box test.
+    WP-window and SH-window coordinates use waypoint distance (<=100 km);
+    everything else keeps the bounding-box test.
     """
     wp = _wp_coast_hit(lat, lon, WP_COASTAL_KM)
     if wp is not None:
         return bool(wp)
+    sh = _sh_coast_hit(lat, lon, SH_COASTAL_KM)
+    if sh is not None:
+        return bool(sh)
     for lat_min, lat_max, lon_min, lon_max, _ in COASTAL_BOXES:
         if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
             return True
@@ -316,6 +367,9 @@ def _get_coastal_label(lat: float, lon: float) -> str:
     wp = _wp_coast_hit(lat, lon, WP_COASTAL_KM)
     if wp is not None:
         return WP_KEY_TO_ZONE.get(wp, "Open Ocean") if wp else "Open Ocean"
+    sh = _sh_coast_hit(lat, lon, SH_COASTAL_KM)
+    if sh is not None:
+        return SH_KEY_TO_ZONE.get(sh, "Open Ocean") if sh else "Open Ocean"
     for lat_min, lat_max, lon_min, lon_max, label in COASTAL_BOXES:
         if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
             return label
@@ -404,6 +458,17 @@ def _estimate_region_from_coords(lat: float, lon: float) -> Optional[str]:
             la0, la1, lo0, lo1 = WP_SCS_CORRIDOR
             if la0 <= lat <= la1 and lo0 <= lon <= lo1:
                 return "wp_hainan"
+            return "open_ocean"
+        # [SH_DPS_AUDIT] Southern Hemisphere living legs — identical tiered
+        # reach, southern-latitude gated (in_sh_window). Same explicit
+        # open_ocean pin beyond the tiers so the 930 km auto-detect can't
+        # light the legs up mid-ocean.
+        sh_hit = _lp.nearest_sh_coast(lat, lon)
+        if sh_hit is not None:
+            dist_km, key, pop = sh_hit
+            for min_pop, max_km in SH_PROFILE_TIERS:
+                if pop >= min_pop and dist_km <= max_km:
+                    return key
             return "open_ocean"
     return None
 

@@ -46,28 +46,28 @@
 },
 "2025322S10131": {
 "category": 3,
-"dps": 27.9,
-"dps_label": "Moderate"
+"dps": 16.74,
+"dps_label": "Low"
 },
 "2026010S17148": {
 "category": 0,
-"dps": 16.5,
-"dps_label": "Low"
+"dps": 20.04,
+"dps_label": "Moderate"
 },
 "2026011S14076": {
 "category": 4,
-"dps": 35.844,
+"dps": 20.88,
 "dps_label": "Moderate"
 },
 "2026051S15076": {
 "category": 5,
-"dps": 42.43600000000001,
-"dps_label": "Severe"
+"dps": 24.720000000000002,
+"dps_label": "Moderate"
 },
 "2026076S12157": {
 "category": 0,
-"dps": 22.8,
-"dps_label": "Moderate"
+"dps": 13.68,
+"dps_label": "Low"
 },
 "AL012015": {
 "category": 0,

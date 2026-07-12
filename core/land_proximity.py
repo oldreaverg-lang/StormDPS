@@ -120,6 +120,10 @@ class CoastlineDatabase:
         self.wp_waypoints: List[CoastlineWaypoint] = [
             w for w in self.waypoints if w.region_key.startswith("wp_")
         ]
+        # SH subset (same architecture, southern-hemisphere gate).
+        self.sh_waypoints: List[CoastlineWaypoint] = [
+            w for w in self.waypoints if w.region_key.startswith("sh_")
+        ]
 
     def _build_waypoints(self) -> List[CoastlineWaypoint]:
         """
@@ -587,6 +591,165 @@ class CoastlineDatabase:
             CoastlineWaypoint(14.150, 145.200, "wp_marianas", 0.15, "Rota"),
         ])
 
+        # ================================================================
+        # SOUTHERN HEMISPHERE — [SH_DPS_AUDIT, Tranche 2026-07]
+        # ================================================================
+        # ~110 waypoints activating the SH "living legs": region keys are sh_*
+        # entries in storm_surge.COASTAL_PROFILES / economic_vulnerability
+        # .ECONOMIC_PROFILES. Same architecture as WP — distance-to-coast from
+        # these points drives profile assignment, coastal-hours accrual, land
+        # contact, landfall detection, and the landfall-intensity bonus. Before
+        # this every SI/SP storm scored open-ocean (Idai 31 / Gabrielle 29 /
+        # Cat-5 Ilsa on an empty coast 42, all indistinguishable).
+        #
+        # The activation is SOUTHERN-LATITUDE gated (lat < 0), so no Northern-
+        # Hemisphere basin (Atlantic/EP/WP/NI — every baked storm) can ever see
+        # an sh_* region. population_density carries the exposure signal: the
+        # Pilbara/Kimberley points are deliberately sparse (0.05–0.10) so a
+        # Cat-5 on an empty coast (Ilsa) stays low, while Suva/Beira/Auckland
+        # are dense.
+
+        # ====== MOZAMBIQUE ====== (sh_mozambique — high vuln, surge-prone)
+        waypoints.extend([
+            CoastlineWaypoint(-11.350, 40.370, "sh_mozambique", 0.15, "Palma / Mocímboa"),  # sparse N coast
+            CoastlineWaypoint(-12.230, 40.530, "sh_mozambique", 0.15, "Macomia / Ibo"),  # Kenneth — sparse
+            CoastlineWaypoint(-12.970, 40.520, "sh_mozambique", 0.45, "Pemba"),
+            CoastlineWaypoint(-14.540, 40.670, "sh_mozambique", 0.40, "Nacala"),
+            CoastlineWaypoint(-16.230, 39.910, "sh_mozambique", 0.30, "Angoche"),
+            CoastlineWaypoint(-17.880, 36.890, "sh_mozambique", 0.50, "Quelimane"),
+            CoastlineWaypoint(-19.840, 34.840, "sh_mozambique", 0.70, "Beira"),  # Idai surge disaster; below sea level
+            CoastlineWaypoint(-20.750, 34.730, "sh_mozambique", 0.25, "Nova Mambone"),
+            CoastlineWaypoint(-22.010, 35.310, "sh_mozambique", 0.35, "Vilankulo"),
+            CoastlineWaypoint(-23.860, 35.380, "sh_mozambique", 0.40, "Inhambane"),
+            CoastlineWaypoint(-25.050, 33.640, "sh_mozambique", 0.40, "Xai-Xai"),
+            CoastlineWaypoint(-25.970, 32.570, "sh_mozambique", 0.75, "Maputo"),
+        ])
+
+        # ====== MADAGASCAR ====== (sh_madagascar — high vuln, E-coast facing)
+        waypoints.extend([
+            CoastlineWaypoint(-12.280, 49.290, "sh_madagascar", 0.45, "Antsiranana (Diego)"),
+            CoastlineWaypoint(-14.900, 50.280, "sh_madagascar", 0.35, "Antalaha"),
+            CoastlineWaypoint(-15.720, 46.320, "sh_madagascar", 0.45, "Mahajanga"),
+            CoastlineWaypoint(-16.170, 49.750, "sh_madagascar", 0.25, "Maroantsetra"),
+            CoastlineWaypoint(-18.150, 49.400, "sh_madagascar", 0.60, "Toamasina (Tamatave)"),
+            CoastlineWaypoint(-19.900, 48.800, "sh_madagascar", 0.25, "Mahanoro"),
+            CoastlineWaypoint(-20.280, 44.280, "sh_madagascar", 0.30, "Morondava"),
+            CoastlineWaypoint(-21.230, 48.340, "sh_madagascar", 0.30, "Mananjary"),  # Batsirai landfall
+            CoastlineWaypoint(-22.130, 48.020, "sh_madagascar", 0.30, "Manakara"),
+            CoastlineWaypoint(-22.820, 47.830, "sh_madagascar", 0.25, "Farafangana"),
+            CoastlineWaypoint(-23.350, 43.670, "sh_madagascar", 0.40, "Toliara (Tulear)"),
+            CoastlineWaypoint(-25.030, 46.990, "sh_madagascar", 0.20, "Fort Dauphin (Tolagnaro)"),
+            CoastlineWaypoint(-13.320, 48.260, "sh_madagascar", 0.20, "Nosy Be"),
+        ])
+
+        # ====== MASCARENE ISLANDS ====== (sh_mascarene — Mauritius / Réunion)
+        waypoints.extend([
+            CoastlineWaypoint(-20.160, 57.500, "sh_mascarene", 0.65, "Port Louis, Mauritius"),
+            CoastlineWaypoint(-20.520, 57.520, "sh_mascarene", 0.35, "Grand Baie, Mauritius"),
+            CoastlineWaypoint(-20.880, 55.450, "sh_mascarene", 0.55, "Saint-Denis, Réunion"),
+            CoastlineWaypoint(-21.340, 55.480, "sh_mascarene", 0.35, "Saint-Pierre, Réunion"),
+            CoastlineWaypoint(-19.690, 63.420, "sh_mascarene", 0.15, "Rodrigues"),
+        ])
+
+        # ====== WESTERN / NW AUSTRALIA ====== (sh_w_australia — SPARSE Pilbara/
+        # Kimberley: the empty-coast exposure discriminator. Ilsa (Cat 5, 2023)
+        # crossed near Pardoo, one of the least-populated coasts on Earth.)
+        waypoints.extend([
+            CoastlineWaypoint(-14.300, 126.600, "sh_w_australia", 0.05, "Kimberley coast (remote)"),
+            CoastlineWaypoint(-15.480, 128.120, "sh_w_australia", 0.10, "Wyndham"),
+            CoastlineWaypoint(-17.960, 122.240, "sh_w_australia", 0.30, "Broome"),
+            CoastlineWaypoint(-19.600, 120.000, "sh_w_australia", 0.05, "Pardoo / Eighty Mile Beach"),  # Ilsa
+            CoastlineWaypoint(-20.310, 118.610, "sh_w_australia", 0.35, "Port Hedland"),
+            CoastlineWaypoint(-20.740, 116.850, "sh_w_australia", 0.35, "Karratha / Dampier"),
+            CoastlineWaypoint(-21.640, 115.110, "sh_w_australia", 0.12, "Onslow"),
+            CoastlineWaypoint(-21.930, 114.130, "sh_w_australia", 0.20, "Exmouth"),
+            CoastlineWaypoint(-24.880, 113.660, "sh_w_australia", 0.25, "Carnarvon"),
+            CoastlineWaypoint(-25.930, 113.530, "sh_w_australia", 0.08, "Denham / Shark Bay"),
+            CoastlineWaypoint(-27.710, 114.160, "sh_w_australia", 0.20, "Kalbarri"),  # Seroja landfall
+            CoastlineWaypoint(-28.770, 114.610, "sh_w_australia", 0.35, "Geraldton"),
+        ])
+
+        # ====== EASTERN AUSTRALIA ====== (sh_e_australia — Queensland, hardened
+        # + high value; Yasi / Debbie zone)
+        waypoints.extend([
+            CoastlineWaypoint(-15.470, 145.250, "sh_e_australia", 0.15, "Cooktown"),
+            CoastlineWaypoint(-16.920, 145.770, "sh_e_australia", 0.55, "Cairns"),
+            CoastlineWaypoint(-17.520, 146.030, "sh_e_australia", 0.30, "Innisfail"),  # Yasi landfall
+            CoastlineWaypoint(-18.650, 146.160, "sh_e_australia", 0.20, "Cardwell"),
+            CoastlineWaypoint(-19.260, 146.820, "sh_e_australia", 0.55, "Townsville"),
+            CoastlineWaypoint(-20.010, 148.250, "sh_e_australia", 0.30, "Bowen"),  # Debbie
+            CoastlineWaypoint(-20.270, 148.720, "sh_e_australia", 0.35, "Airlie / Whitsundays"),  # Debbie
+            CoastlineWaypoint(-21.140, 149.190, "sh_e_australia", 0.45, "Mackay"),
+            CoastlineWaypoint(-23.380, 150.510, "sh_e_australia", 0.40, "Rockhampton"),
+            CoastlineWaypoint(-23.840, 151.260, "sh_e_australia", 0.35, "Gladstone"),
+            CoastlineWaypoint(-24.870, 152.350, "sh_e_australia", 0.35, "Bundaberg"),
+            CoastlineWaypoint(-25.290, 152.820, "sh_e_australia", 0.30, "Hervey Bay"),
+            CoastlineWaypoint(-26.650, 153.070, "sh_e_australia", 0.55, "Sunshine Coast"),
+            CoastlineWaypoint(-27.470, 153.030, "sh_e_australia", 0.85, "Brisbane"),
+            CoastlineWaypoint(-28.000, 153.430, "sh_e_australia", 0.70, "Gold Coast"),
+        ])
+
+        # ====== FIJI ====== (sh_fiji — Winston 2016 direct hit; Viti/Vanua Levu)
+        waypoints.extend([
+            CoastlineWaypoint(-18.140, 178.440, "sh_fiji", 0.70, "Suva"),
+            CoastlineWaypoint(-17.800, 177.420, "sh_fiji", 0.55, "Nadi"),
+            CoastlineWaypoint(-17.610, 177.450, "sh_fiji", 0.45, "Lautoka"),
+            CoastlineWaypoint(-17.360, 178.170, "sh_fiji", 0.25, "Rakiraki"),  # Winston eyewall
+            CoastlineWaypoint(-16.430, 179.360, "sh_fiji", 0.30, "Labasa (Vanua Levu)"),
+            CoastlineWaypoint(-16.780, -179.940, "sh_fiji", 0.15, "Taveuni"),
+        ])
+
+        # ====== VANUATU ====== (sh_vanuatu — Pam 2015 / Harold 2020; vuln SIDS)
+        waypoints.extend([
+            CoastlineWaypoint(-15.530, 167.170, "sh_vanuatu", 0.35, "Luganville (Espiritu Santo)"),
+            CoastlineWaypoint(-16.200, 168.200, "sh_vanuatu", 0.15, "Ambrym / Pentecost"),
+            CoastlineWaypoint(-17.730, 168.320, "sh_vanuatu", 0.55, "Port Vila (Efate)"),
+            CoastlineWaypoint(-19.500, 169.270, "sh_vanuatu", 0.20, "Tanna"),  # Pam
+        ])
+
+        # ====== NEW CALEDONIA ====== (sh_new_caledonia — French, hardened)
+        waypoints.extend([
+            CoastlineWaypoint(-22.280, 166.460, "sh_new_caledonia", 0.55, "Nouméa"),
+            CoastlineWaypoint(-21.060, 164.850, "sh_new_caledonia", 0.20, "Koné"),
+            CoastlineWaypoint(-20.700, 167.000, "sh_new_caledonia", 0.15, "Loyalty Islands"),
+        ])
+
+        # ====== TONGA / SAMOA ====== (sh_tonga_samoa — Gita 2018; dateline)
+        waypoints.extend([
+            CoastlineWaypoint(-21.140, -175.200, "sh_tonga_samoa", 0.45, "Nuku'alofa, Tonga"),  # Gita
+            CoastlineWaypoint(-18.650, -173.980, "sh_tonga_samoa", 0.20, "Neiafu (Vava'u)"),
+            CoastlineWaypoint(-13.830, -171.770, "sh_tonga_samoa", 0.45, "Apia, Samoa"),
+            CoastlineWaypoint(-14.280, -170.700, "sh_tonga_samoa", 0.30, "Pago Pago, Am. Samoa"),
+        ])
+
+        # ====== NEW ZEALAND ====== (sh_new_zealand — Gabrielle 2023; N Island,
+        # high value; NZ's costliest weather disaster)
+        waypoints.extend([
+            CoastlineWaypoint(-35.720, 174.320, "sh_new_zealand", 0.35, "Whangārei / Northland"),
+            CoastlineWaypoint(-36.850, 174.760, "sh_new_zealand", 0.85, "Auckland"),
+            CoastlineWaypoint(-37.690, 176.170, "sh_new_zealand", 0.50, "Tauranga"),
+            CoastlineWaypoint(-38.660, 178.020, "sh_new_zealand", 0.35, "Gisborne"),  # Gabrielle
+            CoastlineWaypoint(-39.490, 176.920, "sh_new_zealand", 0.45, "Napier / Hawke's Bay"),  # Gabrielle floods
+            CoastlineWaypoint(-39.060, 174.070, "sh_new_zealand", 0.35, "New Plymouth"),
+            CoastlineWaypoint(-41.290, 174.780, "sh_new_zealand", 0.60, "Wellington"),
+        ])
+
+        # ====== SOLOMON ISLANDS ====== (sh_solomon — Harold path)
+        waypoints.extend([
+            CoastlineWaypoint(-9.430, 159.950, "sh_solomon", 0.35, "Honiara"),
+            CoastlineWaypoint(-8.100, 156.840, "sh_solomon", 0.15, "Gizo"),
+        ])
+
+        # ====== TIMOR / SH INDONESIA ====== (sh_timor — Seroja 2021 origin;
+        # Flores/Timor/Sumba, ~8–10°S)
+        waypoints.extend([
+            CoastlineWaypoint(-8.560, 125.570, "sh_timor", 0.40, "Dili, Timor-Leste"),
+            CoastlineWaypoint(-10.170, 123.610, "sh_timor", 0.45, "Kupang, W Timor"),
+            CoastlineWaypoint(-8.340, 122.980, "sh_timor", 0.20, "Larantuka (Flores)"),
+            CoastlineWaypoint(-8.840, 121.660, "sh_timor", 0.30, "Ende (Flores)"),
+            CoastlineWaypoint(-9.660, 120.260, "sh_timor", 0.20, "Waingapu (Sumba)"),
+        ])
+
         # ====== OPEN OCEAN REFERENCE POINTS (for fallback distances) ======
         # These are ultra-remote points; storms this far away should fall back to "open_ocean"
         waypoints.extend([
@@ -959,6 +1122,62 @@ def nearest_wp_coast(lat: float, lon: float) -> Optional[Tuple[float, str, float
     lat_bin = round(float(lat), 1)
     lon_bin = round(float(lon), 1)
     dist_km, region_key, pop = _wp_coast_cached(lat_bin, lon_bin)
+    return dist_km, region_key, pop
+
+
+# ============================================================================
+#  SOUTHERN HEMISPHERE DISTANCE GATES — [SH_DPS_AUDIT, Tranche 2026-07]
+# ============================================================================
+# Same architecture as the WP gates. The activation is SOUTHERN-LATITUDE gated
+# (lat < 0) so no Northern-Hemisphere basin (Atlantic/EP/WP/NI — and every
+# baked storm) can observe an sh_* region; callers outside the window get None
+# and keep their pre-SH behavior, so every non-SH score stays bit-identical.
+# Longitude is unbounded on purpose: a rare South Atlantic system (Catarina)
+# simply finds no nearby sh_* waypoint and resolves to open_ocean anyway.
+
+SH_WINDOW_LAT_MIN = -50.0
+SH_WINDOW_LAT_MAX = 0.0
+
+
+def in_sh_window(lat: float, lon: float) -> bool:
+    """True if the coordinate is inside the SH scoring-activation window."""
+    return SH_WINDOW_LAT_MIN <= lat < SH_WINDOW_LAT_MAX
+
+
+@_lru_cache(maxsize=16384)
+def _sh_coast_cached(lat_bin: float, lon_bin: float) -> tuple:
+    """Nearest SH waypoint (distance_km, region_key, population_density)."""
+    db = _get_coastline_db()
+    best_d = float("inf")
+    best = None
+    for wp in db.sh_waypoints:
+        d = db._haversine(lat_bin, lon_bin, wp.lat, wp.lon)
+        if d < best_d:
+            best_d = d
+            best = wp
+    if best is None:  # defensive — sh list is never empty
+        return (float("inf"), "open_ocean", 0.0)
+    return (best_d, best.region_key, best.population_density)
+
+
+def nearest_sh_coast(lat: float, lon: float) -> Optional[Tuple[float, str, float]]:
+    """
+    Distance to the nearest SOUTHERN HEMISPHERE coastline waypoint.
+
+    Returns (distance_km, sh_region_key, population_density) for coordinates
+    inside the SH activation window (lat < 0), None outside it. Callers own
+    their own distance gates, mirroring the WP convention (<=150 km profile,
+    <=100 km coastal hours, <=50 km land contact, <=60 km LFI). Sub-0.20
+    population points are sparse coasts (Pilbara/Kimberley, remote islands)
+    that anchor landfall DETECTION but confer no exposure profile and scale
+    the LFI down — so a Cat 5 on an empty coast (Ilsa) never reads like a
+    Suva or Beira strike.
+    """
+    if not in_sh_window(lat, lon):
+        return None
+    lat_bin = round(float(lat), 1)
+    lon_bin = round(float(lon), 1)
+    dist_km, region_key, pop = _sh_coast_cached(lat_bin, lon_bin)
     return dist_km, region_key, pop
 
 

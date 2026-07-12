@@ -59,6 +59,20 @@ WP_LFI_KM = 60.0
 # is NOT population-weighted — an islet strike is still a landfall.
 WP_LFI_POP_NORM = 0.5
 
+# [SH_DPS_AUDIT] Southern-Hemisphere-specific thresholds. The SH basins run
+# fewer Cat-5s and more high-impact Cat 3-4 landfalls (Idai/Batsirai ~46 m/s),
+# and their storms decay fast over land / undergo ET (Gabrielle hit NZ post-
+# tropical), so both the LFI floor and the land-contact wind bar sit lower
+# than WP's. +12 LFI cap is reached at 70 m/s.
+SH_LFI_FLOOR = 42.0
+SH_LAND_CONTACT_WIND = 20.0  # strong-TS+; keeps a weakening landfaller off the
+                             # fish-storm dampener it clearly doesn't deserve
+# SH waypoint coverage is sparser than WP's (long empty coasts — Pilbara,
+# N Mozambique), so the land-contact / landfall-detection radius is wider:
+# a fix within 75 km of a populated sh_* point is a reasonable landfall
+# signal there. (LFI keeps the tight 60 km wind-at-coast gate.)
+SH_LAND_KM = 75.0
+
 
 def _wp_land_hit(lat, lon):
     """True/False for WP-window coords (<=50 km of a WP coastline waypoint),
@@ -69,6 +83,16 @@ def _wp_land_hit(lat, lon):
     if hit is None:
         return None
     return hit[0] <= WP_LAND_KM
+
+
+def _sh_land_hit(lat, lon):
+    """[SH_DPS_AUDIT] Southern-hemisphere analog of _wp_land_hit (wider gate)."""
+    if _lp is None:
+        return None
+    hit = _lp.nearest_sh_coast(lat, lon)
+    if hit is None:
+        return None
+    return hit[0] <= SH_LAND_KM
 
 
 # ============================================================================
@@ -164,19 +188,24 @@ BASIN_COEFFICIENTS = {
         "compression_S": 2.5,
     },
     "SOUTH_INDIAN": {
-        "dps_multiplier": 1.03,  # 3% slight boost
+        # [SH_DPS_AUDIT 2026-07] Living legs (sh_* profiles) roughly double
+        # peak_dpi, so the pre-SH 1.03 compensating boost is retired to 1.00
+        # and compression moves to T=80 (mirrors WP) to keep the honest top
+        # end's ordering spread. No baked storm is SI/SP, so this changes only
+        # Southern-Hemisphere scores.
+        "dps_multiplier": 1.00,
         "ri_bonus": 0,
         "duration_factor": 1.0,
         "name": "South Indian",
-        "compression_T": 70.0,
+        "compression_T": 80.0,
         "compression_S": 2.5,
     },
     "SOUTH_PACIFIC": {
-        "dps_multiplier": 1.0,  # Baseline
+        "dps_multiplier": 1.00,  # [SH_DPS_AUDIT] see SOUTH_INDIAN
         "ri_bonus": 0,
         "duration_factor": 1.0,
         "name": "South Pacific",
-        "compression_T": 70.0,
+        "compression_T": 80.0,
         "compression_S": 2.5,
     },
 }
@@ -324,10 +353,14 @@ def detect_landfall_events(snapshots):
     def is_near_coast(lat, lon):
         # [Tranche B] WP coords: waypoint gate (<=50 km) — box ENTRY used to
         # mint landfall events for storms crossing into the Japan/China
-        # rectangles hundreds of km offshore. Non-WP coords keep boxes.
+        # rectangles hundreds of km offshore. SH coords: same waypoint gate.
+        # Non-WP/SH coords keep boxes.
         wp = _wp_land_hit(lat, lon)
         if wp is not None:
             return wp
+        sh = _sh_land_hit(lat, lon)
+        if sh is not None:
+            return sh
         for lat_min, lat_max, lon_min, lon_max, _ in COASTAL_REGIONS:
             if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
                 return True
@@ -424,10 +457,15 @@ def storm_made_land_contact(snapshots, min_count=2, min_wind_ms=33.0):
         # [Tranche B] WP fixes use the waypoint gate (<=50 km of a real
         # coastline point). Box membership let loitering recurvers inside
         # the Japan/China rectangles defeat the no-landfall dampener from
-        # hundreds of km offshore. Non-WP coords keep the box test.
+        # hundreds of km offshore. SH fixes use the same waypoint gate.
+        # Non-WP/SH coords keep the box test.
         wp = _wp_land_hit(lat, lon)
+        sh = _sh_land_hit(lat, lon) if wp is None else None
         if wp is not None:
             if wp:
+                hits += 1
+        elif sh is not None:
+            if sh:
                 hits += 1
         else:
             for lat_min, lat_max, lon_min, lon_max, _ in COASTAL_REGIONS:
@@ -500,8 +538,12 @@ def has_orographic_rainfall_potential(snapshots, basin):
     # Otis 2023 and John 2024 both dumped catastrophic rain over the
     # Sierra). Atlantic doesn't because Appalachians are too far from the
     # storm's wind field at landfall to count as a TC orographic
-    # interaction in the WP-formula sense.
-    if basin not in ("WESTERN_PACIFIC", "EASTERN_PACIFIC"):
+    # interaction in the WP-formula sense. [SH_DPS_AUDIT] SH qualifies too:
+    # Réunion holds world rainfall records, and Madagascar's escarpment /
+    # NZ's ranges / the Queensland Great Dividing Range all produce
+    # cyclone orographic dumps (Gabrielle, Yasi).
+    if basin not in ("WESTERN_PACIFIC", "EASTERN_PACIFIC",
+                     "SOUTH_INDIAN", "SOUTH_PACIFIC"):
         return False, 0
 
     # Mountain regions by basin (lat, lon, elevation_m)
@@ -514,6 +556,17 @@ def has_orographic_rainfall_potential(snapshots, basin):
             (20.5, 103.0, 2819),   # Laos mountains
             (17.0, 105.0, 2982),   # Vietnam highlands (Annamite Range)
             (37.5, 128.0, 1638),   # Korea Taebaek Range
+        ]
+    elif basin in ("SOUTH_INDIAN", "SOUTH_PACIFIC"):
+        mountain_zones = [
+            (-19.0, 47.0, 2876),   # Madagascar central highlands (Maromokotro)
+            (-21.1, 55.5, 3069),   # Réunion (Piton des Neiges) — world rain records
+            (-17.6, 178.0, 1324),  # Fiji (Viti Levu, Tomanivi) — Winston
+            (-15.4, 166.8, 1879),  # Vanuatu (Espiritu Santo, Tabwemasana)
+            (-21.5, 165.8, 1628),  # New Caledonia central chain
+            (-39.3, 175.6, 2797),  # NZ (Ruapehu / central ranges)
+            (-39.4, 176.5, 1750),  # NZ (Kaweka / Ruahine) — Gabrielle floods
+            (-17.5, 145.5, 1622),  # QLD Great Dividing Range (Bellenden Ker) — Yasi
         ]
     else:  # EASTERN_PACIFIC
         mountain_zones = [
@@ -1129,6 +1182,71 @@ def apply_basin_dps_adjustment(cum_dpi, basin, snapshots,
         #    reason as WP — see that block. Deferred for in-progress
         #    tracks, same rationale as the WP block.
         if landfall_count == 0 and not storm_made_land_contact(snapshots):
+            if track_is_in_progress(snapshots):
+                adjustment_notes.append("no-LF dampener deferred (active storm)")
+            else:
+                adjusted_dps *= 0.60
+                adjustment_notes.append("×0.60(no-landfall)")
+
+    # Southern Hemisphere enhancements — [SH_DPS_AUDIT 2026-07]. Mirrors the
+    # WP block: multi-landfall, orographic, landfall-intensity, no-landfall
+    # dampener. No sub-basin table (SH regions come straight from the sh_*
+    # waypoints), and no rainfall-footprint proxy (the per-region
+    # rain_enhancement in the coastal profiles already carries orographic
+    # rain — Réunion/Madagascar/NZ). Calibrated against Winston, Idai,
+    # Freddy, Yasi, Debbie, Gabrielle, Pam, Harold, and the Cat-5-empty-coast
+    # discriminator Ilsa.
+    if basin in ("SOUTH_INDIAN", "SOUTH_PACIFIC"):
+        # 1. Multi-landfall bonus — Freddy 2023 crossed Madagascar then
+        #    Mozambique; the same shape as WP/EP.
+        landfall_count, _ = count_significant_landfalls(snapshots)
+        if landfall_count > 1:
+            landfall_bonus = min((landfall_count - 1) * 2.5, 8)
+            adjusted_dps += landfall_bonus
+            adjustment_notes.append(f"+{landfall_bonus:.1f}LF")
+
+        # 2. Orographic rainfall bonus — Madagascar escarpment, Réunion,
+        #    NZ ranges (Gabrielle), Fiji/Vanuatu/New Caledonia peaks, the
+        #    Queensland Great Dividing Range (Yasi). SH peaks are listed in
+        #    has_orographic_rainfall_potential.
+        has_orographic, max_wind_near_mountains = has_orographic_rainfall_potential(
+            snapshots, basin
+        )
+        if has_orographic and max_wind_near_mountains >= 20:
+            orographic_bonus = min(max_wind_near_mountains / 18, 9)
+            adjusted_dps += orographic_bonus
+            adjustment_notes.append(f"+{orographic_bonus:.1f}ORO")
+
+        # 3. Landfall-intensity bonus — the Winston/Ilsa discriminator. Wind
+        #    within 60 km of a populated sh_* waypoint, pop-scaled, up to +12
+        #    at 78 m/s. Winston crossed Fiji at ~75 m/s (near-full); Ilsa hit
+        #    an empty Pilbara coast (pop 0.05 → ~10% of its wind bonus).
+        lfi_bonus = 0.0
+        if _lp is not None:
+            for s in snapshots:
+                w = s.get("max_wind_ms", 0) or 0
+                if w < SH_LFI_FLOOR:
+                    continue
+                hit = _lp.nearest_sh_coast(s.get("lat", 0) or 0,
+                                           s.get("lon", 0) or 0)
+                if hit is None or hit[0] > WP_LFI_KM:
+                    continue
+                pop_scale = min(1.0, hit[2] / WP_LFI_POP_NORM)
+                cand = min(12.0, 12.0 * (w - SH_LFI_FLOOR) / 28.0) * pop_scale
+                if cand > lfi_bonus:
+                    lfi_bonus = cand
+        if lfi_bonus > 0.1:
+            adjusted_dps += lfi_bonus
+            adjustment_notes.append(f"+{lfi_bonus:.1f}LFI")
+
+        # 4. No-landfall dampener — the SH basins are vast and most cyclones
+        #    recurve into the empty Southern Ocean. Same ×0.60, gated on
+        #    storm_made_land_contact (SH uses a lower wind bar so a
+        #    weakening/ET landfaller — Gabrielle over NZ, Kenneth into N
+        #    Mozambique — isn't mistaken for a fish storm), deferred for
+        #    in-progress tracks.
+        if landfall_count == 0 and not storm_made_land_contact(
+                snapshots, min_wind_ms=SH_LAND_CONTACT_WIND):
             if track_is_in_progress(snapshots):
                 adjustment_notes.append("no-LF dampener deferred (active storm)")
             else:

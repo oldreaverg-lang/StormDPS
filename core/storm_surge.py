@@ -499,6 +499,133 @@ COASTAL_PROFILES = {
         antecedent_moisture=0.60,
         bathymetric_concavity=0.05,  # no shelf — reef drops straight to trench
     ),
+    # === Southern Hemisphere — [SH_DPS_AUDIT, Tranche 2026-07] ===
+    # Region keys assigned by the sh_* coastline waypoints in
+    # core/land_proximity.py (southern-latitude gated). Same tiered-reach
+    # activation as WP. Calibrated against Winston/Idai/Freddy/Yagi-class
+    # SH cyclones; econ side damped ×0.85 in economic_vulnerability.
+    "sh_mozambique": CoastalProfile(
+        name="Mozambique Coast",
+        shelf_width_km=130, avg_slope=0.0005, surge_amplification=1.45,
+        rain_enhancement=1.20, tidal_range_m=3.0,  # macro-tidal Sofala Bank
+        wetland_buffer=0.08,
+        bay_funneling=1.35,   # Beira sits at the apex of a shallow concave bight
+        coastal_defense=0.03,
+        river_basin_factor=1.25,  # Pungwe/Buzi/Zambezi — Idai's inland flood cascade
+        antecedent_moisture=0.70,
+        bathymetric_concavity=0.30,
+    ),
+    "sh_madagascar": CoastalProfile(
+        name="Madagascar Coast",
+        shelf_width_km=40, avg_slope=0.006, surge_amplification=1.15,
+        rain_enhancement=1.45,  # steep east-coast escarpment — orographic dumps
+        tidal_range_m=1.5, wetland_buffer=0.04, bay_funneling=1.05,
+        coastal_defense=0.05,
+        river_basin_factor=1.15,
+        antecedent_moisture=0.70,
+        bathymetric_concavity=0.10,
+    ),
+    "sh_mascarene": CoastalProfile(
+        name="Mascarene Islands (Mauritius / Réunion)",
+        shelf_width_km=8, avg_slope=0.04, surge_amplification=0.85,
+        rain_enhancement=1.55,  # Réunion holds world rainfall records (orographic)
+        tidal_range_m=0.6, wetland_buffer=0.02, bay_funneling=1.00,
+        coastal_defense=0.25,   # Réunion (France) hardened
+        river_basin_factor=1.10,
+        antecedent_moisture=0.60,
+        bathymetric_concavity=0.05,
+    ),
+    "sh_w_australia": CoastalProfile(
+        name="Western / NW Australia (Pilbara–Kimberley)",
+        shelf_width_km=120, avg_slope=0.0006, surge_amplification=1.30,
+        rain_enhancement=0.85,  # arid coast; little orographic amplification
+        tidal_range_m=4.0,  # among the largest tides on Earth (Broome ~10 m springs)
+        wetland_buffer=0.06, bay_funneling=1.10,
+        coastal_defense=0.10,
+        river_basin_factor=1.05,
+        antecedent_moisture=0.25,  # desert-adjacent, dry soils
+        bathymetric_concavity=0.15,
+    ),
+    "sh_e_australia": CoastalProfile(
+        name="Eastern Australia (Queensland)",
+        shelf_width_km=60, avg_slope=0.003, surge_amplification=1.20,
+        rain_enhancement=1.25, tidal_range_m=2.5,
+        wetland_buffer=0.05, bay_funneling=1.20,  # Broad Sound / Hervey Bay funnels
+        coastal_defense=0.20,   # building-code hardened, cyclone-rated
+        river_basin_factor=1.15,  # Fitzroy/Burdekin catchment flooding
+        antecedent_moisture=0.55,
+        bathymetric_concavity=0.20,
+    ),
+    "sh_fiji": CoastalProfile(
+        name="Fiji",
+        shelf_width_km=15, avg_slope=0.02, surge_amplification=1.10,
+        rain_enhancement=1.40,  # orographic Viti Levu
+        tidal_range_m=1.3, wetland_buffer=0.03, bay_funneling=1.10,
+        coastal_defense=0.10,
+        river_basin_factor=1.10,
+        antecedent_moisture=0.65,
+        bathymetric_concavity=0.10,
+    ),
+    "sh_vanuatu": CoastalProfile(
+        name="Vanuatu",
+        shelf_width_km=5, avg_slope=0.05, surge_amplification=0.95,
+        rain_enhancement=1.35, tidal_range_m=1.1, wetland_buffer=0.02,
+        bay_funneling=1.00,
+        coastal_defense=0.03,   # minimal — highly exposed SIDS
+        river_basin_factor=1.05,
+        antecedent_moisture=0.65,
+        bathymetric_concavity=0.05,
+    ),
+    "sh_new_caledonia": CoastalProfile(
+        name="New Caledonia",
+        shelf_width_km=20, avg_slope=0.01, surge_amplification=1.00,
+        rain_enhancement=1.25, tidal_range_m=1.4, wetland_buffer=0.04,
+        bay_funneling=1.05,   # world's largest lagoon dampens some surge
+        coastal_defense=0.25,   # French infrastructure
+        river_basin_factor=1.05,
+        antecedent_moisture=0.55,
+        bathymetric_concavity=0.10,
+    ),
+    "sh_tonga_samoa": CoastalProfile(
+        name="Tonga / Samoa",
+        shelf_width_km=6, avg_slope=0.04, surge_amplification=1.05,
+        rain_enhancement=1.30, tidal_range_m=1.1, wetland_buffer=0.02,
+        bay_funneling=1.05,
+        coastal_defense=0.08,
+        river_basin_factor=1.05,
+        antecedent_moisture=0.60,
+        bathymetric_concavity=0.05,
+    ),
+    "sh_new_zealand": CoastalProfile(
+        name="New Zealand (North Island)",
+        shelf_width_km=30, avg_slope=0.006, surge_amplification=1.05,
+        rain_enhancement=1.50,  # steep ranges — Gabrielle's catastrophic rainfall
+        tidal_range_m=1.8, wetland_buffer=0.04, bay_funneling=1.15,
+        coastal_defense=0.30,
+        river_basin_factor=1.35,  # Esk/Tutaekurī/Wairoa river floods (Gabrielle)
+        antecedent_moisture=0.60,
+        bathymetric_concavity=0.15,
+    ),
+    "sh_solomon": CoastalProfile(
+        name="Solomon Islands",
+        shelf_width_km=6, avg_slope=0.04, surge_amplification=0.95,
+        rain_enhancement=1.35, tidal_range_m=1.0, wetland_buffer=0.02,
+        bay_funneling=1.00,
+        coastal_defense=0.03,
+        river_basin_factor=1.05,
+        antecedent_moisture=0.70,
+        bathymetric_concavity=0.05,
+    ),
+    "sh_timor": CoastalProfile(
+        name="Timor / SH Indonesia (Flores–Sumba)",
+        shelf_width_km=10, avg_slope=0.03, surge_amplification=0.95,
+        rain_enhancement=1.30,  # steep terrain — Seroja's flash floods / landslides
+        tidal_range_m=1.6, wetland_buffer=0.02, bay_funneling=1.00,
+        coastal_defense=0.03,
+        river_basin_factor=1.10,
+        antecedent_moisture=0.55,
+        bathymetric_concavity=0.05,
+    ),
     "open_ocean": CoastalProfile(
         name="Open Ocean (No Coastal Effects)",
         shelf_width_km=0, avg_slope=0, surge_amplification=0.0,

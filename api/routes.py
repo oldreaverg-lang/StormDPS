@@ -419,7 +419,12 @@ _ACTIVE_TRACK_TTL_S = 5400  # 90 minutes
 #           /dps bundle predates the new engine, so a bump is mandatory:
 #           without it a previously-warmed WP storm (e.g. Kong-Rey) keeps
 #           serving its old-code score from the persistent volume.
-_DPS_CACHE_VERSION = "v14-wp-tranche-b"
+# v15-sh-legs (2026-07-12): SH living-legs activation (SH_DPS_AUDIT) — sh_*
+#           coastal/economic profiles + landfall-intensity bonus for the
+#           Southern Hemisphere. Bump so previously-warmed SI/SP storms
+#           (2026 season: Horacio, Dudzai, Fina…) recompute with the new
+#           engine instead of serving their old open-ocean scores.
+_DPS_CACHE_VERSION = "v15-sh-legs"
 
 # Cache for global IBTrACS catalog to avoid repeated large downloads/parses.
 # We also persist a json cache file so restarts can reuse the catalog quickly.
