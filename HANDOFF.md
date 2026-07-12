@@ -193,6 +193,15 @@ carries its detail in git log + the docs listed in §4.
     (name,year,basin) when the alias table lags; `_without_stale_custom`
     purges demo rows once custom_storms.csv no longer declares them. Live: 47
     → 36 rows, all canonical, no twins, no fakes; selfcheck 208/0.
+15. ~~**Southern Hemisphere DPS**~~ — **SHIPPED 2026-07-12** (commit 807e8c2;
+    docs/audits/SH_DPS_AUDIT.md). SI/SP storms scored open-ocean (Winston 48,
+    Idai 31, Cat-5-empty-coast Ilsa 42 above everything). Added ~90 sh_*
+    waypoints + 12 coastal/economic profiles + landfall-intensity bonus,
+    southern-latitude gated (lat<0). Live: Winston 90, Yasi 74, Idai 60,
+    Ilsa 42, Kenneth 38; **0 non-SH movers** (218 baked bit-identical), 5
+    baked SH storms rebaked; _DPS_CACHE_VERSION → v15-sh-legs. Known gap:
+    Gabrielle (ET, track ends 286 km from NZ) — same rainfall/ET realization
+    limitation as WP's Doksuri.
 
 ## 3. Known seams the new features deliberately work around
 
