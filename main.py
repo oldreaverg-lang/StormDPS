@@ -946,6 +946,22 @@ async def serve_commercial():
     )
 
 
+@app.get("/experimental")
+async def serve_experimental():
+    """Experimental Features page — work-in-progress signals (currently the
+    forecast rainfall-hazard prototype) shown transparently alongside DPS but
+    NOT part of it. noindex; linked from About. See
+    docs/RAINFALL_SCORE_OPTIONS.md."""
+    fp = FRONTEND_DIR / "experimental.html"
+    if not fp.exists():
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(
+        fp,
+        media_type="text/html",
+        headers={"Cache-Control": "public, max-age=600"},
+    )
+
+
 @app.get("/privacy")
 async def serve_privacy():
     """Privacy policy — required for Apple App Store submission and a

@@ -1197,10 +1197,68 @@ async def get_storm_forecast(request: Request, storm_id: str):
         logger.warning(f"[forecast] landfall estimate failed for {storm_id}: {e}")
         forecast["landfall"] = {"expected": False, "coverage": True, "description": ""}
 
+    # ── Forecast RAIN HAZARD (EXPERIMENTAL — Option C1) ──
+    # A live, forecast-driven rain-hazard score. Surfaced only on the
+    # Experimental Features page; NOT used in DPS. Fail-open. See
+    # docs/RAINFALL_SCORE_OPTIONS.md.
     from datetime import datetime as _dt, timezone as _tz
+    try:
+        from core.rain_forecast import compute_forecast_rain_score
+        _name = (_lookup_storm_name_from_catalog(storm_id)
+                 or _storm_identity(storm_id).get("name") or storm_id)
+        rain_fc = compute_forecast_rain_score(
+            forecast.get("forecast_track", []), storm_name=_name)
+        forecast["rain_forecast"] = rain_fc
+        # Persist each advisory's forecast so it can be graded against observed
+        # rainfall after the storm (append-only, deduped by valid time).
+        if rain_fc.get("available"):
+            _log_rain_forecast(storm_id, _name, rain_fc,
+                               forecast.get("valid_time_utc"))
+    except Exception as e:
+        logger.warning(f"[forecast] rain-hazard estimate failed for {storm_id}: {e}")
+        forecast["rain_forecast"] = {"available": False, "note": "error"}
+
     forecast["fetched_at_utc"] = _dt.now(_tz.utc).isoformat()
 
     return forecast
+
+
+# Append-only per-advisory rain-forecast log (Experimental C1 audit trail).
+_RAIN_FC_LOG_DIR = _PERSISTENT_DATA / "cache" / "rain_forecast"
+
+
+def _log_rain_forecast(storm_id: str, name: str, rain_fc: dict,
+                       valid_time: Optional[str]) -> None:
+    """Append one advisory's forecast rain score to a per-storm JSONL log so a
+    post-storm audit can compare the forecast trajectory against observed
+    rainfall. Deduped by (storm_id, valid_time hour). Fully fail-open."""
+    try:
+        from datetime import datetime as _dt, timezone as _tz
+        _RAIN_FC_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        safe = "".join(c for c in storm_id if c.isalnum() or c in "_-")
+        fp = _RAIN_FC_LOG_DIR / f"{safe}.jsonl"
+        vt = valid_time or _dt.now(_tz.utc).isoformat()
+        key = str(vt)[:13]  # dedup at hour granularity
+        if fp.exists():
+            for line in fp.read_text(encoding="utf-8").splitlines()[-50:]:
+                try:
+                    if json.loads(line).get("valid_key") == key:
+                        return  # already logged this advisory
+                except Exception:
+                    continue
+        row = {
+            "logged_at": _dt.now(_tz.utc).isoformat(),
+            "valid_time": vt, "valid_key": key,
+            "storm_id": storm_id, "name": name,
+            "rain_score": rain_fc.get("rain_score"),
+            "forecast_total_mm": rain_fc.get("forecast_total_mm"),
+            "mean_forward_speed_kt": rain_fc.get("mean_forward_speed_kt"),
+            "method": rain_fc.get("method"),
+        }
+        with open(fp, "a", encoding="utf-8") as f:
+            f.write(json.dumps(row) + "\n")
+    except Exception:
+        logger.debug("[rain_forecast] log append failed", exc_info=True)
 
 
 def _compute_stall_risk(forecast_track: list[dict]) -> dict:

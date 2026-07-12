@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Experimental Features — StormDPS</title>
+    <meta name="description" content="Work-in-progress StormDPS experiments. Currently: a forecast rainfall-hazard score — rainfall is the leading killer in tropical cyclones, and DPS barely weighs it. Three integration options laid out, with a live prototype.">
+    <meta name="robots" content="noindex, follow">
+    <link rel="canonical" href="https://stormdps.com/experimental">
+    <link rel="icon" type="image/png" href="/frontend/logo-128.png">
+    <style>
+        @font-face{font-family:'Public Sans';font-style:normal;font-weight:100 900;font-display:optional;src:url('/frontend/fonts/public-sans-latin.woff2') format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+2074,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+        :root {
+            --primary:#205493; --bg-dark:#eceef0; --bg-card:#ffffff; --bg-input:#f7f8fa;
+            --text-main:#1b1f24; --text-muted:#404b57; --text-dim:#5c6873; --border:#d4d9de;
+            --radius:10px;
+            --exp:#8a5a00; --exp-bg:#fff6e5;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Public Sans', -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg-dark); color: var(--text-main); line-height: 1.7; font-size: 16px; }
+        header { background: linear-gradient(180deg, rgba(255,255,255,.96), rgba(252,252,253,.96)); backdrop-filter: blur(12px); padding: 1rem 1.5rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
+        .logo { display: flex; align-items: center; gap: .6rem; color: var(--text-main); text-decoration: none; }
+        .logo-icon { width: 32px; height: 32px; border-radius: 8px; overflow: hidden; }
+        .logo-icon img { width: 100%; height: 100%; object-fit: cover; }
+        .logo-text { font-size: 1.1rem; font-weight: 700; letter-spacing: -.03em; }
+        nav { display: flex; flex-wrap: wrap; gap: 1.25rem; row-gap: .5rem; align-items: center; }
+        nav a { color: var(--text-muted); text-decoration: none; font-weight: 600; font-size: .95rem; transition: color .15s; }
+        nav a:hover { color: var(--text-main); }
+        nav a.cta { color: var(--primary); }
+        main { max-width: 820px; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+        h1.page-title { font-size: clamp(1.8rem, 4vw, 2.6rem); font-weight: 800; letter-spacing: -.03em; line-height: 1.2; margin-bottom: .75rem; }
+        .lede { font-size: 1.15rem; color: var(--text-muted); margin-bottom: 1.5rem; }
+        h2 { font-size: 1.5rem; font-weight: 700; letter-spacing: -.02em; margin-top: 3rem; margin-bottom: 1rem; }
+        p { margin-bottom: 1.1rem; }
+        a.inline { color: var(--primary); text-decoration: underline; text-decoration-color: rgba(32,84,147,.4); }
+        a.inline:hover { text-decoration-color: var(--primary); }
+        ul { margin: 0 0 1.1rem 1.5rem; } li { margin-bottom: .45rem; }
+        .exp-badge { display:inline-block; background:var(--exp-bg); color:var(--exp); border:1px solid #e6c98a; border-radius:999px; padding:.15rem .6rem; font-size:.72rem; font-weight:700; letter-spacing:.03em; text-transform:uppercase; vertical-align:middle; }
+        .callout { background: var(--exp-bg); border: 1px solid #e6c98a; border-left: 3px solid var(--exp); padding: 1.1rem 1.3rem; border-radius: var(--radius); margin: 1.5rem 0; color:#5c4300; }
+        .opt-grid { display:grid; gap:1rem; margin:1.5rem 0; }
+        .opt { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:1.2rem 1.4rem; border-left:3px solid var(--border); }
+        .opt.active { border-left-color:var(--primary); }
+        .opt .tag { font-size:.72rem; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--text-dim); }
+        .opt.active .tag { color:var(--primary); }
+        .opt h3 { font-size:1.1rem; font-weight:700; margin:.2rem 0 .5rem; }
+        .opt p { font-size:.95rem; color:var(--text-muted); margin:0; }
+        .opt .status { display:inline-block; margin-top:.6rem; font-size:.8rem; font-weight:600; }
+        .status.live { color:#1a7a3c; } .status.proposed { color:var(--text-dim); }
+        /* live rain panel */
+        .rain-panel { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:1.4rem 1.5rem; margin:1.2rem 0; }
+        .storm-row { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:.7rem 0; border-top:1px solid var(--border); flex-wrap:wrap; }
+        .storm-row:first-of-type { border-top:none; }
+        .storm-name { font-weight:700; }
+        .storm-sub { font-size:.82rem; color:var(--text-dim); }
+        .rain-chip { display:flex; align-items:baseline; gap:.4rem; }
+        .rain-num { font-size:1.6rem; font-weight:800; letter-spacing:-.03em; }
+        .rain-band { font-size:.78rem; font-weight:700; text-transform:uppercase; letter-spacing:.03em; }
+        .b-Extreme{color:#7c1d1d} .b-High{color:#9a3412} .b-Elevated{color:#8a5a00} .b-Moderate{color:#3f6212} .b-Low{color:#4b5563}
+        table.retro { width:100%; border-collapse:collapse; margin:.5rem 0 0; font-size:.92rem; }
+        table.retro th, table.retro td { text-align:left; padding:.5rem .4rem; border-bottom:1px solid var(--border); }
+        table.retro th { color:var(--text-dim); font-weight:600; font-size:.8rem; text-transform:uppercase; letter-spacing:.03em; }
+        table.retro td.num { text-align:right; font-variant-numeric:tabular-nums; font-weight:700; }
+        .muted { color:var(--text-dim); font-size:.9rem; }
+        footer { padding: 2rem 1.5rem; text-align: center; color: var(--text-dim); font-size: .85rem; border-top: 1px solid var(--border); }
+        footer a { color: var(--text-muted); text-decoration: none; margin: 0 .6rem; }
+        footer a:hover { color: var(--text-main); }
+        @media (max-width: 640px) {
+            header { flex-wrap: wrap; padding: .7rem 1rem; }
+            header .logo { width: 100%; }
+            header nav { width: 100%; margin-top: .55rem; gap: .35rem .95rem; }
+            header nav a { font-size: .88rem; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <a href="/" class="logo">
+            <span class="logo-icon"><img src="/frontend/logo-128.png" alt=""></span>
+            <span class="logo-text">StormDPS</span>
+        </a>
+        <nav>
+            <a href="/">Tracker</a>
+            <a href="/methodology">Methodology</a>
+            <a href="/historic-storms">Historic</a>
+            <a href="/data">Data</a>
+            <a href="/faq">FAQ</a>
+            <a href="/about">About</a>
+            <a href="/experimental" class="cta">Experimental</a>
+        </nav>
+    </header>
+
+    <main>
+        <h1 class="page-title">Experimental Features <span class="exp-badge">Preview</span></h1>
+        <p class="lede">Work-in-progress ideas that aren't part of the official DPS score yet. Everything here is transparent, versioned, and clearly separated from the canonical numbers on the rest of the site — so it can be watched, compared, and graded before any of it graduates.</p>
+
+        <div class="callout">
+            <strong>Nothing on this page changes a storm's DPS score.</strong> These are candidate signals shown alongside DPS so they can be validated against real outcomes first.
+        </div>
+
+        <h2>Forecast Rainfall Hazard</h2>
+        <p>Freshwater flooding from rainfall is the <strong>single largest cause of death</strong> in tropical cyclones — NHC studies attribute roughly half of US TC fatalities to inland flooding, and the share is higher globally. Yet the Destructive Power Score is a wind/surge index and weighs rainfall almost not at all. That's a known gap (see <a href="/methodology" class="inline">methodology</a>).</p>
+        <p>The goal: a <strong>forecast</strong> rainfall-hazard score (0–100) computed live for any active storm, independent of DPS, that answers "how much rain will this storm deliver, and how dangerous is that." The three options below are the ways it could feed back into StormDPS. The rest of the machinery — building-level flood modeling, radar and river-gauge ingestion — already lives in the sister project <a href="/surgedps" class="inline">SurgeDPS</a>; this is about turning that into one comparable number.</p>
+
+        <h3 style="margin-top:2rem">Three integration options</h3>
+        <div class="opt-grid">
+            <div class="opt active">
+                <div class="tag">Option C1 · prototype</div>
+                <h3>Nudge the existing rain factor</h3>
+                <p>Feed a forecast rain number into the small rainfall term DPS already has (capped at a few percent). Lowest risk, smallest effect. <em>This is what's running live below</em> — shown separately for now rather than folded in, so it can be checked first.</p>
+                <span class="status live">● Live prototype (kinematic v1)</span>
+            </div>
+            <div class="opt">
+                <div class="tag">Option C2 · proposed</div>
+                <h3>A full rain component in DPS</h3>
+                <p>Add rainfall as a proper weighted term in the composite score (~15–25%). Directly reflects that rain is the leading killer — but it would change every historical score and needs a full re-audit, and an earlier study showed a naïve version over-credits the wrong storms.</p>
+                <span class="status proposed">○ Proposed</span>
+            </div>
+            <div class="opt">
+                <div class="tag">Option C3 · proposed (recommended)</div>
+                <h3>A separate "Rain Hazard" axis</h3>
+                <p>Keep DPS as the wind/surge destructive-power number and show Rain Hazard as its own 0–100 axis beside it, with an optional combined "Total Threat" roll-up. Can't regress any historical score; the honest way to display a forecast (uncertain) quantity.</p>
+                <span class="status proposed">○ Proposed</span>
+            </div>
+        </div>
+
+        <h2>Live prototype <span class="exp-badge">C1 · kinematic v1</span></h2>
+        <p class="muted">A first-order estimate from the official forecast track: peak-intensity rain rate × how long the storm lingers over the worst-hit point (a stalling storm dumps days of rain on one place; a fast mover races through). To be replaced by real forecast-rainfall data (WPC QPF), return-period context (NOAA Atlas 14), and predicted flood depth (National Water Model → HAND) from SurgeDPS.</p>
+
+        <div class="rain-panel" id="rainPanel">
+            <div class="muted" id="rainStatus">Checking for active storms…</div>
+            <div id="rainStorms"></div>
+        </div>
+
+        <h3>How it scored recent storms</h3>
+        <p class="muted">Run retrospectively over the historical forecast window. The point is that rain hazard is <strong>independent of wind</strong>: Michael was a Category 5 (one of the highest DPS scores on the site) but a fast mover that produced little rain — so it ranks low here, while slow, rain-heavy storms rank high regardless of category.</p>
+        <table class="retro">
+            <thead><tr><th>Storm</th><th>Rain hazard</th><th>Why</th></tr></thead>
+            <tbody>
+                <tr><td>Harvey 2017</td><td class="num b-Extreme">100</td><td class="muted">Stalled ~5 days over Texas — record rainfall</td></tr>
+                <tr><td>Florence 2018</td><td class="num b-Extreme">100</td><td class="muted">Stalled over the Carolinas</td></tr>
+                <tr><td>Ian 2022</td><td class="num b-Elevated">52</td><td class="muted">Slowed over Florida; major flooding</td></tr>
+                <tr><td>Katrina 2005</td><td class="num b-Elevated">51</td><td class="muted">Slow Gulf phase (its story was surge, not rain)</td></tr>
+                <tr><td>Michael 2018</td><td class="num b-Moderate">28</td><td class="muted">Fast-moving Cat 5 — little rain despite extreme wind</td></tr>
+            </tbody>
+        </table>
+        <p class="muted" style="margin-top:1rem">These are experimental estimates, not forecasts. When a storm threatens land, each advisory's forecast rain score is logged so it can be graded afterward against observed rainfall (radar totals, river crests, high-water marks) — that comparison decides which method and which integration option is worth keeping.</p>
+    </main>
+
+    <footer>
+        <a href="/">Tracker</a> ·
+        <a href="/methodology">Methodology</a> ·
+        <a href="/historic-storms">Historic</a> ·
+        <a href="/data">Data</a> ·
+        <a href="/faq">FAQ</a> ·
+        <a href="/about">About</a> ·
+        <a href="/experimental">Experimental</a> ·
+        <a href="/surgedps">SurgeDPS</a>
+        <p style="margin-top:.6rem;color:var(--text-dim)">StormDPS — open-data hurricane destructive-power scoring</p>
+    </footer>
+
+    <script>
+    (function () {
+        var API = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+            ? 'http://127.0.0.1:8000/api/v1' : '/api/v1';
+        var statusEl = document.getElementById('rainStatus');
+        var listEl = document.getElementById('rainStorms');
+
+        function bandClass(b) { return 'b-' + (b || 'Low'); }
+
+        function render(storm, rf) {
+            var row = document.createElement('div');
+            row.className = 'storm-row';
+            var left = document.createElement('div');
+            left.innerHTML = '<div class="storm-name">' + (storm.name || storm.id) +
+                '</div><div class="storm-sub">' + (storm.classification || '') +
+                (rf.forecast_total_mm != null
+                    ? ' · forecast ~' + Math.round(rf.forecast_total_in) + ' in ('
+                      + Math.round(rf.forecast_total_mm) + ' mm)' : '') +
+                (rf.mean_forward_speed_kt != null
+                    ? ' · ' + rf.mean_forward_speed_kt + ' kt' : '') + '</div>';
+            var right = document.createElement('div');
+            right.className = 'rain-chip';
+            if (rf.available && rf.rain_score != null) {
+                right.innerHTML = '<span class="rain-num ' + bandClass(rf.band) + '">' +
+                    Math.round(rf.rain_score) + '</span><span class="rain-band ' +
+                    bandClass(rf.band) + '">' + (rf.band || '') + '</span>';
+            } else {
+                right.innerHTML = '<span class="muted">no forecast track</span>';
+            }
+            row.appendChild(left); row.appendChild(right);
+            listEl.appendChild(row);
+        }
+
+        fetch(API + '/storms/active').then(function (r) { return r.json(); })
+        .then(function (data) {
+            var storms = Array.isArray(data) ? data : (data.storms || []);
+            if (!storms.length) {
+                statusEl.textContent = 'No active storms right now — the rain-hazard score arms automatically when a system is being tracked. Scroll down for how it scored recent storms.';
+                return;
+            }
+            statusEl.textContent = storms.length + ' active storm' + (storms.length > 1 ? 's' : '') + ' — experimental rain hazard (not part of DPS):';
+            storms.slice(0, 8).forEach(function (s) {
+                fetch(API + '/storms/' + encodeURIComponent(s.id) + '/forecast')
+                .then(function (r) { return r.json(); })
+                .then(function (fc) { render(s, fc.rain_forecast || { available: false }); })
+                .catch(function () { render(s, { available: false }); });
+            });
+        })
+        .catch(function () {
+            statusEl.textContent = 'Could not reach the live feed right now. Scroll down for how it scored recent storms.';
+        });
+    })();
+    </script>
+</body>
+</html>
