@@ -167,12 +167,19 @@ carries its detail in git log + the docs listed in §4.
     bit this session repeatedly (see §3). Retires the whole bug class.
     Then a-decks (real cone spread) and IOC sea-level stations (global
     observed surge).
-12. **WP recalibration Tranche B** (docs/audits/WP_DPS_AUDIT_V2.md §7 +
-    scratch/wp_recal_harness.py): activates WP surge/econ profiles, strips
-    the compensating adjustment layer; ALSO owed: the scoring-side rainfall
-    reference recalibration (500 mm→~1000 mm, display side already done).
-    Full bake + golden-master refreeze ceremony; don't bake while a <7-day
-    WP/EP no-landfall storm is live.
+12. ~~**WP recalibration Tranche B**~~ — **SHIPPED 2026-07-12** (commits
+    3392c42 + cf38b6e; docs/audits/WP_DPS_AUDIT_V2.md §9). ~140 WP coastline
+    waypoints (core/land_proximity, wp_* keys, longitude-gated 95–150E) drive
+    living-legs surge/econ profiles + a landfall-intensity bonus; the
+    compensating layer (1.10 mult, RI, sub-basin table) is stripped, T→80,
+    econ ×0.85, scoring rainfall ref 500→1000mm. Anchors met (Haiyan 95.2 #1,
+    Yagi 85.4, Kong-Rey 60.1, Kalmaegi 62.2, Surigae 34.2); 220/223 non-WP dps
+    bit-identical (3 Atlantic movers <0.12); ρ(damage) +0.461, ρ(deaths)
+    +0.489. R5 exposure-integrator gap remains (PH majors score power over
+    realization; Doksuri/Gaemi under-scored). **Next-bake gotcha found the
+    hard way:** a scoring change must ALSO bump api/routes.py
+    _DPS_CACHE_VERSION or previously-warmed live storms serve old-code scores
+    from the persistent /dps volume cache (rebake.py now prints the reminder).
 13. Also open, not urgent: `/value` surge null for JTWC storms; dormant-code
     candidates are DONE (excised); Apple submission still paused.
 
@@ -188,6 +195,16 @@ carries its detail in git log + the docs listed in §4.
   client-side; /compare deliberately omits those rows.
 - ATCF-vs-SID lookups of the same storm can differ ~1 DPS point (different
   cached computes) — cosmetic, known.
+- **Bundle vs live-/dps divergence widened slightly under Tranche B.** The
+  baked bundle scores WP storms from the curated preload_bundle snapshot;
+  `/dps` recomputes from the live IBTrACS/b-deck track, which isn't
+  bit-identical. The new engine is more track-sensitive (LFI, waypoint
+  profile assignment), so a baked WP storm's /dps live-recompute can sit a
+  few points off its bundle value (Gaemi 62.4 baked / 71.1 live). Every
+  user-facing surface for a PRESET storm reads the bundle (bundle_index +
+  bundle_storm), so this is invisible on historical pages; it only shows on
+  direct /dps API calls. Real fix = feed /dps the same snapshot source as the
+  bake (or bake from the live track).
 
 ## 4. Document map (read before re-deriving anything)
 
