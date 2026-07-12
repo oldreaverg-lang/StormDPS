@@ -753,8 +753,41 @@ def _load_custom_storms(min_year: int = 2015, max_year: int = 2099) -> list[dict
     except Exception as e:
         logger.warning(f"Failed to load custom storms: {e}")
         return []
-    
+
     return custom_storms
+
+
+def _current_custom_ids() -> set:
+    """Ids currently declared in data/custom_storms.csv (the source of truth
+    for manually-seeded storms). Empty when the CSV holds only its header."""
+    try:
+        return {(s.get("id") or "").strip()
+                for s in _load_custom_storms(1851, 2099) if s.get("id")}
+    except Exception:
+        logger.debug("[catalog] custom id scan failed", exc_info=True)
+        return set()
+
+
+def _without_stale_custom(catalog: list) -> list:
+    """Drop source='custom' rows no longer backed by data/custom_storms.csv.
+
+    Manually-seeded 'custom' storms are merged from that CSV, but once a row is
+    written into the persisted volume catalog it survives even after the CSV is
+    edited — so emptying the CSV left ~10 fabricated demo storms (2026 SI/NI/SP
+    test fixtures like 'Nadia'/'Zuri' whose ids aren't valid ATCF basins and
+    can't be scored) showing in the production sidebar. Keep only custom rows
+    the CSV still declares; everything auto-ingested (nhc-current) or from
+    IBTrACS is untouched. Fail-open."""
+    try:
+        valid = _current_custom_ids()
+        return [
+            s for s in (catalog or [])
+            if not (s and s.get("source") == "custom"
+                    and (s.get("id") or "").strip() not in valid)
+        ]
+    except Exception:
+        logger.exception("[catalog] stale-custom filter failed")
+        return catalog
 
 
 def _load_current_season_storms() -> list[dict]:
@@ -3006,6 +3039,72 @@ async def warm_dps_cache(app_state=None, *, include_active: bool = True) -> dict
     return stats
 
 
+def _current_season_warm_ids() -> list[str]:
+    """Catalog ids of THIS calendar year's storms to warm with the full engine.
+
+    These fall in the gap between 'baked into the annual bundle' (historical)
+    and 'currently active' (the only set the hourly loop force-refreshes): a
+    storm that formed and dissipated this season has a catalog row but no
+    cached canonical DPS, so the sidebar shows a crude wind estimate (IBTrACS
+    rows) or a bare Saffir-Simpson category (auto-ingested rows). Warming them
+    into the DPS cache lets the catalog overlay serve their hero score.
+    Deduped by id; both a storm's SID and ATCF row are warmed when present so
+    whichever the harmonize dedup keeps carries a score."""
+    try:
+        yr = utcnow().year
+        seen: set = set()
+        ids: list[str] = []
+        for s in (_GLOBAL_IBTRACS_CATALOG_CACHE or []):
+            if not s or s.get("year") != yr:
+                continue
+            sid = (s.get("id") or "").strip()
+            if sid and sid not in seen:
+                seen.add(sid)
+                ids.append(sid)
+        return ids
+    except Exception:
+        logger.exception("[DPS WARM] current-season id scan failed")
+        return []
+
+
+async def warm_current_season_dps(app_state=None, *, regenerate_view: bool = True) -> dict:
+    """Warm the full-engine DPS bundle for every current-season catalog storm,
+    then regenerate the harmonized default-view file so the sidebar serves the
+    fresh canonical scores instead of a crude estimate or a bare category.
+
+    force=False: a storm already cached at the current _DPS_CACHE_VERSION is a
+    cheap file-existence no-op, so this is safe to run every hour. Un-scoreable
+    rows (no fetchable track) fail fast and simply stay score-less. This is the
+    mechanism that makes a newly-formed storm auto-populate its score once it
+    has been ingested into the catalog."""
+    ids = _current_season_warm_ids()
+    if not ids:
+        return {"targets": 0}
+    sem = asyncio.Semaphore(3)
+    stats: dict = {}
+
+    async def _one(sid: str):
+        async with sem:
+            tag = await _warm_one_dps(sid)
+            stats[tag] = stats.get(tag, 0) + 1
+
+    await asyncio.gather(*[_one(s) for s in ids], return_exceptions=True)
+
+    if regenerate_view:
+        # Rebuild the served catalog (drops stale demo rows) and rewrite the
+        # harmonized default view, which now overlays the scores just warmed
+        # into the DPS cache. Under the catalog lock so it can't interleave
+        # with the 6h IBTrACS refresh or the season-ingest republish.
+        try:
+            async with _catalog_lock:
+                _republish_catalog_with_current_season()
+        except Exception:
+            logger.exception("[DPS WARM] post-warm catalog republish failed")
+
+    logger.info(f"[DPS WARM] current-season: {len(ids)} targets {stats}")
+    return {"targets": len(ids), **stats}
+
+
 async def refresh_active_dps_loop(app_state, interval_seconds: int = 3600):
     """
     Periodically recompute DPS for currently-active storms so hero-card values
@@ -3026,6 +3125,17 @@ async def refresh_active_dps_loop(app_state, interval_seconds: int = 3600):
 
                 await asyncio.gather(*[_one(sid) for sid in active_ids], return_exceptions=True)
                 logger.info(f"[DPS WARM] hourly active refresh: {len(active_ids)} storms")
+
+            # Warm the REST of the current season (dissipated-but-unbaked
+            # storms) so a just-ended system picks up its canonical score
+            # instead of lingering as a crude estimate / bare category. Cheap
+            # after the first pass (force=False → cached no-op); also
+            # regenerates the harmonized sidebar view.
+            try:
+                await warm_current_season_dps(app_state)
+            except Exception:
+                logger.warning("[DPS WARM] current-season warm failed (non-fatal)",
+                               exc_info=True)
             # Heartbeat even with zero active storms — an empty result is a healthy
             # iteration, not a dead loop (read by /health/selfcheck).
             _h = getattr(app_state, "health", None)
@@ -3533,6 +3643,11 @@ async def _build_global_catalog() -> list[dict]:
 
     if disk_catalog and disk_mtime:
         age = now - disk_mtime
+        # Strip stale demo rows the volume catalog may still carry from before
+        # custom_storms.csv was emptied (see _without_stale_custom) so a cold
+        # start serves a clean catalog immediately, not just after the first
+        # background refresh.
+        disk_catalog = _without_stale_custom(disk_catalog)
         _GLOBAL_IBTRACS_CATALOG_CACHE = disk_catalog
         _GLOBAL_IBTRACS_CATALOG_TIMESTAMP = now  # treat just-loaded as fresh in memory
         if age < _GLOBAL_IBTRACS_CATALOG_TTL:
@@ -3707,6 +3822,10 @@ def _republish_catalog_with_current_season() -> dict:
                 rebuilt.append(storm)
                 existing_ids.add(sid)
                 added += 1
+
+        # Purge stale demo rows the persisted volume catalog may still carry
+        # (custom_storms.csv is the source of truth and is now empty).
+        rebuilt = _without_stale_custom(rebuilt)
 
         _GLOBAL_IBTRACS_CATALOG_CACHE = rebuilt
         # Regenerate the disk artifacts the catalog endpoints stream from.

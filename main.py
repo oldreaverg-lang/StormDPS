@@ -37,6 +37,7 @@ from api.routes import (
     router,
     generate_preload_bundle,
     warm_dps_cache,
+    warm_current_season_dps,
     refresh_active_dps_loop,
     load_active_storms_from_disk,
     warm_ibtracs_catalog,
@@ -157,6 +158,15 @@ async def lifespan(app: FastAPI):
             await warm_dps_cache(app.state, include_active=True)
         except Exception as e:
             logger.warning(f"[DPS WARM] startup warm failed (non-fatal): {e}")
+        # Then warm the rest of THIS season (dissipated-but-unbaked storms) so
+        # the sidebar shows their canonical hero score, not a crude estimate or
+        # a bare category. Depends on the IBTrACS catalog being built first
+        # (warm_ibtracs above); no-ops cleanly if it isn't ready yet — the
+        # hourly refresh loop is the safety net.
+        try:
+            await warm_current_season_dps(app.state)
+        except Exception as e:
+            logger.warning(f"[DPS WARM] current-season startup warm failed (non-fatal): {e}")
 
     async def warm_tracks():
         # Network-bound; pushes back furthest so live API traffic in the

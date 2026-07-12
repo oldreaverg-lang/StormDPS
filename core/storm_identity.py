@@ -31,6 +31,9 @@ _ALIAS_PATH = Path(__file__).resolve().parent.parent / "data" / "storm_aliases.j
 _ALIAS_TABLE: Optional[dict] = None
 
 ID_FORM_RE = re.compile(r"^(?:[A-Z]{2}\d{6}|\d{7}[NS]\d{5})$", re.IGNORECASE)
+# IBTrACS Storm ID form only (YYYYDDDNxxLLL), used to prefer the SID-keyed row
+# when collapsing SID+ATCF twins that score identically.
+_SID_FORM_RE = re.compile(r"^\d{7}[NS]\d{5}$", re.IGNORECASE)
 
 
 def alias_table() -> dict:
@@ -141,8 +144,35 @@ def harmonize_catalog(rows: list, bundle_storms: dict) -> list:
         slot_by_key: dict = {}
 
         def rank(row: dict) -> tuple:
+            # Prefer, in order: engine-scored > has any score > canonical SID
+            # form. The SID tiebreak keeps the IBTrACS-keyed row (the more
+            # durable identity) when two equally-scored twins collide.
+            rid2 = str(row.get("id") or "")
+            is_sid = bool(_SID_FORM_RE.match(rid2))
             return (row.get("score_source") == "engine",
-                    row.get("peak_dps") is not None)
+                    row.get("peak_dps") is not None,
+                    is_sid)
+
+        def dedup_keys(r: dict, ident: dict) -> list:
+            """Every identity key a row can be recognized by. A row is
+            registered under ALL of them so its twin collapses no matter which
+            key it happens to carry — the SID+ATCF pair of a current-season
+            storm doesn't share an alias SID (the IBTrACS-built table lags
+            live systems), but it does share (name, year, basin), and WMO
+            never reuses a name within a basin-year. Falls back to the raw id
+            for unnamed / un-aliased rows so they never merge by accident."""
+            ks = []
+            sid = ident.get("sid")
+            if sid:
+                ks.append(("sid", sid))
+            nm = str(r.get("name") or "").strip().upper()
+            yr = r.get("year")
+            bs = str(r.get("basin") or "").strip().upper()
+            if nm and yr and not ID_FORM_RE.match(nm):
+                ks.append(("nyb", nm, yr, bs))
+            if not ks:
+                ks.append(("rid", str(r.get("id") or "").upper()))
+            return ks
 
         for row in rows or []:
             r = dict(row)
@@ -157,13 +187,17 @@ def harmonize_catalog(rows: list, bundle_storms: dict) -> list:
             elif r.get("peak_dps") is not None:
                 r["dps_label"] = categorize_dpi(float(r["peak_dps"]))
 
-            key = ident.get("sid") or rid.upper()
-            slot = slot_by_key.get(key)
+            ks = dedup_keys(r, ident)
+            slot = next((slot_by_key[k] for k in ks if k in slot_by_key), None)
             if slot is None:
-                slot_by_key[key] = len(out)
+                slot = len(out)
                 out.append(r)
             elif rank(r) > rank(out[slot]):
                 out[slot] = r
+            # Register (or re-point) every key so a third id form of the same
+            # storm also lands on this slot.
+            for k in ks:
+                slot_by_key[k] = slot
 
         out.sort(key=lambda s: (-(s.get("year") or 0), -(s.get("peak_dps") or 0)))
         return out

@@ -163,3 +163,42 @@ def test_live_shapes_stay_canonical_against_real_bundle():
     out = harmonize_catalog(rows, bundle)
     assert len(out) == 1  # twins collapsed even when the storm isn't baked
     assert out[0]["dps_label"] in CANON
+
+
+def test_harmonize_collapses_twins_without_alias_via_name_year_basin():
+    # A current-season storm whose SID+ATCF pair the IBTrACS-built alias table
+    # doesn't know yet must still collapse — by (name, year, basin). Use an
+    # unmistakably fake pair so neither id resolves through the alias table.
+    rows = [
+        {"id": "2026400N09152", "name": "Teststorm", "year": 2026, "basin": "WP",
+         "peak_dps": 20, "dps_label": "Moderate", "source": "nhc-current"},
+        {"id": "WP932026", "name": "Teststorm", "year": 2026, "basin": "WP"},
+    ]
+    out = harmonize_catalog(rows, {})
+    assert len(out) == 1, "SID+ATCF twins should collapse via (name,year,basin)"
+    # the SID-form, scored row wins the merge
+    assert out[0]["id"] == "2026400N09152"
+    assert out[0]["peak_dps"] == 20
+
+
+def test_harmonize_name_year_basin_does_not_over_collapse_distinct_storms():
+    # Same name reused across DIFFERENT basins (a real cross-basin collision)
+    # or different years must NOT collapse.
+    rows = [
+        {"id": "WP932026", "name": "Same", "year": 2026, "basin": "WP", "peak_dps": 30},
+        {"id": "EP932026", "name": "Same", "year": 2026, "basin": "EP", "peak_dps": 40},
+        {"id": "WP932025", "name": "Same", "year": 2025, "basin": "WP", "peak_dps": 50},
+    ]
+    out = harmonize_catalog(rows, {})
+    assert len(out) == 3
+
+
+def test_harmonize_prefers_sid_row_on_equal_score():
+    # Two equally-(un)scored twins → keep the durable IBTrACS SID identity.
+    rows = [
+        {"id": "WP932026", "name": "Tie", "year": 2026, "basin": "WP", "peak_dps": 25},
+        {"id": "2026400N09152", "name": "Tie", "year": 2026, "basin": "WP", "peak_dps": 25},
+    ]
+    out = harmonize_catalog(rows, {})
+    assert len(out) == 1
+    assert out[0]["id"] == "2026400N09152"
