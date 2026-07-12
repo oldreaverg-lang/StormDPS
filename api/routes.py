@@ -413,7 +413,13 @@ _ACTIVE_TRACK_TTL_S = 5400  # 90 minutes
 #           fish storms no longer show a red flood warning). Bump forces
 #           on-demand recomputes so cached active-storm entries pick up
 #           both changes.
-_DPS_CACHE_VERSION = "v13-full-track"
+# v14-wp-tranche-b (2026-07-12): WP DPS Tranche B (WP_DPS_AUDIT_V2 §9) —
+#           living-legs profiles + landfall-intensity bonus + stripped
+#           compensating layer + 1000mm rainfall reference. Every cached
+#           /dps bundle predates the new engine, so a bump is mandatory:
+#           without it a previously-warmed WP storm (e.g. Kong-Rey) keeps
+#           serving its old-code score from the persistent volume.
+_DPS_CACHE_VERSION = "v14-wp-tranche-b"
 
 # Cache for global IBTrACS catalog to avoid repeated large downloads/parses.
 # We also persist a json cache file so restarts can reuse the catalog quickly.
