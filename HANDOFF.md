@@ -193,6 +193,19 @@ carries its detail in git log + the docs listed in §4.
     (name,year,basin) when the alias table lags; `_without_stale_custom`
     purges demo rows once custom_storms.csv no longer declares them. Live: 47
     → 36 rows, all canonical, no twins, no fakes; selfcheck 208/0.
+16. **Experimental Features page + forecast rain-hazard (C1)** — SHIPPED
+    2026-07-12 (commits f908117 + 6b42ad3; docs/RAINFALL_SCORE_OPTIONS.md).
+    New /experimental page (linked from About, noindex) lays out 3 options for
+    a forecast rainfall-hazard score (rain = leading TC killer, DPS's R5 gap).
+    core/rain_forecast.py computes a live 0-100 score from the forecast track
+    (point-max residence model, forward-speed-dominated: Michael 28 vs Harvey
+    100 — rain axis independent of wind). /forecast now returns `rain_forecast`
+    (fail-open) + logs each advisory to a per-storm JSONL for post-storm
+    grading. **Does NOT touch DPS/bundle** — experimental, shown alongside.
+    Kinematic v1 placeholder; next: wake SurgeDPS's dormant WPC-QPF + Atlas-14
+    + NWM/HAND path (Options B2/B3) to serve a /rain_hazard endpoint, then the
+    C3 "Rain Hazard" chip. SurgeDPS already has the fetchers (mrms/nwm/atlas14/
+    ahps) + a building-level compound-flood model, currently dormant.
 15. ~~**Southern Hemisphere DPS**~~ — **SHIPPED 2026-07-12** (commit 807e8c2;
     docs/audits/SH_DPS_AUDIT.md). SI/SP storms scored open-ocean (Winston 48,
     Idai 31, Cat-5-empty-coast Ilsa 42 above everything). Added ~90 sh_*
