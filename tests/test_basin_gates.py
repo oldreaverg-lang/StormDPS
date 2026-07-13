@@ -30,6 +30,46 @@ def test_wp_window_excludes_southern_hemisphere():
         assert lp.nearest_wp_coast(lat, lon) is None, (lat, lon)
 
 
+def test_ni_window_excludes_other_basins():
+    # NI must not fire for Atlantic/US, WP (lon > 97), SH (lat < 0), or far
+    # north — every baked storm is one of those.
+    for lat, lon in [(29.0, -95.0), (25.8, -80.2),      # Atlantic/US
+                     (14.6, 121.0), (22.2, 114.1),       # WP (lon > 97)
+                     (-19.8, 34.8),                       # SH
+                     (35.0, 60.0)]:                       # too far north
+        assert lp.nearest_ni_coast(lat, lon) is None, (lat, lon)
+
+
+def test_ni_and_wp_do_not_both_claim_the_myanmar_overlap():
+    # The 95-97 E band overlaps both windows; NI must own it (Myanmar coast),
+    # and WP must still own the Gulf of Thailand just east of it.
+    myanmar = lp.nearest_ni_coast(16.8, 96.2)   # Yangon
+    assert myanmar is not None and myanmar[1].startswith("ni_")
+    gulf_of_thailand = lp.nearest_wp_coast(13.4, 100.6)  # Bangkok/Gulf head
+    assert gulf_of_thailand is not None and gulf_of_thailand[1].startswith("wp_")
+
+
+def test_ni_resolves_north_indian_coasts():
+    cases = [
+        (22.0, 89.6, "ni_bangladesh"),          # Sundarbans
+        (19.8, 85.8, "ni_odisha"),               # Puri (Fani)
+        (17.7, 83.3, "ni_andhra"),               # Vizag (Hudhud)
+        (16.3, 94.8, "ni_myanmar"),              # Irrawaddy (Nargis)
+        (20.9, 70.4, "ni_gujarat_pakistan"),     # Diu (Tauktae)
+        (17.0, 54.1, "ni_oman_yemen"),           # Salalah (Mekunu)
+    ]
+    for lat, lon, key in cases:
+        hit = lp.nearest_ni_coast(lat, lon)
+        assert hit is not None and hit[1] == key and hit[0] < 40, (lat, lon, hit)
+
+
+def test_ni_waypoints_are_all_in_window():
+    db = lp._get_coastline_db()
+    assert db.ni_waypoints
+    assert all(0 <= w.lat <= 31 and 42 <= w.lon <= 97 for w in db.ni_waypoints)
+    assert all(w.region_key.startswith("ni_") for w in db.ni_waypoints)
+
+
 def test_sh_resolves_southern_coasts():
     # (lat, lon, expected sh_* key)
     cases = [
@@ -63,6 +103,7 @@ def test_adding_sh_wp_waypoints_did_not_move_nonlocal_nearest():
         wp, _d = db.nearest_waypoint(lat, lon)
         assert not wp.region_key.startswith("sh_")
         assert not wp.region_key.startswith("wp_")
+        assert not wp.region_key.startswith("ni_")
 
 
 def test_sh_waypoints_are_all_southern():

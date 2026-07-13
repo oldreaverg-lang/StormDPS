@@ -626,6 +626,116 @@ COASTAL_PROFILES = {
         antecedent_moisture=0.55,
         bathymetric_concavity=0.05,
     ),
+    # === North Indian — [NI_DPS_AUDIT, Tranche 2026-07] ===
+    # The Bay of Bengal is the world's worst surge environment: the widest
+    # shallow shelf, a head-of-bay funnel, macro-tides, and the lowest-lying
+    # densely-populated deltas anywhere. These carry the highest
+    # surge_amplification + bathymetric_concavity in the whole system. The
+    # Arabian Sea side is steeper and drier (but the Gulfs of Kutch/Khambhat
+    # are macro-tidal). Region keys assigned by the ni_* waypoints.
+    "ni_bangladesh": CoastalProfile(
+        name="Bangladesh (Ganges-Meghna delta / Sundarbans)",
+        shelf_width_km=200, avg_slope=0.0002, surge_amplification=1.75,  # the worst on Earth
+        rain_enhancement=1.30, tidal_range_m=4.5,  # macro-tidal head of bay
+        wetland_buffer=0.10,   # Sundarbans mangroves
+        bay_funneling=1.45,    # Meghna estuary funnel — Bhola/1991 catastrophes
+        coastal_defense=0.05,  # post-1991 embankments + cyclone shelters, still thin
+        river_basin_factor=1.35,  # Ganges-Brahmaputra-Meghna discharge
+        antecedent_moisture=0.80,
+        bathymetric_concavity=0.42,  # the head-of-bay funnel apex
+    ),
+    "ni_myanmar": CoastalProfile(
+        name="Myanmar (Irrawaddy delta / Rakhine)",
+        shelf_width_km=140, avg_slope=0.0004, surge_amplification=1.60,
+        rain_enhancement=1.30, tidal_range_m=3.5, wetland_buffer=0.06,
+        bay_funneling=1.35,    # Nargis drove a 3.5-5 m surge up the delta
+        coastal_defense=0.02,  # minimal — Nargis killed ~138,000
+        river_basin_factor=1.30,  # Irrawaddy
+        antecedent_moisture=0.75,
+        bathymetric_concavity=0.32,
+    ),
+    "ni_odisha": CoastalProfile(
+        name="Odisha / West Bengal Coast",
+        shelf_width_km=130, avg_slope=0.0005, surge_amplification=1.50,
+        rain_enhancement=1.20, tidal_range_m=2.5, wetland_buffer=0.06,
+        bay_funneling=1.25,
+        coastal_defense=0.10,  # 1999-super-cyclone-driven shelter network
+        river_basin_factor=1.20,  # Mahanadi
+        antecedent_moisture=0.70,
+        bathymetric_concavity=0.25,
+    ),
+    "ni_andhra": CoastalProfile(
+        name="Andhra Pradesh Coast",
+        shelf_width_km=90, avg_slope=0.0008, surge_amplification=1.35,
+        rain_enhancement=1.15, tidal_range_m=1.6, wetland_buffer=0.05,
+        bay_funneling=1.10,
+        coastal_defense=0.10,
+        river_basin_factor=1.15,  # Godavari / Krishna deltas
+        antecedent_moisture=0.65,
+        bathymetric_concavity=0.15,
+    ),
+    "ni_tamilnadu": CoastalProfile(
+        name="Tamil Nadu / SE India Coast",
+        shelf_width_km=45, avg_slope=0.003, surge_amplification=1.20,
+        rain_enhancement=1.20, tidal_range_m=1.1, wetland_buffer=0.03,
+        bay_funneling=1.05,
+        coastal_defense=0.12,
+        river_basin_factor=1.10,
+        antecedent_moisture=0.55,  # NE monsoon-fed
+        bathymetric_concavity=0.10,
+    ),
+    "ni_srilanka": CoastalProfile(
+        name="Sri Lanka",
+        shelf_width_km=20, avg_slope=0.01, surge_amplification=1.05,
+        rain_enhancement=1.35,  # central highlands orographic
+        tidal_range_m=0.8, wetland_buffer=0.03, bay_funneling=1.05,
+        coastal_defense=0.12,
+        river_basin_factor=1.10,
+        antecedent_moisture=0.60,
+        bathymetric_concavity=0.05,
+    ),
+    "ni_kerala": CoastalProfile(
+        name="Kerala / SW India Coast",
+        shelf_width_km=50, avg_slope=0.004, surge_amplification=1.05,
+        rain_enhancement=1.50,  # Western Ghats orographic — Ockhi / monsoon deluges
+        tidal_range_m=1.0, wetland_buffer=0.05, bay_funneling=1.05,
+        coastal_defense=0.12,
+        river_basin_factor=1.20,  # backwaters / short steep rivers
+        antecedent_moisture=0.70,
+        bathymetric_concavity=0.05,
+    ),
+    "ni_gujarat_pakistan": CoastalProfile(
+        name="Gujarat / Pakistan (Arabian Sea NE)",
+        shelf_width_km=80, avg_slope=0.001, surge_amplification=1.25,
+        rain_enhancement=0.85,  # arid
+        tidal_range_m=3.5,  # Gulfs of Kutch & Khambhat — among the world's highest tides
+        wetland_buffer=0.05,
+        bay_funneling=1.25,    # Kutch / Khambhat funnels
+        coastal_defense=0.12,
+        river_basin_factor=1.05,
+        antecedent_moisture=0.30,  # semi-arid
+        bathymetric_concavity=0.15,
+    ),
+    "ni_oman_yemen": CoastalProfile(
+        name="Oman / Yemen (Arabian Sea W)",
+        shelf_width_km=25, avg_slope=0.01, surge_amplification=1.10,
+        rain_enhancement=0.90,  # arid — but Gonu/Mekunu dumped years of rain, flash floods
+        tidal_range_m=1.8, wetland_buffer=0.02, bay_funneling=1.05,
+        coastal_defense=0.10,
+        river_basin_factor=1.15,  # dry wadis flash-flood catastrophically
+        antecedent_moisture=0.20,
+        bathymetric_concavity=0.05,
+    ),
+    "ni_somalia": CoastalProfile(
+        name="Horn of Africa (Somalia / Somaliland)",
+        shelf_width_km=20, avg_slope=0.01, surge_amplification=1.00,
+        rain_enhancement=0.90, tidal_range_m=1.8, wetland_buffer=0.02,
+        bay_funneling=1.00,
+        coastal_defense=0.03,
+        river_basin_factor=1.10,
+        antecedent_moisture=0.20,
+        bathymetric_concavity=0.05,
+    ),
     "open_ocean": CoastalProfile(
         name="Open Ocean (No Coastal Effects)",
         shelf_width_km=0, avg_slope=0, surge_amplification=0.0,

@@ -95,6 +95,19 @@ def _sh_land_hit(lat, lon):
     return hit[0] <= SH_LAND_KM
 
 
+def _ni_land_hit(lat, lon):
+    """[NI_DPS_AUDIT] North-Indian analog of _wp_land_hit. Uses the wider SH
+    gate (75 km): NI cyclones parallel the coast offshore (Tauktae) and weaken
+    fast over the deltas, so the tight 50 km gate misses genuine landfallers.
+    Checked before WP so the Andaman/Myanmar longitude overlap resolves to NI."""
+    if _lp is None:
+        return None
+    hit = _lp.nearest_ni_coast(lat, lon)
+    if hit is None:
+        return None
+    return hit[0] <= SH_LAND_KM
+
+
 # ============================================================================
 # BASIN-SPECIFIC DPS COEFFICIENTS (v2.0)
 # ============================================================================
@@ -180,11 +193,16 @@ BASIN_COEFFICIENTS = {
         "compression_S": 2.5,
     },
     "NORTH_INDIAN": {
-        "dps_multiplier": 1.15,  # 15% boost for surge dominance
+        # [NI_DPS_AUDIT 2026-07] Living legs (ni_* profiles) now model the Bay
+        # of Bengal surge directly, so the flat 1.15 "surge dominance" boost —
+        # which was a hand-wave standing in for the surge leg the basin never
+        # had — is retired to 1.00; compression moves to T=80 (mirrors WP/SH).
+        # No baked storm is North Indian, so this changes only NI scores.
+        "dps_multiplier": 1.00,
         "ri_bonus": 0,
         "duration_factor": 1.0,
         "name": "North Indian",
-        "compression_T": 70.0,
+        "compression_T": 80.0,
         "compression_S": 2.5,
     },
     "SOUTH_INDIAN": {
@@ -351,10 +369,12 @@ def detect_landfall_events(snapshots):
         return "Coast"
 
     def is_near_coast(lat, lon):
-        # [Tranche B] WP coords: waypoint gate (<=50 km) — box ENTRY used to
-        # mint landfall events for storms crossing into the Japan/China
-        # rectangles hundreds of km offshore. SH coords: same waypoint gate.
-        # Non-WP/SH coords keep boxes.
+        # Waypoint gate for NI/WP/SH (<=50 km) — box ENTRY used to mint fake
+        # landfall events for storms crossing into a rectangle hundreds of km
+        # offshore. NI first (Andaman/Myanmar overlap). Others keep boxes.
+        ni = _ni_land_hit(lat, lon)
+        if ni is not None:
+            return ni
         wp = _wp_land_hit(lat, lon)
         if wp is not None:
             return wp
@@ -454,14 +474,16 @@ def storm_made_land_contact(snapshots, min_count=2, min_wind_ms=33.0):
             continue
         lat = s.get("lat", 0)
         lon = s.get("lon", 0)
-        # [Tranche B] WP fixes use the waypoint gate (<=50 km of a real
-        # coastline point). Box membership let loitering recurvers inside
-        # the Japan/China rectangles defeat the no-landfall dampener from
-        # hundreds of km offshore. SH fixes use the same waypoint gate.
-        # Non-WP/SH coords keep the box test.
-        wp = _wp_land_hit(lat, lon)
-        sh = _sh_land_hit(lat, lon) if wp is None else None
-        if wp is not None:
+        # Waypoint gate for NI/WP/SH fixes (<=50 km of a real coastline point);
+        # box membership let loitering recurvers defeat the dampener from
+        # hundreds of km offshore. NI first (Andaman/Myanmar overlap).
+        ni = _ni_land_hit(lat, lon)
+        wp = _wp_land_hit(lat, lon) if ni is None else None
+        sh = _sh_land_hit(lat, lon) if (ni is None and wp is None) else None
+        if ni is not None:
+            if ni:
+                hits += 1
+        elif wp is not None:
             if wp:
                 hits += 1
         elif sh is not None:
@@ -543,11 +565,19 @@ def has_orographic_rainfall_potential(snapshots, basin):
     # NZ's ranges / the Queensland Great Dividing Range all produce
     # cyclone orographic dumps (Gabrielle, Yasi).
     if basin not in ("WESTERN_PACIFIC", "EASTERN_PACIFIC",
-                     "SOUTH_INDIAN", "SOUTH_PACIFIC"):
+                     "SOUTH_INDIAN", "SOUTH_PACIFIC", "NORTH_INDIAN"):
         return False, 0
 
     # Mountain regions by basin (lat, lon, elevation_m)
-    if basin == "WESTERN_PACIFIC":
+    if basin == "NORTH_INDIAN":
+        mountain_zones = [
+            (11.0, 76.5, 2637),    # Western Ghats (Kerala/TN) — Ockhi, monsoon
+            (7.0, 80.7, 2524),     # Sri Lanka central highlands
+            (19.5, 94.0, 3053),    # Myanmar Arakan/Rakhine Yoma — Nargis, Mocha
+            (25.0, 90.0, 1961),    # Meghalaya (world's wettest) — Bay of Bengal moisture
+            (21.5, 85.5, 1187),    # Eastern Ghats (Odisha) — Phailin/Fani inland rain
+        ]
+    elif basin == "WESTERN_PACIFIC":
         mountain_zones = [
             (11.5, 124.0, 2500),   # Philippines Cordilleras
             (14.5, 121.0, 2500),   # Philippines highlands (Sierra Madre)
@@ -1245,6 +1275,56 @@ def apply_basin_dps_adjustment(cum_dpi, basin, snapshots,
         #    weakening/ET landfaller — Gabrielle over NZ, Kenneth into N
         #    Mozambique — isn't mistaken for a fish storm), deferred for
         #    in-progress tracks.
+        if landfall_count == 0 and not storm_made_land_contact(
+                snapshots, min_wind_ms=SH_LAND_CONTACT_WIND):
+            if track_is_in_progress(snapshots):
+                adjustment_notes.append("no-LF dampener deferred (active storm)")
+            else:
+                adjusted_dps *= 0.60
+                adjustment_notes.append("×0.60(no-landfall)")
+
+    # North Indian enhancements — [NI_DPS_AUDIT 2026-07]. Same structure as SH.
+    # The Bay of Bengal is a surge basin — the coastal profiles already carry
+    # the extreme surge amplification, so this block adds the landfall-
+    # intensity bonus, multi-landfall, orographic (Western Ghats / Sri Lanka /
+    # Myanmar Arakan), and the no-landfall dampener (Arabian Sea especially
+    # spawns fish-storm recurvers — Kyarr 2019, Gonu-class).
+    if basin == "NORTH_INDIAN":
+        landfall_count, _ = count_significant_landfalls(snapshots)
+        if landfall_count > 1:
+            landfall_bonus = min((landfall_count - 1) * 2.5, 8)
+            adjusted_dps += landfall_bonus
+            adjustment_notes.append(f"+{landfall_bonus:.1f}LF")
+
+        has_orographic, max_wind_near_mountains = has_orographic_rainfall_potential(
+            snapshots, basin
+        )
+        if has_orographic and max_wind_near_mountains >= 20:
+            orographic_bonus = min(max_wind_near_mountains / 18, 9)
+            adjusted_dps += orographic_bonus
+            adjustment_notes.append(f"+{orographic_bonus:.1f}ORO")
+
+        # Landfall-intensity bonus — wind within 60 km of a populated ni_*
+        # waypoint, pop-scaled (same floor/shape as SH: NI runs many high-
+        # impact Cat 3-4 delta strikes, not just Cat 5s).
+        lfi_bonus = 0.0
+        if _lp is not None:
+            for s in snapshots:
+                w = s.get("max_wind_ms", 0) or 0
+                if w < SH_LFI_FLOOR:
+                    continue
+                hit = _lp.nearest_ni_coast(s.get("lat", 0) or 0,
+                                           s.get("lon", 0) or 0)
+                if hit is None or hit[0] > WP_LFI_KM:
+                    continue
+                pop_scale = min(1.0, hit[2] / WP_LFI_POP_NORM)
+                cand = min(12.0, 12.0 * (w - SH_LFI_FLOOR) / 28.0) * pop_scale
+                if cand > lfi_bonus:
+                    lfi_bonus = cand
+        if lfi_bonus > 0.1:
+            adjusted_dps += lfi_bonus
+            adjustment_notes.append(f"+{lfi_bonus:.1f}LFI")
+
         if landfall_count == 0 and not storm_made_land_contact(
                 snapshots, min_wind_ms=SH_LAND_CONTACT_WIND):
             if track_is_in_progress(snapshots):

@@ -124,6 +124,10 @@ class CoastlineDatabase:
         self.sh_waypoints: List[CoastlineWaypoint] = [
             w for w in self.waypoints if w.region_key.startswith("sh_")
         ]
+        # NI subset (North Indian: Arabian Sea + Bay of Bengal).
+        self.ni_waypoints: List[CoastlineWaypoint] = [
+            w for w in self.waypoints if w.region_key.startswith("ni_")
+        ]
 
     def _build_waypoints(self) -> List[CoastlineWaypoint]:
         """
@@ -750,6 +754,117 @@ class CoastlineDatabase:
             CoastlineWaypoint(-9.660, 120.260, "sh_timor", 0.20, "Waingapu (Sumba)"),
         ])
 
+        # ================================================================
+        # NORTH INDIAN — [NI_DPS_AUDIT, Tranche 2026-07]
+        # ================================================================
+        # ~65 waypoints activating the NI "living legs" (ni_* region keys).
+        # NI is the deadliest, most surge-dominated basin on Earth: the Bay of
+        # Bengal's wide shallow shelf + head-of-bay funnel + macro-tides +
+        # low-lying deltas (Sundarbans, Odisha, Irrawaddy) produce the world's
+        # worst surge (Bhola 1970 ~300k+ dead, 1991 ~138k, Nargis 2008 ~138k).
+        # Before this, every NI cyclone scored open-ocean (Amphan $14B → 50,
+        # Nargis → 68 capped). The Arabian Sea side is steeper/drier.
+        #
+        # Longitude/latitude gated (lat 0–31, lon 42–97) so no other basin can
+        # observe an ni_* region. Delta points carry the highest surge/exposure;
+        # the Bay-of-Bengal profiles crank surge_amplification + concavity.
+
+        # ====== BANGLADESH / GANGES-MEGHNA DELTA ====== (ni_bangladesh —
+        # the extreme surge zone: Bhola, 1991, Sidr, Aila, Amphan)
+        waypoints.extend([
+            CoastlineWaypoint(22.36, 91.83, "ni_bangladesh", 0.65, "Chittagong"),
+            CoastlineWaypoint(21.43, 91.98, "ni_bangladesh", 0.40, "Cox's Bazar"),
+            CoastlineWaypoint(22.50, 91.40, "ni_bangladesh", 0.30, "Sandwip / Hatiya"),
+            CoastlineWaypoint(22.35, 90.90, "ni_bangladesh", 0.35, "Bhola"),           # Bhola 1970
+            CoastlineWaypoint(22.00, 90.40, "ni_bangladesh", 0.35, "Patuakhali / Barisal"),
+            CoastlineWaypoint(21.90, 89.60, "ni_bangladesh", 0.35, "Mongla / Khulna"),  # Sidr, Aila
+            CoastlineWaypoint(21.75, 89.15, "ni_bangladesh", 0.12, "Sundarbans (mangrove)"),
+            CoastlineWaypoint(21.65, 88.08, "ni_bangladesh", 0.60, "Sagar Is. / Kolkata approach"),  # Amphan
+        ])
+
+        # ====== ODISHA / WEST BENGAL ====== (ni_odisha — Paradip, 1999 super
+        # cyclone, Phailin, Fani, Yaas, Titli)
+        waypoints.extend([
+            CoastlineWaypoint(21.62, 87.52, "ni_odisha", 0.35, "Digha"),
+            CoastlineWaypoint(21.50, 87.03, "ni_odisha", 0.30, "Balasore / Chandbali"),
+            CoastlineWaypoint(20.32, 86.61, "ni_odisha", 0.40, "Paradip"),            # 1999, Phailin
+            CoastlineWaypoint(19.81, 85.83, "ni_odisha", 0.45, "Puri"),               # Fani landfall
+            CoastlineWaypoint(19.27, 84.90, "ni_odisha", 0.30, "Gopalpur"),           # Phailin, Titli
+        ])
+
+        # ====== ANDHRA PRADESH ====== (ni_andhra — Hudhud, Vizag)
+        waypoints.extend([
+            CoastlineWaypoint(18.33, 84.12, "ni_andhra", 0.25, "Kalingapatnam"),
+            CoastlineWaypoint(17.69, 83.30, "ni_andhra", 0.60, "Visakhapatnam"),      # Hudhud
+            CoastlineWaypoint(16.93, 82.24, "ni_andhra", 0.40, "Kakinada / Godavari delta"),
+            CoastlineWaypoint(16.19, 81.13, "ni_andhra", 0.35, "Machilipatnam / Krishna delta"),
+            CoastlineWaypoint(14.43, 80.00, "ni_andhra", 0.30, "Nellore"),
+        ])
+
+        # ====== TAMIL NADU / SE INDIA ====== (ni_tamilnadu — Gaja, Vardah,
+        # Nivar, Chennai floods)
+        waypoints.extend([
+            CoastlineWaypoint(13.08, 80.29, "ni_tamilnadu", 0.75, "Chennai"),
+            CoastlineWaypoint(11.75, 79.77, "ni_tamilnadu", 0.35, "Cuddalore"),
+            CoastlineWaypoint(10.77, 79.84, "ni_tamilnadu", 0.35, "Nagapattinam"),    # Gaja
+            CoastlineWaypoint(9.29, 79.31, "ni_tamilnadu", 0.20, "Rameswaram"),
+        ])
+
+        # ====== SRI LANKA ====== (ni_srilanka — Ockhi origin, 1978 storms)
+        waypoints.extend([
+            CoastlineWaypoint(9.66, 80.02, "ni_srilanka", 0.30, "Jaffna"),
+            CoastlineWaypoint(8.57, 81.23, "ni_srilanka", 0.30, "Trincomalee"),
+            CoastlineWaypoint(7.72, 81.70, "ni_srilanka", 0.30, "Batticaloa"),
+            CoastlineWaypoint(6.93, 79.85, "ni_srilanka", 0.55, "Colombo"),
+        ])
+
+        # ====== KERALA / SW INDIA ====== (ni_kerala — Ockhi, monsoon-orographic)
+        waypoints.extend([
+            CoastlineWaypoint(8.52, 76.94, "ni_kerala", 0.45, "Thiruvananthapuram"),
+            CoastlineWaypoint(9.93, 76.27, "ni_kerala", 0.50, "Kochi"),
+            CoastlineWaypoint(12.87, 74.84, "ni_kerala", 0.40, "Mangalore"),
+        ])
+
+        # ====== MYANMAR / IRRAWADDY ====== (ni_myanmar — Nargis, Mocha, Giri)
+        waypoints.extend([
+            CoastlineWaypoint(20.15, 92.90, "ni_myanmar", 0.35, "Sittwe (Rakhine)"),  # Mocha, Giri
+            CoastlineWaypoint(19.43, 93.55, "ni_myanmar", 0.20, "Kyaukpyu"),
+            CoastlineWaypoint(15.80, 95.00, "ni_myanmar", 0.25, "Ayeyarwady delta"),  # Nargis ground zero
+            CoastlineWaypoint(16.30, 94.70, "ni_myanmar", 0.30, "Pathein"),
+            CoastlineWaypoint(16.80, 96.20, "ni_myanmar", 0.60, "Yangon"),            # Nargis
+        ])
+
+        # ====== GUJARAT / PAKISTAN (Arabian Sea NE) ====== (ni_gujarat_pakistan
+        # — Tauktae, Biparjoy, Vayu, 1998 Kandla, Karachi; macro-tidal gulfs)
+        waypoints.extend([
+            CoastlineWaypoint(19.08, 72.88, "ni_gujarat_pakistan", 0.85, "Mumbai"),   # Tauktae passed near
+            CoastlineWaypoint(21.17, 72.81, "ni_gujarat_pakistan", 0.55, "Surat"),
+            CoastlineWaypoint(20.90, 70.37, "ni_gujarat_pakistan", 0.35, "Diu / Veraval"),
+            CoastlineWaypoint(20.82, 71.17, "ni_gujarat_pakistan", 0.25, "Una / Mahuva"),  # Tauktae landfall
+            CoastlineWaypoint(21.64, 69.60, "ni_gujarat_pakistan", 0.30, "Porbandar"),
+            CoastlineWaypoint(22.47, 69.07, "ni_gujarat_pakistan", 0.20, "Dwarka / Okha"),
+            CoastlineWaypoint(23.22, 68.60, "ni_gujarat_pakistan", 0.20, "Jakhau / Kutch"),  # Biparjoy landfall
+            CoastlineWaypoint(24.86, 67.00, "ni_gujarat_pakistan", 0.70, "Karachi"),
+            CoastlineWaypoint(25.12, 62.32, "ni_gujarat_pakistan", 0.20, "Gwadar"),
+        ])
+
+        # ====== OMAN / YEMEN (Arabian Sea W) ====== (ni_oman_yemen — Gonu 2007,
+        # Chapala/Mekunu/Luban; arid coast, flash-flood rain)
+        waypoints.extend([
+            CoastlineWaypoint(23.60, 58.59, "ni_oman_yemen", 0.45, "Muscat"),         # Gonu
+            CoastlineWaypoint(22.57, 59.53, "ni_oman_yemen", 0.20, "Sur"),
+            CoastlineWaypoint(17.02, 54.09, "ni_oman_yemen", 0.35, "Salalah"),        # Mekunu
+            CoastlineWaypoint(14.53, 49.13, "ni_oman_yemen", 0.30, "Al Mukalla"),     # Chapala, Luban
+            CoastlineWaypoint(12.80, 45.04, "ni_oman_yemen", 0.40, "Aden"),
+            CoastlineWaypoint(12.50, 53.90, "ni_oman_yemen", 0.10, "Socotra"),        # Chapala
+        ])
+
+        # ====== HORN OF AFRICA ====== (ni_somalia — rare: Sagar 2018, Gati 2020)
+        waypoints.extend([
+            CoastlineWaypoint(11.28, 49.18, "ni_somalia", 0.20, "Bosaso"),           # Gati
+            CoastlineWaypoint(10.44, 45.01, "ni_somalia", 0.20, "Berbera"),          # Sagar
+        ])
+
         # ====== OPEN OCEAN REFERENCE POINTS (for fallback distances) ======
         # These are ultra-remote points; storms this far away should fall back to "open_ocean"
         waypoints.extend([
@@ -1178,6 +1293,62 @@ def nearest_sh_coast(lat: float, lon: float) -> Optional[Tuple[float, str, float
     lat_bin = round(float(lat), 1)
     lon_bin = round(float(lon), 1)
     dist_km, region_key, pop = _sh_coast_cached(lat_bin, lon_bin)
+    return dist_km, region_key, pop
+
+
+# ============================================================================
+#  NORTH INDIAN DISTANCE GATES — [NI_DPS_AUDIT, Tranche 2026-07]
+# ============================================================================
+# Same architecture as the WP/SH gates. Gated to the North Indian Ocean
+# (Arabian Sea + Bay of Bengal): lat 0–31 N, lon 42–97 E. The eastern edge
+# stops at 97 E — below the WP waypoints (all >= 99.1 E) — and NI is checked
+# BEFORE WP in the region mapper so the small 95–97 E overlap (Andaman /
+# Myanmar) resolves to NI. No baked storm is North Indian, so activation
+# changes only NI scores (verified bit-identical by the bake A/B).
+
+NI_WINDOW_LAT_MIN = 0.0
+NI_WINDOW_LAT_MAX = 31.0
+NI_WINDOW_LON_MIN = 42.0
+NI_WINDOW_LON_MAX = 97.0
+
+
+def in_ni_window(lat: float, lon: float) -> bool:
+    """True if the coordinate is inside the NI scoring-activation window."""
+    return (NI_WINDOW_LAT_MIN <= lat <= NI_WINDOW_LAT_MAX
+            and NI_WINDOW_LON_MIN <= lon <= NI_WINDOW_LON_MAX)
+
+
+@_lru_cache(maxsize=16384)
+def _ni_coast_cached(lat_bin: float, lon_bin: float) -> tuple:
+    """Nearest NI waypoint (distance_km, region_key, population_density)."""
+    db = _get_coastline_db()
+    best_d = float("inf")
+    best = None
+    for wp in db.ni_waypoints:
+        d = db._haversine(lat_bin, lon_bin, wp.lat, wp.lon)
+        if d < best_d:
+            best_d = d
+            best = wp
+    if best is None:  # defensive — ni list is never empty
+        return (float("inf"), "open_ocean", 0.0)
+    return (best_d, best.region_key, best.population_density)
+
+
+def nearest_ni_coast(lat: float, lon: float) -> Optional[Tuple[float, str, float]]:
+    """
+    Distance to the nearest NORTH INDIAN coastline waypoint.
+
+    Returns (distance_km, ni_region_key, population_density) for coordinates
+    inside the NI activation window, None outside it. Callers own their own
+    distance gates, mirroring WP/SH (<=150 km profile, <=100 km coastal hours,
+    <=50 km land contact, <=60 km LFI). Sub-0.20 population points are sparse
+    coasts (Sundarbans mangroves, Socotra) — landfall detection only.
+    """
+    if not in_ni_window(lat, lon):
+        return None
+    lat_bin = round(float(lat), 1)
+    lon_bin = round(float(lon), 1)
+    dist_km, region_key, pop = _ni_coast_cached(lat_bin, lon_bin)
     return dist_km, region_key, pop
 
 

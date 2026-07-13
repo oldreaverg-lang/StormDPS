@@ -155,6 +155,18 @@ ZONE_WEIGHTS = {
     "Solomon":             0.25,
     "Timor":               0.30,
     "W Australia":         0.20,  # Pilbara/Kimberley — among the emptiest coasts
+    # North Indian — [NI_DPS_AUDIT 2026-07]. The Bay of Bengal deltas are among
+    # the densest, most surge-exposed coasts on Earth.
+    "Bangladesh":          0.55,
+    "Myanmar":             0.40,
+    "Odisha":              0.45,
+    "Andhra Pradesh":      0.45,
+    "Tamil Nadu":          0.50,
+    "Sri Lanka":           0.35,
+    "Kerala":              0.45,
+    "Gujarat / Pakistan":  0.55,
+    "Oman / Yemen":        0.30,
+    "Somalia":             0.20,
     # Default for any near-coast snapshot not in the above list
     "Open Ocean":          0.0,
 }
@@ -219,6 +231,25 @@ SH_PROFILE_TIERS = (
     (0.40, 150.0),   # city-scale coast: full profile reach
     (0.20, 75.0),    # town-scale coast: storm must be closing in
 )                    # < 0.20: sparse coast (Pilbara/remote islands) — detection only
+
+# [NI_DPS_AUDIT 2026-07] North Indian — same architecture, ni_* waypoints.
+NI_KEY_TO_ZONE = {
+    "ni_bangladesh":        "Bangladesh",
+    "ni_myanmar":           "Myanmar",
+    "ni_odisha":            "Odisha",
+    "ni_andhra":            "Andhra Pradesh",
+    "ni_tamilnadu":         "Tamil Nadu",
+    "ni_srilanka":          "Sri Lanka",
+    "ni_kerala":            "Kerala",
+    "ni_gujarat_pakistan":  "Gujarat / Pakistan",
+    "ni_oman_yemen":        "Oman / Yemen",
+    "ni_somalia":           "Somalia",
+}
+NI_COASTAL_KM = 100.0
+NI_PROFILE_TIERS = (
+    (0.40, 150.0),
+    (0.20, 75.0),
+)                    # < 0.20: Sundarbans mangroves / Socotra — detection only
 
 # Simple land proximity check: lat/lon bounding boxes for US coastal zones
 # A snapshot is "near coast" if it falls within these boxes.
@@ -344,12 +375,28 @@ def _sh_coast_hit(lat: float, lon: float, radius_km: float):
     return region_key if dist_km <= radius_km else ""
 
 
+def _ni_coast_hit(lat: float, lon: float, radius_km: float):
+    """[NI_DPS_AUDIT] North-Indian analog. Checked BEFORE WP so the 95–97 E
+    Andaman/Myanmar overlap resolves to NI, not WP."""
+    if _lp is None:
+        return None
+    hit = _lp.nearest_ni_coast(lat, lon)
+    if hit is None:
+        return None
+    dist_km, region_key, _pop = hit
+    return region_key if dist_km <= radius_km else ""
+
+
 def _is_near_coast(lat: float, lon: float) -> bool:
     """Quick check if a lat/lon is near a populated coast.
 
-    WP-window and SH-window coordinates use waypoint distance (<=100 km);
-    everything else keeps the bounding-box test.
+    NI/WP/SH-window coordinates use waypoint distance (<=100 km); everything
+    else keeps the bounding-box test. NI is tested first so the small NI/WP
+    longitude overlap (Myanmar) resolves to NI.
     """
+    ni = _ni_coast_hit(lat, lon, NI_COASTAL_KM)
+    if ni is not None:
+        return bool(ni)
     wp = _wp_coast_hit(lat, lon, WP_COASTAL_KM)
     if wp is not None:
         return bool(wp)
@@ -364,6 +411,9 @@ def _is_near_coast(lat: float, lon: float) -> bool:
 
 def _get_coastal_label(lat: float, lon: float) -> str:
     """Get the coastal zone label for a lat/lon."""
+    ni = _ni_coast_hit(lat, lon, NI_COASTAL_KM)
+    if ni is not None:
+        return NI_KEY_TO_ZONE.get(ni, "Open Ocean") if ni else "Open Ocean"
     wp = _wp_coast_hit(lat, lon, WP_COASTAL_KM)
     if wp is not None:
         return WP_KEY_TO_ZONE.get(wp, "Open Ocean") if wp else "Open Ocean"
@@ -449,6 +499,16 @@ def _estimate_region_from_coords(lat: float, lon: float) -> Optional[str]:
     # the legs up for storms sitting half a basin offshore (the baked path
     # applies no land dampening, so that generosity would be undamped).
     if _lp is not None:
+        # [NI_DPS_AUDIT] North Indian FIRST (the 95–97 E Andaman/Myanmar band
+        # overlaps the WP window; NI owns it). Same tiered reach + explicit
+        # open_ocean pin as WP/SH.
+        ni_hit = _lp.nearest_ni_coast(lat, lon)
+        if ni_hit is not None:
+            dist_km, key, pop = ni_hit
+            for min_pop, max_km in NI_PROFILE_TIERS:
+                if pop >= min_pop and dist_km <= max_km:
+                    return key
+            return "open_ocean"
         hit = _lp.nearest_wp_coast(lat, lon)
         if hit is not None:
             dist_km, key, pop = hit

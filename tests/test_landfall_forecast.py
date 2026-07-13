@@ -122,20 +122,30 @@ def test_west_pacific_track_is_covered_and_lands_on_taiwan():
     assert 24 <= lf["eta_hour"] <= 60
 
 
-def test_north_indian_track_reports_no_coverage_not_offshore():
-    # Bay of Bengal cyclone heading for Bangladesh — inside the (now
-    # Atlantic+WP-wide) coverage bounding box but far from every waypoint.
-    # Must flag missing coverage, NEVER claim "stays offshore".
+def test_north_indian_track_is_covered_and_lands_on_bangladesh():
+    # [NI_DPS_AUDIT] Bay of Bengal cyclone heading for the Bangladesh delta —
+    # now that NI waypoints exist the panel gives real coverage + a forecast
+    # landfall with an ni_* region key (was "no coverage" pre-NI-tranche).
     ni_track = [
         _pt(0, 12.0, 88.0, 70),
         _pt(24, 15.0, 89.0, 85),
-        _pt(48, 18.5, 90.0, 90),
-        _pt(72, 21.5, 91.0, 75),   # ~Bangladesh coast
+        _pt(48, 18.5, 89.6, 90),
+        _pt(72, 21.8, 89.6, 75),   # ~Sundarbans / Bangladesh coast
     ]
     lf = compute_forecast_landfall(ni_track)
-    assert lf["coverage"] is False
+    assert lf["coverage"] is True
+    assert lf["expected"] is True
+    assert lf["region_key"] == "ni_bangladesh"
+    assert lf["nearest_name"], "landfall waypoint name should be populated"
+
+
+def test_bay_of_bengal_deep_water_still_no_false_offshore():
+    # A cyclone that never approaches a coast (central Bay of Bengal) must not
+    # claim "stays offshore" when there's genuinely no near coastline in range.
+    deep = [_pt(0, 10.0, 87.0, 60), _pt(24, 11.0, 87.0, 70),
+            _pt(48, 12.0, 87.0, 65)]
+    lf = compute_forecast_landfall(deep)
     assert lf["expected"] is False
-    assert lf["description"] == ""  # frontend switches to zone-approach mode
 
 
 def test_already_at_coast_reports_now():

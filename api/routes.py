@@ -424,7 +424,11 @@ _ACTIVE_TRACK_TTL_S = 5400  # 90 minutes
 #           Southern Hemisphere. Bump so previously-warmed SI/SP storms
 #           (2026 season: Horacio, Dudzai, Fina…) recompute with the new
 #           engine instead of serving their old open-ocean scores.
-_DPS_CACHE_VERSION = "v15-sh-legs"
+# v16-ni-legs (2026-07-12): North Indian living-legs activation (NI_DPS_AUDIT)
+#           — ni_* coastal/economic profiles (Bay of Bengal extreme surge) +
+#           landfall-intensity bonus. Bump so warmed NI storms recompute
+#           instead of serving old open-ocean scores.
+_DPS_CACHE_VERSION = "v16-ni-legs"
 
 # Cache for global IBTrACS catalog to avoid repeated large downloads/parses.
 # We also persist a json cache file so restarts can reuse the catalog quickly.
