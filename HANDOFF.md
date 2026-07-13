@@ -193,6 +193,19 @@ carries its detail in git log + the docs listed in §4.
     (name,year,basin) when the alias table lags; `_without_stale_custom`
     purges demo rows once custom_storms.csv no longer declares them. Live: 47
     → 36 rows, all canonical, no twins, no fakes; selfcheck 208/0.
+17. **North Indian DPS** — SHIPPED 2026-07-12 (commit 2fe6a29;
+    docs/audits/NI_DPS_AUDIT.md). The last dead-legs basin, in the deadliest
+    surge ocean on Earth. ~52 ni_* waypoints + 10 coastal/economic profiles
+    (Bay of Bengal deltas carry the highest surge_amplification 1.75 +
+    concavity 0.42 in the system) + LFI, gated lat 0-31/lon 42-97, checked
+    BEFORE WP so the 95-97E Andaman/Myanmar overlap resolves to NI. Live:
+    Mocha 83, Fani 86, Nargis 76, Tauktae 65, Amphan 60; ρ(damage) 0.63→0.77.
+    **0 movers** (no baked NI storm; no WP storm in the overlap) — bundle
+    bit-identical, NO rebake needed; _DPS_CACHE_VERSION → v16. Landfall panel
+    now covers NI. **All five basins now have living legs** (Atlantic native,
+    EP + WP + SH + NI activated). Known: hazard-vs-realized (NI deaths low from
+    evacuation → surge potential scored, evacuation success is ERS/IAS); Ockhi
+    stays low (at-sea marine disaster, not a landfall).
 16. **Experimental Features page + forecast rain-hazard (C1)** — SHIPPED
     2026-07-12 (commits f908117 + 6b42ad3; docs/RAINFALL_SCORE_OPTIONS.md).
     New /experimental page (linked from About, noindex) lays out 3 options for
