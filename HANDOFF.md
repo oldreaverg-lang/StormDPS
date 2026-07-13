@@ -1,4 +1,4 @@
-# StormDPS — session handoff (updated 2026-07-09)
+# StormDPS — session handoff (updated 2026-07-12)
 
 For a fresh session (or another engineer) picking up cleanly. Authoritative
 context lives in `CLAUDE.md` (deploy rules, NTFS-mount hazards, project
@@ -9,23 +9,38 @@ point-in-time snapshot, not a spec; verify against current code before acting.
 push to `main` → Railway auto-deploy (~30 s–4 min). Repo:
 `C:\Users\Ryan\APPS\StormDPS-recovered`.
 
-**Deploy state:** local HEAD == origin/main == `c5e9fb8` (PSI mobile perf
-rounds 2-3: server-injected __ACTIVE_HINT__ so the live storm's /track
-starts at ~340 ms instead of serializing behind /storms/active; map
-preconnect + VERIFIED-reused Leaflet preload are injected ONLY when a
-storm will auto-load — a storm-free shell ships zero map hints. PSI moved
-47→55 with TBT halved; tried-and-removed a /track as=fetch preload — API
-cache headers block reuse, it double-downloaded. NB: BAVI left the active
-list 2026-07-11, so PSI runs now measure the storm-FREE homepage until the
-next system.) Also shipped since the mobile review:
-Lighthouse fixes for /surgedps (meta description/canonical/OG + WCAG AA
-contrast on the dark sidebar — dpsColor ramp lightened, slate-600→400;
-SurgeDPS `5e6568b`), catalog cache headers on dynamic year ranges
-(`ff41100`, pairs with the operator's new Cloudflare Cache Rule — verified
-MISS→HIT on all variants). KNOWN CEILING: PSI mobile TBT (~2 s) is
-dominated by the ~350 KB inline-script eval — the structural fix is
-splitting the SPA / deferring chart render (backlog).
-BAVI (WP092026) has been the live test storm all week.
+**Deploy state:** local HEAD == origin/main == `cfc1056`. Selfcheck green
+(all 6 checks incl. `score_consistency` 208/0 and `surgedps_parity`); 175
+tests pass, 8 skipped.
+
+**What shipped this session (2026-07-12) — see §2 items 12–17 for detail:**
+- **All five basins now have "living legs."** Atlantic was always native; this
+  session activated **WP** (Tranche B), **EP** (was already done), **SH**, and
+  **NI** — each with real `*_` coastal + economic profiles in
+  `core/storm_surge` + `core/economic_vulnerability`, driven by curated
+  coastline waypoints in `core/land_proximity` (wp_/sh_/ni_ keys), a
+  landfall-intensity (LFI) bonus, and a no-landfall dampener. Every basin is
+  **geo-gated** (WP lon 95–150E; SH lat<0; NI lat 0–31/lon 42–97, checked
+  BEFORE WP) so activating one **cannot** change another's baked scores —
+  proven each time by a rebake A/B (0 non-target movers). Audits:
+  `docs/audits/{WP_DPS_AUDIT_V2 §9, SH_DPS_AUDIT, NI_DPS_AUDIT}.md`.
+- **Current-season sidebar scoring fixed** — `warm_current_season_dps()` warms
+  every current-year catalog storm (not just active) so the hamburger shows
+  canonical scores, twins dedup by (name,year,basin), demo rows purged.
+- **Experimental Features page** (`/experimental`, off About) with a live
+  forecast **rain-hazard** prototype (`core/rain_forecast.py`) — separate from
+  DPS. `docs/RAINFALL_SCORE_OPTIONS.md`.
+- **`_DPS_CACHE_VERSION` is now `v16-ni-legs`.** CRITICAL RULE (learned the
+  hard way): any scoring-formula change MUST bump it or previously-warmed live
+  storms serve stale scores from the persistent /dps cache. rebake.py prints a
+  reminder.
+
+**Older context (still true, historical):** BAVI (WP092026) was the live test
+storm the week of 2026-07-04→11 (landfalled Zhejiang ~07-11). PSI mobile perf
+rounds shipped 47→55→96 (storm-free); KNOWN CEILING: storm-present TBT (~2–3 s
+inline-script eval) needs the SPA split (backlog). SurgeDPS Lighthouse/parity
+fixes; the alias table + recorded-damage + cross-surface harmonize all shipped
+2026-07-10.
 
 **Shipped 2026-07-10 (`78f1337` + SurgeDPS `4ace988`) — mobile pass:**
 phones no longer auto-load the 3.5 MB bundle (first visit 3.9 MB → 344 KB
@@ -68,7 +83,7 @@ python now has pytest (`python -m pytest tests/ -q` works, 133 offline).
 
 ---
 
-## 1. Where the product now stands (shipped 2026-07-07 → 09)
+## 1. Where the product now stands (architecture overview — see the top block for the latest 2026-07-12 state)
 
 Everything below is LIVE, was fresh-eyes reviewed pre-push (`code-review`
 skill — it caught real blockers almost every round; keep the habit), and
