@@ -49,7 +49,7 @@ from pathlib import Path
 from typing import Optional
 import hmac
 import httpx
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 
 from api.schemas import (
@@ -958,7 +958,7 @@ async def _refresh_active_storms(request: Request):
 
 
 @router.get("/storms/active", response_model=list[StormSummary])
-async def list_active_storms(request: Request):
+async def list_active_storms(request: Request, response: Response):
     """
     List all currently active tropical cyclones from NHC.
 
@@ -971,6 +971,11 @@ async def list_active_storms(request: Request):
     for all but the very first request.
     """
     global _active_storms_cache, _active_storms_cache_time
+
+    # Let the CDN absorb event-traffic stampedes. Origin already serves
+    # up-to-2-min-stale data (SWR above), so +60 s at the edge is noise
+    # against NHC's ~hourly update cadence.
+    response.headers["Cache-Control"] = "public, max-age=60, s-maxage=60"
 
     now = utcnow()
 
@@ -4175,7 +4180,12 @@ async def get_custom_storms_endpoint(
     These storms are stored locally in data/custom_storms.csv and can be edited.
     They're also automatically merged into /storms/catalog/global.
     """
-    return _load_custom_storms(min_year, max_year)
+    # Same edge-cache policy as /storms/catalog — without a Cache-Control
+    # header Cloudflare BYPASSes this, so every visitor paid an origin RTT.
+    return JSONResponse(
+        content=_load_custom_storms(min_year, max_year),
+        headers={"Cache-Control": "public, max-age=300, s-maxage=900"},
+    )
 
 
 # ------------------------------------------------------------------
