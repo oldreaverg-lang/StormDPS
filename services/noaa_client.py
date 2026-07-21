@@ -17,6 +17,9 @@ import io
 import json
 import logging
 import math
+import re
+import zipfile
+import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 from timeutil import utcnow
 from typing import Optional
@@ -86,6 +89,144 @@ IBTRACS_LAST3_URL = "https://www.ncei.noaa.gov/data/international-best-track-arc
 
 # Earth radius for lat/lon → meter conversions
 EARTH_RADIUS_M = 6_371_000.0
+
+
+# ──────────────────────────────────────────────────────────────────────
+#  NHC TCM (forecast advisory) text parsing
+#
+#  The TCM is a rigidly formatted product, e.g.:
+#      TROPICAL STORM CENTER LOCATED NEAR 29.3N  86.8W AT 21/2100Z
+#      MAX SUSTAINED WINDS  50 KT WITH GUSTS  60 KT.
+#      ...
+#      FORECAST VALID 22/0600Z 30.4N  87.0W
+#      MAX WIND  50 KT...GUSTS  60 KT.
+#      ...
+#      OUTLOOK VALID 25/1800Z...DISSIPATED   (no position → skipped)
+# ──────────────────────────────────────────────────────────────────────
+
+_TCM_CENTER_RE = re.compile(
+    r"CENTER LOCATED NEAR\s+(\d{1,2}\.\d)\s*([NS])\s+(\d{1,3}\.\d)\s*([EW])"
+    r"\s+AT\s+(\d{2})/(\d{4})Z")
+_TCM_INIT_WIND_RE = re.compile(
+    r"MAX SUSTAINED WINDS\s+(\d+)\s+KT WITH GUSTS(?:\s+TO)?\s+(\d+)\s+KT")
+_TCM_FCST_RE = re.compile(
+    r"(?:FORECAST|OUTLOOK) VALID\s+(\d{2})/(\d{4})Z\s+"
+    r"(\d{1,2}\.\d)\s*([NS])\s+(\d{1,3}\.\d)\s*([EW])")
+_TCM_FCST_WIND_RE = re.compile(
+    r"MAX WIND\s+(\d+)\s+KT\.\.\.GUSTS\s+(\d+)\s+KT")
+
+
+def _tcm_datetime(day: int, hhmm: str, ref: datetime) -> Optional[datetime]:
+    """
+    Resolve a TCM 'DD/HHMMZ' stamp (day-of-month only) to a full UTC
+    datetime by picking the candidate month — previous, same, or next
+    relative to ``ref`` — whose date lands closest to ``ref``. Forecast
+    taus max out at 120h, so closest-month is always unambiguous.
+    """
+    try:
+        hh, mm = int(hhmm[:2]), int(hhmm[2:])
+    except ValueError:
+        return None
+    candidates = []
+    for months_off in (-1, 0, 1):
+        y, m = ref.year, ref.month + months_off
+        if m < 1:
+            y, m = y - 1, 12
+        elif m > 12:
+            y, m = y + 1, 1
+        try:
+            candidates.append(datetime(y, m, day, hh, mm))
+        except ValueError:
+            continue  # e.g. day 31 in a 30-day month
+    if not candidates:
+        return None
+    return min(candidates, key=lambda d: abs((d - ref).total_seconds()))
+
+
+def _parse_tcm_forecast(text: str) -> list[dict]:
+    """
+    Parse an NHC TCM forecast advisory into forecast-track points shaped
+    like the retired GeoJSON product: lat / lon / hour / max_wind_kt /
+    gust_kt / time. Fail-open: any structural surprise returns [].
+    """
+    try:
+        center = _TCM_CENTER_RE.search(text)
+        if not center:
+            return []
+        base = _tcm_datetime(int(center.group(5)), center.group(6), utcnow().replace(tzinfo=None))
+        if base is None:
+            return []
+
+        def _signed(val: str, hemi: str) -> float:
+            v = float(val)
+            return -v if hemi in ("S", "W") else v
+
+        points = []
+        init_wind = _TCM_INIT_WIND_RE.search(text)
+        points.append({
+            "lat": _signed(center.group(1), center.group(2)),
+            "lon": _signed(center.group(3), center.group(4)),
+            "hour": 0,
+            "max_wind_kt": int(init_wind.group(1)) if init_wind else None,
+            "gust_kt": int(init_wind.group(2)) if init_wind else None,
+            # Display-only label (frontend tooltips) — nothing parses it.
+            "time": base.strftime("%a %b %d %H:%MZ"),
+        })
+
+        matches = list(_TCM_FCST_RE.finditer(text))
+        for i, m in enumerate(matches):
+            valid = _tcm_datetime(int(m.group(1)), m.group(2), base)
+            if valid is None:
+                continue
+            hour = round((valid - base).total_seconds() / 3600)
+            if hour <= 0 or hour > 168:
+                continue
+            # MAX WIND line lives between this VALID line and the next one.
+            seg_end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+            wind = _TCM_FCST_WIND_RE.search(text, m.end(), seg_end)
+            points.append({
+                "lat": _signed(m.group(3), m.group(4)),
+                "lon": _signed(m.group(5), m.group(6)),
+                "hour": hour,
+                "max_wind_kt": int(wind.group(1)) if wind else None,
+                "gust_kt": int(wind.group(2)) if wind else None,
+                "time": valid.strftime("%a %b %d %H:%MZ"),
+            })
+        return points
+    except Exception as e:
+        logger.warning(f"[forecast] TCM parse failed: {e}")
+        return []
+
+
+def _parse_cone_kmz(blob: bytes) -> list[list[float]]:
+    """
+    Extract the uncertainty-cone polygon from an NHC cone KMZ (a zip
+    holding one KML). Returns [[lat, lon], ...] — the largest coordinate
+    ring found, matching the retired GeoJSON product's shape. Fail-open:
+    returns [] on any parse issue.
+    """
+    try:
+        with zipfile.ZipFile(io.BytesIO(blob)) as zf:
+            kml_names = [n for n in zf.namelist() if n.lower().endswith(".kml")]
+            if not kml_names:
+                return []
+            xml_text = zf.read(kml_names[0]).decode("utf-8", "replace")
+        root = ET.fromstring(xml_text)
+        best: list[list[float]] = []
+        for el in root.iter():
+            if not el.tag.endswith("coordinates") or not el.text:
+                continue
+            ring = []
+            for token in el.text.split():
+                parts = token.split(",")
+                if len(parts) >= 2:
+                    ring.append([float(parts[1]), float(parts[0])])  # lat, lon
+            if len(ring) > len(best):
+                best = ring
+        return best
+    except Exception as e:
+        logger.warning(f"[forecast] cone KMZ parse failed: {e}")
+        return []
 
 
 class NOAAClientError(Exception):
@@ -531,72 +672,69 @@ class NOAAClient:
         """
         Fetch NHC forecast track and cone for an active storm.
 
-        Uses NHC GIS forecast JSON and cone KML/GeoJSON endpoints.
+        NHC retired the gis/forecast/archive/*_5day_latest.json GeoJSON
+        convention (those URLs are plain 404s now), so this reads the
+        products CurrentStorms.json actually advertises per storm:
+
+          - forecast track: the forecast advisory (TCM) text product —
+            rigidly formatted, parsed with regex (same philosophy as the
+            JTWC warning-bulletin path).
+          - cone: the official cone KMZ (zipped KML, stdlib parse).
+
         NHC only covers Atlantic (AL) and Eastern Pacific (EP) basins.
         For other basins (WP, IO, SH) this returns an empty result
-        immediately — JTWC does not publish equivalent GeoJSON products.
+        immediately — those are handled by the JTWC synthesis path in
+        api/routes.
 
         Returns a dict with forecast_track (list of positions) and
         cone_polygon (list of lat/lon pairs).
         """
         basin = storm_id[:2].lower()
-        number = storm_id[2:4]
-        year = storm_id[4:]
 
         result = {"storm_id": storm_id, "forecast_track": [], "cone_polygon": []}
 
-        # NHC only publishes forecast GeoJSON for AL and EP basins.
-        # Avoid pointless 404s for WP/IO/SH storms.
         if basin not in ("al", "ep"):
             logger.debug(f"Skipping NHC forecast track for non-NHC basin: {basin.upper()}")
             return result
 
-        # Fetch forecast track points from NHC GIS
-        track_url = f"{NHC_GIS_BASE_URL}/forecast/archive/{basin}{number}{year}_5day_latest.json"
+        # Per-storm product links come from CurrentStorms.json — the one
+        # authoritative index of what NHC is publishing right now.
+        entry = None
         try:
-            resp = await self._request_with_retry("GET", track_url, timeout=10.0)
+            resp = await self._request_with_retry("GET", NHC_ACTIVE_STORMS_URL, timeout=10.0)
             resp.raise_for_status()
-            data = resp.json()
-
-            # Parse GeoJSON FeatureCollection for forecast track
-            features = data.get("features", [])
-            for feat in features:
-                props = feat.get("properties", {})
-                geom = feat.get("geometry", {})
-                coords = geom.get("coordinates", [])
-                if geom.get("type") == "Point" and len(coords) >= 2:
-                    result["forecast_track"].append({
-                        "lon": coords[0],
-                        "lat": coords[1],
-                        "hour": props.get("TAU", props.get("hr", 0)),
-                        "max_wind_kt": props.get("MAXWIND", props.get("maxWind")),
-                        "gust_kt": props.get("GUST", props.get("gust")),
-                        "time": props.get("FLDATELBL", props.get("dateLabel", "")),
-                    })
-        except (httpx.HTTPError, NOAAClientError) as e:
-            logger.warning(f"Forecast track fetch failed for {storm_id}: {e}")
-
-        # Fetch forecast cone polygon
-        cone_url = f"{NHC_GIS_BASE_URL}/forecast/archive/{basin}{number}{year}_5day_pgn_latest.json"
-        try:
-            resp = await self._request_with_retry("GET", cone_url, timeout=10.0)
-            resp.raise_for_status()
-            data = resp.json()
-
-            features = data.get("features", [])
-            for feat in features:
-                geom = feat.get("geometry", {})
-                if geom.get("type") in ("Polygon", "MultiPolygon"):
-                    coords = geom.get("coordinates", [])
-                    if geom["type"] == "Polygon" and coords:
-                        result["cone_polygon"] = [[c[1], c[0]] for c in coords[0]]
-                    elif geom["type"] == "MultiPolygon" and coords:
-                        # Use largest polygon
-                        biggest = max(coords, key=lambda p: len(p[0]) if p else 0)
-                        result["cone_polygon"] = [[c[1], c[0]] for c in biggest[0]]
+            for s in resp.json().get("activeStorms", []):
+                if str(s.get("id", "")).lower() == storm_id.lower():
+                    entry = s
                     break
-        except (httpx.HTTPError, NOAAClientError) as e:
-            logger.warning(f"Forecast cone fetch failed for {storm_id}: {e}")
+        except (httpx.HTTPError, NOAAClientError, ValueError) as e:
+            logger.warning(f"[forecast] CurrentStorms lookup failed for {storm_id}: {e}")
+        if entry is None:
+            logger.info(f"[forecast] {storm_id} not in CurrentStorms.json — no NHC forecast")
+            return result
+
+        # Forecast track from the TCM forecast advisory (full advisories
+        # only — intermediates carry no forecast table, and CurrentStorms
+        # always links the latest full one).
+        adv_url = (entry.get("forecastAdvisory") or {}).get("url") or ""
+        if adv_url:
+            try:
+                resp = await self._request_with_retry("GET", adv_url, timeout=10.0)
+                resp.raise_for_status()
+                result["forecast_track"] = _parse_tcm_forecast(resp.text)
+            except (httpx.HTTPError, NOAAClientError) as e:
+                logger.warning(f"[forecast] TCM fetch failed for {storm_id}: {e}")
+
+        # Official uncertainty cone from the cone KMZ. If this fails the
+        # route synthesizes a climatological cone from the track instead.
+        kmz_url = (entry.get("trackCone") or {}).get("kmzFile") or ""
+        if kmz_url:
+            try:
+                resp = await self._request_with_retry("GET", kmz_url, timeout=15.0)
+                resp.raise_for_status()
+                result["cone_polygon"] = _parse_cone_kmz(resp.content)
+            except (httpx.HTTPError, NOAAClientError) as e:
+                logger.warning(f"[forecast] cone KMZ fetch failed for {storm_id}: {e}")
 
         return result
 
@@ -617,23 +755,16 @@ class NOAAClient:
           - Forward speed and heading for asymmetry correction
           - RMW when available
         """
-        basin = storm_id[:2].lower()
-        number = storm_id[2:4]
-        year = storm_id[4:]
-        url = f"{NHC_GIS_BASE_URL}/forecast/archive/{basin}{number}{year}_fcst_latest.json"
-
-        try:
-            resp = await self._request_with_retry("GET", url)
-            resp.raise_for_status()
-            data = resp.json()
-        except (httpx.HTTPError, NOAAClientError):
-            storms = await self.get_active_storms()
-            match = next((s for s in storms if s["id"] == storm_id), None)
-            if match is None:
-                raise NOAAClientError(f"Storm {storm_id} not found")
-            return self._snapshot_from_active_storm(match)
-
-        return self._parse_advisory_json(storm_id, data)
+        # NHC retired the gis/forecast/archive/*_fcst_latest.json advisory
+        # GeoJSON (guaranteed 404 — see get_forecast_track), so go straight
+        # to the CurrentStorms-derived snapshot instead of burning a dead
+        # round-trip first. Quadrant radii come from the b-deck path, not
+        # from here.
+        storms = await self.get_active_storms()
+        match = next((s for s in storms if s["id"] == storm_id), None)
+        if match is None:
+            raise NOAAClientError(f"Storm {storm_id} not found")
+        return self._snapshot_from_active_storm(match)
 
     def _snapshot_from_active_storm(self, storm: dict) -> HurricaneSnapshot:
         """Convert active storm dict to an enriched HurricaneSnapshot."""

@@ -1185,6 +1185,15 @@ async def get_storm_forecast(request: Request, storm_id: str):
         except Exception as e:
             logger.warning(f"[forecast] JTWC synth failed for {storm_id}: {e}")
 
+    # If we got a track but no official cone (e.g. NHC cone KMZ fetch/parse
+    # failed), synthesize the climatological cone rather than drawing a
+    # bare forecast line.
+    if forecast.get("forecast_track") and not forecast.get("cone_polygon"):
+        try:
+            forecast["cone_polygon"] = _synthesize_cone(forecast["forecast_track"])
+        except Exception as e:
+            logger.warning(f"[forecast] cone synthesis failed for {storm_id}: {e}")
+
     # ── Stall Risk Analysis ──
     # Implied forward speed between consecutive forecast positions (Haversine /
     # time delta); flags stall risk when forecast speeds drop below thresholds.
