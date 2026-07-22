@@ -65,9 +65,16 @@ push to `main` → Railway auto-deploy (~30 s–4 min). Repo:
   code checked explicitly). Embedded python has NO fastapi — anything
   importing api/routes must use `py` (3.13.14, fastapi 0.137.2); embedded
   remains fine for offline/core tests.
-- Open follow-ups from the audit: SST/observed cold refetch after the
-  90-min active TTL costs ~12 s (layers pop in late; SWR-style stale-serve
-  on the volume cache would fix it); carto z5 basemap 503 burst on cold
+- **SST/observed layer-cache SWR** (`5354ef1`, follow-up DONE same day):
+  a TTL-expired (90-min) same-fingerprint cache entry is now stale-served
+  instantly with a singleflight background revalidate
+  (`_kick_layer_revalidate`, modeled on the live-track SWR; 24-h stale
+  ceiling → inline fetch). Fetch legs extracted to `_fetch_sst_track` /
+  `_fetch_observed_track` (shared by route + revalidate task); write
+  gates unchanged; historical storms untouched. NB a NEW advisory changes
+  the fingerprint → that first view is still a true cold fetch (SWR can't
+  bridge different fingerprints — arrays are index-aligned to the track).
+- Remaining follow-ups from the audit: carto z5 basemap 503 burst on cold
   load (third-party rate limit); SPA split remains the storm-present TBT
   ceiling (§2).
 
