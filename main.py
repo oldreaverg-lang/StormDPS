@@ -832,19 +832,38 @@ async def serve_storm_og_image(storm_id: str):
     logo_fallback = RedirectResponse(url="/frontend/logo-512.png", status_code=302)
     if not _STORM_ID_RE.match(storm_id):
         return logo_fallback
+    live_card = False
     try:
         from seo import lookup_storm as _lookup_storm
         import og_card as _og_card
         storm = _lookup_storm(storm_id)
+        # Live/current-season storms aren't in the baked bundle, so their
+        # catalog-fallback dict carries no dps and the card renderer bails —
+        # which meant the MOST-shared storms (active ones) never got a card.
+        # The hourly warm loop keeps every current-season storm's live DPS in
+        # the persistent cache; enrich from there.
+        if storm and storm.get("dps") is None:
+            try:
+                from api.routes import _load_dps_cache
+                live = (_load_dps_cache(storm_id.upper())
+                        or _load_dps_cache(storm_id.lower()))
+                if live and live.get("dps") is not None:
+                    storm = {**storm, "dps": live["dps"]}
+                    live_card = True
+            except Exception:
+                pass
         png = _og_card.render_storm_card_png(storm_id, storm) if storm else None
     except Exception:
         png = None
     if not png:
         return logo_fallback
+    # Live cards track an evolving score — don't let the edge pin them for a
+    # day like the immutable baked-storm cards.
+    ttl = 3600 if live_card else 86400
     return Response(
         content=png,
         media_type="image/png",
-        headers={"Cache-Control": "public, max-age=86400, s-maxage=86400"},
+        headers={"Cache-Control": f"public, max-age={ttl}, s-maxage={ttl}"},
     )
 
 

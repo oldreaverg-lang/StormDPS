@@ -4236,15 +4236,44 @@ function toggleChartExpand() {
 let _fetchInFlight = false;
 async function fetchHistory(){
     if (_fetchInFlight) return; // Debounce: prevent duplicate requests
-    const rawId=document.getElementById('stormId').value.trim().toUpperCase();if(!rawId)return;
+    let rawId=document.getElementById('stormId').value.trim().toUpperCase();if(!rawId)return;
     _fetchInFlight = true;
-    const yearInput=document.getElementById('searchYear').value;
+    // btn/loading/errorBox stay outside the try: catch/finally need them, and
+    // getElementById itself cannot throw. EVERYTHING ELSE runs inside
+    // try/finally — a throw between the flag set and the old try used to
+    // leave _fetchInFlight stuck true, wedging search until a page reload.
     const btn=document.getElementById('fetchBtn'),loading=document.getElementById('loadingBar'),errorBox=document.getElementById('errorBox');
-    btn.disabled=true;loading.classList.add('visible');errorBox.classList.remove('visible');hideResults();
-    showLoadingSkeleton();
-    closeMobileMenu();
-
     try{
+        // Derive the live-storm flag from the active list instead of trusting
+        // the last setter: the manual-search path never cleared it, so a
+        // historical storm searched after the auto-loaded live storm kept
+        // _isActiveStorm=true (stale live-only forks: forecast fetch, hero
+        // peak label; satellite was saved only by its <12d track gate). When
+        // the list hasn't loaded yet (direct-URL race) the caller's value —
+        // loadActiveStorm's true — stands.
+        if (Array.isArray(window._activeStorms)) {
+            window._isActiveStorm = window._activeStorms.some(s =>
+                String(s.id||'').toUpperCase() === rawId ||
+                String(s.name||'').toUpperCase() === rawId);
+        }
+        const yearInput=document.getElementById('searchYear').value;
+        btn.disabled=true;loading.classList.add('visible');errorBox.classList.remove('visible');hideResults();
+        showLoadingSkeleton();
+        closeMobileMenu();
+
+        // Live-name short-circuit: storm names recycle (live Fausto 2026 vs
+        // catalog Fausto 2020) and the backend's bare-name resolution prefers
+        // the newest CATALOG namesake — so typing an active storm's name used
+        // to load a years-old storm while the hurricane was live. Map it onto
+        // the live storm's ATCF id up front. An explicit year opts out (the
+        // user genuinely wants the old namesake).
+        if (window._isActiveStorm && !yearInput && Array.isArray(window._activeStorms)) {
+            const _live = window._activeStorms.find(s =>
+                String(s.name||'').toUpperCase() === rawId ||
+                String(s.id||'').toUpperCase() === rawId);
+            if (_live && _live.id) rawId = String(_live.id).toUpperCase();
+        }
+
         let data=null;
         let usedId=rawId;
         const t0=performance.now();
@@ -4362,6 +4391,16 @@ async function fetchHistory(){
         const fetchMs=Math.round(performance.now()-t0);
         window.stormData=data.sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp));
         window._lastFetchMs=fetchMs;
+        // Final truth for the live flag: a storm whose newest fix is >12 d old
+        // is not live no matter what name-matched at entry (an explicit year
+        // can deliberately pick a recycled namesake, e.g. Fausto 2020 while
+        // Fausto 2026 is active).
+        if (window._isActiveStorm && window.stormData.length) {
+            const _lastMs = Date.parse(window.stormData[window.stormData.length-1].timestamp);
+            if (!isNaN(_lastMs) && (Date.now() - _lastMs) > 12*24*3600*1000) {
+                window._isActiveStorm = false;
+            }
+        }
         if(!cacheHit) setLoadingStep('stepDPS');
         // Fetch the canonical DPS bundle from the unified server pipeline.
         // Presets already have it from compiled_bundle.json; ad-hoc searches
@@ -4393,7 +4432,9 @@ async function fetchHistory(){
             }
         } catch (e) { /* history API restricted (sandboxed iframe); ignore */ }
     }catch(e){errorBox.textContent=e.message;errorBox.classList.add('visible');hideLoadingSkeleton()}
-    finally{btn.disabled=false;loading.classList.remove('visible');_fetchInFlight=false}
+    // Flag reset comes FIRST: if a DOM handle here were ever null, the throw
+    // must not re-wedge the debounce.
+    finally{_fetchInFlight=false;btn.disabled=false;loading.classList.remove('visible')}
 }
 
 function hideResults(){
