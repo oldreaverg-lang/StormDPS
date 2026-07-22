@@ -347,6 +347,56 @@ def _write_storm_cache(cache_path, data, version=None) -> None:
     _cache_write(cache_path, payload, evict_dir=cache_path.parent)
 
 
+# ── Stale-while-revalidate for active-storm layer caches (SST/observed) ──
+# When an active storm's cache entry outlives _ACTIVE_TRACK_TTL_S but the
+# track fingerprint is unchanged, the expired copy is still perfectly usable
+# (same points; only the newest upstream values may have improved). Serve it
+# immediately and refresh in the background instead of blocking a viewer on
+# the cold upstream sweep (~12 s for SST/observed). Same shape as the live
+# track SWR above: singleflight per cache file, strong task refs, fail-open.
+#
+# Ceiling: a same-fingerprint file can only stay stale while revalidation
+# keeps failing (a new advisory changes the fingerprint ~6-hourly). Beyond
+# this age the data is genuinely old — fall through to an inline fetch.
+_LAYER_STALE_MAX_S = 24 * 3600
+_layer_swr_inflight: set = set()
+_layer_swr_tasks: set = set()
+
+
+def _kick_layer_revalidate(name: str, cache_path, version, refetch) -> None:
+    """Spawn a singleflight background refresh of one layer cache entry.
+
+    *refetch* is an async callable returning the data to cache, or None when
+    the result failed its layer's write gate (e.g. all-null SST) — in that
+    case the stale entry stays and the next expiry retries.
+    """
+    key = str(cache_path)
+    if key in _layer_swr_inflight:
+        return
+
+    async def _run():
+        try:
+            data = await refetch()
+            if data is not None:
+                _write_storm_cache(cache_path, data, version=version)
+                logger.info(f"[{name} SWR] background revalidate complete")
+            else:
+                logger.info(f"[{name} SWR] revalidate result failed write gate; stale copy retained")
+        except Exception as e:
+            # Fail-open: the stale copy keeps serving; a later request retries.
+            logger.warning(f"[{name} SWR] background revalidate failed: {e}")
+        finally:
+            _layer_swr_inflight.discard(key)
+
+    # Key added only after create_task succeeds so a spawn failure can't leak
+    # it; the task can't start before this coroutine next yields, so the
+    # check-then-add stays atomic under asyncio.
+    t = asyncio.create_task(_run())
+    _layer_swr_inflight.add(key)
+    _layer_swr_tasks.add(t)
+    t.add_done_callback(_layer_swr_tasks.discard)
+
+
 # Bump when the /rainfall/track payload meaning changes so old caches drop.
 # v2: per-track-point value is now the 6-hour accumulation ending at the point
 #     (summed from hourly ERA5), replacing the v1 whole-day precipitation_sum.
@@ -1428,6 +1478,36 @@ def _compute_stall_risk(forecast_track: list[dict]) -> dict:
 # Sea Surface Temperature along track
 # ------------------------------------------------------------------
 
+async def _fetch_sst_track(shared_client, points: list[dict]) -> tuple[list, int]:
+    """Upstream ERDDAP sweep for /sst/track: returns (sst_data, valid_count).
+
+    Raises on failure (the route maps that to a 500; the SWR task just logs).
+    Health-monitor recording lives here so both paths report.
+    """
+    from services.source_health import SourceHealthMonitor
+    monitor = SourceHealthMonitor.instance()
+
+    t0 = time.time()
+    async with NOAAClient(http_client=shared_client) as client:
+        try:
+            sst_data = await client.get_sst_along_track(points)
+            valid_count = sum(1 for s in sst_data if s.get("sst_c") is not None)
+            elapsed_ms = (time.time() - t0) * 1000
+            logger.info(f"[SST] Response: {valid_count}/{len(sst_data)} points have valid SST data")
+            if valid_count > 0:
+                monitor.record_success("erddap_sst", latency_ms=elapsed_ms)
+            else:
+                monitor.record_failure("erddap_sst", error="All SST values null", latency_ms=elapsed_ms)
+                if sst_data:
+                    logger.warning(f"[SST] WARNING: All SST values null! First result: {sst_data[0]}")
+            return sst_data, valid_count
+        except Exception as e:
+            elapsed_ms = (time.time() - t0) * 1000
+            monitor.record_failure("erddap_sst", error=str(e), latency_ms=elapsed_ms)
+            logger.error(f"[SST] ERROR: {type(e).__name__}: {e}")
+            raise
+
+
 @router.post("/sst/track")
 async def get_sst_along_track(
     request: Request,
@@ -1468,33 +1548,31 @@ async def get_sst_along_track(
         if cached is not None:
             logger.info(f"[SST] cache hit {storm_id} ({len(cached)} points)")
             return cached
+        # Active-storm TTL expiry with an unchanged fingerprint: serve the
+        # stale copy now, refresh in the background — never block a viewer
+        # ~12 s on the cold ERDDAP sweep for data they already had.
+        if cache_max_age is not None:
+            stale = _read_storm_cache(cache_path, max_age_s=_LAYER_STALE_MAX_S)
+            if stale is not None:
+                _shared = getattr(request.app.state, "http_client", None)
 
-    from services.source_health import SourceHealthMonitor
-    monitor = SourceHealthMonitor.instance()
+                async def _refetch(pts=points, sc=_shared):
+                    data, valid = await _fetch_sst_track(sc, pts)
+                    return data if valid > 0 else None
+
+                _kick_layer_revalidate("SST", cache_path, None, _refetch)
+                logger.info(f"[SST] stale-serve {storm_id} ({len(stale)} points; revalidating)")
+                return stale
 
     logger.info(f"[SST] Request received: {len(points)} track points")
     if points:
         logger.debug(f"[SST] First point: {points[0]}")
         logger.debug(f"[SST] Last point:  {points[-1]}")
-    t0 = time.time()
     shared_client = getattr(request.app.state, "http_client", None)
-    async with NOAAClient(http_client=shared_client) as client:
-        try:
-            sst_data = await client.get_sst_along_track(points)
-            valid_count = sum(1 for s in sst_data if s.get("sst_c") is not None)
-            elapsed_ms = (time.time() - t0) * 1000
-            logger.info(f"[SST] Response: {valid_count}/{len(sst_data)} points have valid SST data")
-            if valid_count > 0:
-                monitor.record_success("erddap_sst", latency_ms=elapsed_ms)
-            else:
-                monitor.record_failure("erddap_sst", error="All SST values null", latency_ms=elapsed_ms)
-                if sst_data:
-                    logger.warning(f"[SST] WARNING: All SST values null! First result: {sst_data[0]}")
-        except Exception as e:
-            elapsed_ms = (time.time() - t0) * 1000
-            monitor.record_failure("erddap_sst", error=str(e), latency_ms=elapsed_ms)
-            logger.error(f"[SST] ERROR: {type(e).__name__}: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+    try:
+        sst_data, valid_count = await _fetch_sst_track(shared_client, points)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
     # Persist only a result with real data, so a transient ERDDAP outage
     # (all-null) is never frozen into the historical cache.
@@ -1673,49 +1751,13 @@ async def get_rainfall_along_track(
     return results
 
 
-@router.post("/observed/track")
-async def get_observed_peaks(
-    request: Request,
-    points: list[dict] = Body(...),
-    storm_id: Optional[str] = Query(None, description="Storm id; enables per-storm disk cache for historical storms"),
-):
+async def _fetch_observed_track(points: list[dict]) -> tuple[list[dict], bool, bool]:
+    """Upstream CO-OPS + NDBC sweep for /observed/track.
+
+    Returns (out, coops_ok, ndbc_ok) — the ok flags gate cache writes so a
+    timed-out feed never freezes a partial station set. Shared by the route
+    and its background revalidate task.
     """
-    Observed peak impacts at fixed stations near the storm track — ground truth
-    for the map's "Observed peaks" layer:
-      - NOAA CO-OPS tide gauges → peak storm surge (ft). Reliable, historical.
-      - NDBC buoys → peak wind/wave. Additive/best-effort (often empty for
-        older storms), so it never blocks the surge layer.
-
-    Returns a flat list of {type, lat, lon, name, station, value, unit, label,
-    time, source}. Each source is timeout-guarded so a slow/flaky feed can't
-    hang the request.
-
-    When *storm_id* is supplied and the track is historical, the result is
-    cached on the persistent volume and served from disk on later views. The
-    cache is only written when BOTH sources completed cleanly, so a timeout on
-    one feed never freezes a partial station set.
-    """
-    if not isinstance(points, list):
-        raise HTTPException(status_code=400, detail="points must be an array")
-    if len(points) > 500:
-        raise HTTPException(status_code=413, detail=f"too many points ({len(points)}); max 500")
-
-    # Serve from the persistent volume. Historical gate is longer than
-    # SST/rainfall: CO-OPS publishes *verified* water levels on a ~30-day lag
-    # (preliminary before that), so we wait ~35 days before freezing surge peaks
-    # permanently. Active/recent storms are cached only briefly (TTL) to absorb
-    # the per-event traffic spike while still refreshing the live tip.
-    cache_path = None
-    cache_max_age = None
-    if storm_id:
-        cache_path = _storm_cache_path(_OBSERVED_TRACK_CACHE_DIR, storm_id, points)
-        if not _track_is_historical(points, min_age_days=35):
-            cache_max_age = _ACTIVE_TRACK_TTL_S
-        cached = _read_storm_cache(cache_path, version=_OBSERVED_CACHE_VERSION, max_age_s=cache_max_age)
-        if cached is not None:
-            logger.info(f"[OBSERVED] cache hit {storm_id} ({len(cached)} stations)")
-            return cached
-
     from services.coops_client import COOPSClient
     from services.ndbc_client import NDBCClient
 
@@ -1771,6 +1813,67 @@ async def get_observed_peaks(
         ndbc_ok = True
     except (asyncio.TimeoutError, Exception) as e:
         logger.warning(f"[OBSERVED] NDBC failed/timed out: {e}")
+
+    return out, coops_ok, ndbc_ok
+
+
+@router.post("/observed/track")
+async def get_observed_peaks(
+    request: Request,
+    points: list[dict] = Body(...),
+    storm_id: Optional[str] = Query(None, description="Storm id; enables per-storm disk cache for historical storms"),
+):
+    """
+    Observed peak impacts at fixed stations near the storm track — ground truth
+    for the map's "Observed peaks" layer:
+      - NOAA CO-OPS tide gauges → peak storm surge (ft). Reliable, historical.
+      - NDBC buoys → peak wind/wave. Additive/best-effort (often empty for
+        older storms), so it never blocks the surge layer.
+
+    Returns a flat list of {type, lat, lon, name, station, value, unit, label,
+    time, source}. Each source is timeout-guarded so a slow/flaky feed can't
+    hang the request.
+
+    When *storm_id* is supplied and the track is historical, the result is
+    cached on the persistent volume and served from disk on later views. The
+    cache is only written when BOTH sources completed cleanly, so a timeout on
+    one feed never freezes a partial station set.
+    """
+    if not isinstance(points, list):
+        raise HTTPException(status_code=400, detail="points must be an array")
+    if len(points) > 500:
+        raise HTTPException(status_code=413, detail=f"too many points ({len(points)}); max 500")
+
+    # Serve from the persistent volume. Historical gate is longer than
+    # SST/rainfall: CO-OPS publishes *verified* water levels on a ~30-day lag
+    # (preliminary before that), so we wait ~35 days before freezing surge peaks
+    # permanently. Active/recent storms are cached only briefly (TTL) to absorb
+    # the per-event traffic spike while still refreshing the live tip.
+    cache_path = None
+    cache_max_age = None
+    if storm_id:
+        cache_path = _storm_cache_path(_OBSERVED_TRACK_CACHE_DIR, storm_id, points)
+        if not _track_is_historical(points, min_age_days=35):
+            cache_max_age = _ACTIVE_TRACK_TTL_S
+        cached = _read_storm_cache(cache_path, version=_OBSERVED_CACHE_VERSION, max_age_s=cache_max_age)
+        if cached is not None:
+            logger.info(f"[OBSERVED] cache hit {storm_id} ({len(cached)} stations)")
+            return cached
+        # Active-storm TTL expiry with an unchanged fingerprint: stale-serve
+        # + background revalidate (see the SST route for rationale).
+        if cache_max_age is not None:
+            stale = _read_storm_cache(cache_path, version=_OBSERVED_CACHE_VERSION,
+                                      max_age_s=_LAYER_STALE_MAX_S)
+            if stale is not None:
+                async def _refetch(pts=points):
+                    data, c_ok, n_ok = await _fetch_observed_track(pts)
+                    return data if (c_ok and n_ok) else None
+
+                _kick_layer_revalidate("OBSERVED", cache_path, _OBSERVED_CACHE_VERSION, _refetch)
+                logger.info(f"[OBSERVED] stale-serve {storm_id} ({len(stale)} stations; revalidating)")
+                return stale
+
+    out, coops_ok, ndbc_ok = await _fetch_observed_track(points)
 
     logger.info(f"[OBSERVED] {len(out)} observed peaks near track")
 
