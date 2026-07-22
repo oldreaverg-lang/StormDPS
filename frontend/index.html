@@ -447,11 +447,14 @@
         .active-chip .chip-detail{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1}
         .active-chip .chip-name{font-weight:700;color:var(--text-main);font-size:.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         .active-chip .chip-stats{font-size:.65rem;color:var(--text-muted);white-space:nowrap}
-        .active-chip .chip-intensity{font-size:.72rem;font-weight:700;margin-left:auto;white-space:nowrap;padding-left:.4rem}
+        /* Filled badge: intensity-colored TEXT on white failed WCAG contrast
+           (Cat 1 indigo = 2.98:1); a filled pill with auto black/white text
+           (badgeTextColor) always picks the passing side. */
+        .active-chip .chip-intensity{font-size:.72rem;font-weight:700;margin-left:auto;white-space:nowrap;padding:2px 8px;border-radius:999px}
         .offseason-msg{font-size:.78rem;color:var(--text-dim);line-height:1.5;padding:.5rem .1rem;text-align:center}
         .active-refresh{font-size:.72rem;color:var(--text-dim);margin-left:auto;font-weight:400;text-transform:none;letter-spacing:0}
         .forecast-line{stroke-dasharray:8 4;stroke-opacity:.7}
-        .forecast-label{background:rgba(252,252,253,.93)!important;border:1px solid rgba(0,0,0,.14)!important;color:var(--text-muted)!important;font-size:9px!important;font-family:Public Sans,sans-serif!important;padding:1px 5px!important;border-radius:4px!important;box-shadow:none!important}
+        .forecast-label{background:rgba(252,252,253,.93)!important;border:1px solid rgba(0,0,0,.14)!important;color:var(--text-muted)!important;font-size:10px!important;font-family:Public Sans,sans-serif!important;padding:1px 5px!important;border-radius:4px!important;box-shadow:none!important}
         .forecast-label::before{display:none!important}
         .stall-risk-badge{display:inline-flex;align-items:center;gap:3px;padding:1px 6px;border-radius:4px;font-size:.6rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase;white-space:nowrap}
         .stall-risk-none{background:rgba(100,116,139,.15);color:#94a3b8}
@@ -477,7 +480,9 @@
         .dps-toggle-controls{display:flex;gap:.75rem;font-size:.82rem;color:var(--text-muted);margin-bottom:.4rem}
         .dps-toggle-controls label{display:flex;align-items:center;gap:.33rem;cursor:pointer}
         .dps-toggle-controls input{width:13px;height:13px;cursor:pointer}
-        .dps-context-toggle{position:absolute;top:4px;right:4px;width:18px;height:18px;border-radius:50%;background:rgba(32,84,147,.35);border:none;color:var(--text-main);font-size:12px;font-weight:700;cursor:pointer;z-index:10;line-height:18px;padding:0;transition:background .15s}.dps-context-toggle:hover{background:rgba(32,84,147,.6)}
+        /* 24px minimum target size (WCAG 2.5.8; was 18px) */
+        .dps-context-toggle{position:absolute;top:4px;right:4px;width:24px;height:24px;border-radius:50%;background:rgba(32,84,147,.35);border:none;color:var(--text-main);font-size:12px;font-weight:700;cursor:pointer;z-index:10;line-height:24px;padding:0;transition:background .15s}.dps-context-toggle:hover{background:rgba(32,84,147,.6)}
+        .site-footer a{display:inline-block;padding:.3rem .15rem}
         .dps-context-box{position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(255,255,255,.97);z-index:5;padding:2rem .6rem .5rem;overflow-y:auto;border-radius:var(--radius);display:flex;flex-direction:column;justify-content:flex-start}
         .dps-context-bullets{font-size:.7rem;color:var(--text-muted);line-height:1.6}.dps-context-bullets .ctx-bullet{padding:2px 0;border-bottom:1px solid rgba(0,0,0,.06);display:flex;align-items:baseline;gap:4px}.dps-context-bullets .ctx-bullet::before{content:'\2022';color:var(--primary);font-weight:700;flex-shrink:0}
         /* ===== HERO DPS — advisory-style severity treatment =====
@@ -623,7 +628,7 @@
             </div>
         </div>
         <div class="sidebar-section" id="sectionLookup">
-            <div class="sidebar-title sidebar-section-header" onclick="toggleSidebarSection('sectionLookup')">Storm Lookup<span class="collapse-arrow">&#9660;</span></div>
+            <div class="sidebar-title sidebar-section-header" role="button" tabindex="0" onclick="toggleSidebarSection('sectionLookup')">Storm Lookup<span class="collapse-arrow">&#9660;</span></div>
             <div class="sidebar-section-body">
             <div class="input-group"><label for="stormId">Storm Name</label><input type="text" id="stormId" placeholder="e.g. Katrina, Harvey, Ike" value=""></div>
             <div class="input-group" id="nameSearchGroup" style="display:none;">
@@ -647,7 +652,7 @@
             </div><!-- /sidebar-section-body -->
         </div>
         <div class="sidebar-section" id="sectionBrowser">
-            <div class="sidebar-title sidebar-section-header" onclick="toggleSidebarSection('sectionBrowser')">Storm Browser<span class="collapse-arrow">&#9660;</span></div>
+            <div class="sidebar-title sidebar-section-header" role="button" tabindex="0" onclick="toggleSidebarSection('sectionBrowser')">Storm Browser<span class="collapse-arrow">&#9660;</span></div>
             <div class="sidebar-section-body">
             <div style="margin-bottom:.35rem">
                 <span style="font-size:.75rem;font-weight:500;color:var(--text-dim)">Basin</span>
@@ -675,7 +680,7 @@
             </div>
             <div class="accordion" id="stormAccordion">
                 <div class="accordion-section" id="accFamous">
-                    <div class="accordion-header" onclick="toggleAccordion('accFamous')"><span>Historic Storms</span><span class="acc-count">15</span><span class="accordion-arrow">&#9654;</span></div>
+                    <div class="accordion-header" role="button" tabindex="0" onclick="toggleAccordion('accFamous')"><span>Historic Storms</span><span class="acc-count">15</span><span class="accordion-arrow">&#9654;</span></div>
                     <div class="accordion-body"><div class="preset-grid" id="presetGrid"></div></div>
                 </div>
                 <!-- Year tabs will be inserted here dynamically -->
@@ -683,7 +688,7 @@
             </div><!-- /sidebar-section-body -->
         </div>
         <div class="sidebar-section" id="sectionResources">
-            <div class="sidebar-title sidebar-section-header" onclick="toggleSidebarSection('sectionResources')">More<span class="collapse-arrow">&#9660;</span></div>
+            <div class="sidebar-title sidebar-section-header" role="button" tabindex="0" onclick="toggleSidebarSection('sectionResources')">More<span class="collapse-arrow">&#9660;</span></div>
             <div class="sidebar-section-body">
                 <nav class="sidebar-resources" aria-label="Site resources">
                     <a href="/methodology">Methodology</a>
@@ -696,7 +701,7 @@
             </div>
         </div>
     </aside>
-    <div class="main-content">
+    <div class="main-content" role="main">
         <!--SSR_STORM_CONTENT--><!-- server-injected per-storm summary; empty on / -->
         <div id="errorBox" class="error-bar"></div>
         <div id="loadingBar" class="loading-bar"><div class="spinner"></div><span id="loadingText">Computing Destructive Power Score...</span></div>
@@ -744,12 +749,12 @@
                      official intensity-forecast error, plus a live RI warning. -->
                 <div id="dpsForecastBand"></div>
                 <div class="score-context" id="dpsContext"></div>
-                <div class="breakdown-wrap" onclick="this.classList.toggle('open')"><div class="breakdown-bar" id="breakdownDPS"></div><div class="breakdown-panel" id="panelDPS"></div></div><div class="breakdown-hint">Score breakdown — tap or hover</div>
+                <div class="breakdown-wrap" role="button" tabindex="0" aria-label="Toggle score breakdown" onclick="this.classList.toggle('open')"><div class="breakdown-bar" id="breakdownDPS"></div><div class="breakdown-panel" id="panelDPS"></div></div><div class="breakdown-hint">Score breakdown — tap or hover</div>
             </div>
             <!-- Peak Snapshot card removed — redundant with DPS hero card -->
             <div id="snapshotCard" style="display:none"><span id="snapshotLabel"></span><span id="snapshotTip"></span><div id="snapshotTabs"></div><div id="statPeakDPS"></div><div id="statDPSLabel"></div><div id="breakdownSnap"></div><div id="panelSnap"></div></div>
-            <div class="stat-card" id="iasCard"><div class="stat-label">Impact Area<span class="tip" data-tip="IAS: A 0-100 score measuring how geography and rainfall amplify actual impact. Combines continental shelf surge amplification (55%) and rainfall/stall threat (45%).">?</span></div><div class="stat-value" id="statPeakIAS" style="color:var(--text-main);">-</div><div class="stat-sub" id="statIASLabel">-</div><div class="score-context" id="iasContext"></div><div class="breakdown-wrap" onclick="this.classList.toggle('open')"><div class="breakdown-bar" id="breakdownIAS"></div><div class="breakdown-panel" id="panelIAS"></div></div><div class="breakdown-hint">Score breakdown — tap or hover</div></div>
-            <div class="stat-card" id="ersCard"><div class="stat-label">Economic Risk<span class="tip" data-tip="ERS: A 0-100 score measuring economic exposure along the storm's path. Combines coastal economic value with threat reach (storm size x intensity).">?</span></div><div class="stat-value" id="statPeakERS" style="color:var(--text-main);">-</div><div class="stat-sub" id="statERSLabel">-</div><div class="ers-forecast" id="ersForecastLine" style="display:none;font-size:.72rem;font-weight:600;color:#b45309;line-height:1.35;margin-top:.1rem"></div><div class="score-context" id="ersContext"></div><div class="breakdown-wrap" onclick="this.classList.toggle('open')"><div class="breakdown-bar" id="breakdownERS"></div><div class="breakdown-panel" id="panelERS"></div></div><div class="breakdown-hint">Score breakdown — tap or hover</div></div>
+            <div class="stat-card" id="iasCard"><div class="stat-label">Impact Area<span class="tip" data-tip="IAS: A 0-100 score measuring how geography and rainfall amplify actual impact. Combines continental shelf surge amplification (55%) and rainfall/stall threat (45%).">?</span></div><div class="stat-value" id="statPeakIAS" style="color:var(--text-main);">-</div><div class="stat-sub" id="statIASLabel">-</div><div class="score-context" id="iasContext"></div><div class="breakdown-wrap" role="button" tabindex="0" aria-label="Toggle score breakdown" onclick="this.classList.toggle('open')"><div class="breakdown-bar" id="breakdownIAS"></div><div class="breakdown-panel" id="panelIAS"></div></div><div class="breakdown-hint">Score breakdown — tap or hover</div></div>
+            <div class="stat-card" id="ersCard"><div class="stat-label">Economic Risk<span class="tip" data-tip="ERS: A 0-100 score measuring economic exposure along the storm's path. Combines coastal economic value with threat reach (storm size x intensity).">?</span></div><div class="stat-value" id="statPeakERS" style="color:var(--text-main);">-</div><div class="stat-sub" id="statERSLabel">-</div><div class="ers-forecast" id="ersForecastLine" style="display:none;font-size:.72rem;font-weight:600;color:#b45309;line-height:1.35;margin-top:.1rem"></div><div class="score-context" id="ersContext"></div><div class="breakdown-wrap" role="button" tabindex="0" aria-label="Toggle score breakdown" onclick="this.classList.toggle('open')"><div class="breakdown-bar" id="breakdownERS"></div><div class="breakdown-panel" id="panelERS"></div></div><div class="breakdown-hint">Score breakdown — tap or hover</div></div>
             <div class="stat-card" id="actualImpactCard" style="display:none"><div class="stat-label">Actual Impact<span class="tip" data-tip="What the storm actually did, from independent records: total damage (StormDPS curated dataset) and the federal disaster response (FEMA OpenFEMA — counties declared, major-disaster status). This is observed ground truth, shown alongside the DPS prediction.">?</span></div><div class="stat-value" id="statActualImpact" style="color:var(--text-main);">-</div><div class="stat-sub" id="statActualImpactSub">-</div><div class="score-context" id="actualImpactContext"></div></div>
         </div>
         <div id="rainfallBar" class="stall-bar" style="display:none;border-color:rgba(239,68,68,.3);background:rgba(239,68,68,.06)" role="status" tabindex="0" onclick="this.classList.toggle('rain-expanded')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.classList.toggle('rain-expanded');}">
@@ -778,10 +783,10 @@
         <div id="scrubberBar" class="scrubber-bar">
             <span style="font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-dim);white-space:nowrap">Storm Timeline</span>
             <button class="btn btn-secondary" onclick="toggleAnimation()" id="scrubPlay" style="padding:.35rem .7rem;gap:.4rem;font-size:.8rem;font-weight:600;"><svg id="scrubPlayIcon" width="14" height="14" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg><span id="scrubPlayLabel">Play animation</span></button>
-            <span class="speed-label">Speed:</span><select id="speedSelect" style="width:65px;font-size:.75rem;padding:.3rem .4rem;background:var(--bg-input);border:1px solid var(--border);color:var(--text-main);border-radius:var(--radius);cursor:pointer;" onchange="setSpeed(this.value)"><option value="2000">0.5x</option><option value="1000" selected>1x</option><option value="500">2x</option><option value="250">4x</option></select>
+            <span class="speed-label">Speed:</span><select id="speedSelect" aria-label="Animation playback speed" style="width:65px;font-size:.75rem;padding:.3rem .4rem;background:var(--bg-input);border:1px solid var(--border);color:var(--text-main);border-radius:var(--radius);cursor:pointer;" onchange="setSpeed(this.value)"><option value="2000">0.5x</option><option value="1000" selected>1x</option><option value="500">2x</option><option value="250">4x</option></select>
             <span class="scrubber-time" id="scrubTime">--</span>
             <span id="syncedSatTs" style="display:none;font-size:.65rem;color:#94a3b8;font-variant-numeric:tabular-nums;white-space:nowrap" title="Closest available satellite frame for the current timeline position">sat: --</span>
-            <input type="range" id="scrubSlider" min="0" max="100" value="0" step="1" oninput="onScrub(this.value)">
+            <input type="range" id="scrubSlider" aria-label="Storm timeline position" min="0" max="100" value="0" step="1" oninput="onScrub(this.value)">
         </div>
         <div id="vizArea" class="viz-area">
             <div class="map-panel" style="position:relative;">
@@ -3569,10 +3574,46 @@ function renderActiveStorms(storms){
                 <span class="chip-name">${escapeHtml(s.name||'Unnamed')}${stallHint}</span>
                 <span class="chip-stats">${wind}${pres?' &middot; '+pres:''}${loc?' &middot; '+loc:''}</span>
             </div>
-            <span class="chip-intensity" style="color:${color}">${kt>=64?label:escapeHtml(cls)}</span>
+            <span class="chip-intensity" style="background:${color};color:${badgeTextColor(color)}">${kt>=64?label:escapeHtml(cls)}</span>
         </div>`;
     }).join('');
 }
+
+// Black or white text for a filled badge, whichever gives the higher WCAG
+// contrast against the given background. Resolves var(--x) colors through a
+// probe element; memoized (the palette is a handful of CSS variables).
+const _badgeTextCache = {};
+function badgeTextColor(cssColor){
+    if (_badgeTextCache[cssColor]) return _badgeTextCache[cssColor];
+    let out = '#fff';
+    try {
+        const probe = document.createElement('span');
+        probe.style.color = cssColor; probe.style.display = 'none';
+        document.body.appendChild(probe);
+        const m = getComputedStyle(probe).color.match(/\d+(\.\d+)?/g);
+        probe.remove();
+        const [r,g,b] = m.slice(0,3).map(Number).map(v=>v/255)
+            .map(v => v <= 0.03928 ? v/12.92 : Math.pow((v+0.055)/1.055, 2.4));
+        const L = 0.2126*r + 0.7152*g + 0.0722*b;
+        out = (1.05/(L+0.05)) >= ((L+0.05)/0.05) ? '#fff' : '#111';
+    } catch(e) { /* unresolvable color → white */ }
+    _badgeTextCache[cssColor] = out;
+    return out;
+}
+
+// A11y: one delegated handler makes every click-driven div carrying
+// role="button" tabindex="0" (storm chips, accordion headers, sidebar
+// section toggles, score-breakdown expanders) activate on Enter/Space
+// like a real button. Real <button>s already do this natively.
+document.addEventListener('keydown', e => {
+    if ((e.key !== 'Enter' && e.key !== ' ') || e.repeat) return;
+    const t = e.target;
+    if (t && t.getAttribute && t.getAttribute('role') === 'button'
+        && t.tagName !== 'BUTTON' && t.tagName !== 'A' && !t.onkeydown) {
+        e.preventDefault();
+        t.click();
+    }
+});
 
 function loadActiveStorm(id){
     document.getElementById('stormId').value=id;
@@ -3873,7 +3914,7 @@ function basinName(b){return BASIN_NAMES[b]||b}
             // the initial DOM (PageSpeed flagged DOM size 5,470 / synchronous
             // build was a 144 ms long task on stormdps.com). The lazy-year
             // attribute is the cue _populateYearAccordionBody reads from.
-            section.innerHTML=`<div class="accordion-header" onclick="toggleAccordion('${secId}')"><span>${yr} Season</span><span class="acc-count">${totalCount}</span><span class="accordion-arrow">&#9654;</span></div>`
+            section.innerHTML=`<div class="accordion-header" role="button" tabindex="0" onclick="toggleAccordion('${secId}')"><span>${yr} Season</span><span class="acc-count">${totalCount}</span><span class="accordion-arrow">&#9654;</span></div>`
                 +`<div class="accordion-body" data-lazy-year="${yr}"></div>`;
             container.appendChild(section);
         });
@@ -3973,12 +4014,9 @@ function _activateActiveChip(target){
     if(id) loadActiveStorm(id);
 }
 document.addEventListener('click', function(e){ _activateActiveChip(e.target); });
-document.addEventListener('keydown', function(e){
-    if((e.key==='Enter'||e.key===' ') && e.target && e.target.classList && e.target.classList.contains('active-chip')){
-        e.preventDefault();
-        _activateActiveChip(e.target);
-    }
-});
+// (Chip Enter/Space now flows through the generic role="button" keydown
+// handler → .click() → the delegated click listener above; a dedicated chip
+// keydown here would double-invoke loadActiveStorm.)
 
 // Enter key triggers search from either input
 document.getElementById('stormId').addEventListener('keydown', function(e){ if(e.key==='Enter'){e.preventDefault();fetchHistory()} });
