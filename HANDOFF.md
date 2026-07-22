@@ -1,4 +1,39 @@
-# StormDPS — session handoff (updated 2026-07-21)
+# StormDPS — session handoff (updated 2026-07-22)
+
+**What shipped 2026-07-22 (Bertha landfall day — sat-layer fix + bug-hunt):**
+- **Satellite ghost guard + IR archive fallback** (`e11debb`): operator saw
+  "imagery ~100 mi north of track" — NOT a georef bug (IR centroid vs live
+  NHC position measured ~20 mi for both storms). The double-buffered frame
+  swap held the previous frame on screen across big time jumps (first paint
+  snaps newest→track start on EVERY load), and GIBS GeoColor's archive is
+  only ~2 days deep (older visible tiles = transparent sentinels; Band13 IR
+  runs weeks) so pre-archive frames held stale imagery forever. Now: >3 h
+  displayed-vs-target gap hides the stale frame during the swap (NB Leaflet
+  setOpacity mutates options.opacity — back-buffer clones force base), and
+  an all-sentinel visible frame older than 24 h learns the archive edge
+  (`_irArchiveCutoffMs`) and re-renders as IR, labeled "IR (archive)".
+- **Bug-hunt fixes** (`1540950` + `464a07d`): (1) `frontend/logo-512.png`
+  NEVER EXISTED yet was the og:image/twitter:image/JSON-LD target on every
+  page + the OG-card fallback — all shares 404'd their image; asset created.
+  (2) `/og/storm/{id}.png` now renders LIVE storms (catalog-fallback dict
+  enriched with `dps` from the hourly-warmed live DPS cache; 1 h cache
+  headers; NB skips `_dps_cache_needs_rearm`, so a dead fish-storm's card
+  can briefly over-score — self-heals on next /dps view). (3) fetchHistory
+  debounce hardened (`_fetchInFlight` could wedge search until reload if
+  setup threw pre-try). (4) `_isActiveStorm` now DERIVED from
+  `window._activeStorms` at fetchHistory entry + 12-day freshness backstop
+  post-load (was: set by loadActiveStorm, cleared only by presets — search
+  left it stale-true). (5) **Live-name short-circuit**: typing an active
+  storm's NAME loaded the newest CATALOG namesake (Fausto 2020 while
+  Hurricane Fausto 2026 was live!) because backend bare-name resolution
+  prefers the catalog; the client now maps active names/ids to the live
+  ATCF id up front — explicit year opts out.
+- QA traps for this environment (browser pane): `document.hidden=true` →
+  rAF never fires → Leaflet vector paths all "M0 0" AND the hero DPS
+  count-up shows "-"; read_console_messages duplicates entries ×2-4 —
+  resource timing is ground truth; a hard-driven tab wedges on the
+  fetchHistory debounce for up to 90 s (fetchWithTimeout) — retest in a
+  fresh tab before calling anything broken.
 
 For a fresh session (or another engineer) picking up cleanly. Authoritative
 context lives in `CLAUDE.md` (deploy rules, NTFS-mount hazards, project
