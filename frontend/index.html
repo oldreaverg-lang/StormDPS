@@ -5281,9 +5281,16 @@ function setSatelliteFrame(idx) {
     idx = Math.max(0, Math.min(idx, st.frames.length - 1));
     st.currentIdx = idx;
     const ts = st.frames[idx];
-    // Effective IR = user forced IR, OR this is a night frame of a satellite
-    // whose visible product would be dark (Himawari). Keeps WP loops continuous.
-    const effIR = st.irMode || _autoIRForFrame(st, ts);
+    // Effective IR = user forced IR, OR a night frame of a satellite whose
+    // visible product would be dark (Himawari), OR a frame past the GeoColor
+    // archive edge (GIBS keeps GeoColor ~2 days but Band13 IR for weeks —
+    // measured 2026-07-22: visible tiles for a 5-day-old frame are all
+    // transparent sentinels while IR has full imagery). The edge is learned
+    // at runtime: see the all-sentinel retry in the swap's load handler.
+    const frameMs = window._satTsToMs(ts);
+    const autoNightIR = _autoIRForFrame(st, ts);
+    const archiveIR = !!(st._irArchiveCutoffMs && frameMs <= st._irArchiveCutoffMs);
+    const effIR = st.irMode || autoNightIR || archiveIR;
     st._effIR = effIR;   // remembered so updateSatelliteFrame can label it
     const modeQ = effIR ? '?mode=ir' : '';
     const newUrl = `${API_BASE}/satellite/tile/${st.satellite}/${ts}/{z}/{x}/{y}.png${modeQ}`;
@@ -5299,11 +5306,31 @@ function setSatelliteFrame(idx) {
             try { currentMap.removeLayer(st._pendingLayer); } catch (e) {}
             st._pendingLayer = null;
         }
+        // ── Ghost guard ──
+        // The double-buffer deliberately keeps the on-screen frame visible
+        // while the next one loads (no gray flash between 30–60 min steps).
+        // Across a BIG time jump, though — first-paint snap to the track
+        // start, animation loop restart, multi-day scrubs — the held frame
+        // shows the storm at the wrong TIME, which reads as a position error
+        // (Bertha's 5-day northward Gulf run ≈ a "100 mi north" ghost). If
+        // the on-screen frame is >3 h from the target, hide it for the load
+        // window: a brief blank beats a ghost storm.
+        const _dispMs = st._displayedTs ? window._satTsToMs(st._displayedTs) : NaN;
+        const _base = st._baseOpacity || 0.85;
+        const bigJump = !isNaN(_dispMs) &&
+            Math.abs(frameMs - _dispMs) > 3 * 3600 * 1000;
+        if (st.layer.setOpacity) {
+            if (bigJump) st.layer.setOpacity(0);
+            else if (st.layer.options.opacity === 0) st.layer.setOpacity(_base);
+        }
         // IR tops out at native zoom 6, visible/GeoColor at 7 — set
         // maxNativeZoom per effective mode so an IR frame upsamples (rather
         // than 404s) if the map is zoomed past 6.
         const _opts = Object.assign({}, st.layer.options);
         _opts.maxNativeZoom = effIR ? 6 : 7;
+        // setOpacity(0) mutates the source layer's options.opacity — never
+        // let the hidden state leak into the back-buffer copy.
+        _opts.opacity = _base;
         const next = L.tileLayer(newUrl, _opts);
         st._pendingLayer = next;
         const mySwap = ++st._swapToken;
@@ -5326,12 +5353,25 @@ function setSatelliteFrame(idx) {
             if (total > 0 && real === 0) {
                 try { currentMap.removeLayer(next); } catch (e) {}
                 st._pendingLayer = null;
+                // All-sentinel VISIBLE frame older than a day = we crossed the
+                // GeoColor archive edge (young empties are just pre-publication
+                // lag — keep those on the existing hold path). Learn the edge
+                // and re-render this frame — and implicitly all older ones —
+                // as IR, whose archive runs weeks deeper. The retry re-enters
+                // with archiveIR true, so a second all-sentinel result (IR
+                // genuinely missing too) lands on the hold below, not a loop.
+                if (!effIR && frameMs < Date.now() - 24 * 3600 * 1000) {
+                    st._irArchiveCutoffMs = Math.max(st._irArchiveCutoffMs || 0, frameMs);
+                    setSatelliteFrame(idx);
+                    return;
+                }
                 const lbl2 = document.getElementById('satelliteFrameLabel');
                 if (lbl2) lbl2.textContent = formatSatelliteFrameLabel(ts) + ' — no imagery yet';
                 return;
             }
             try { if (st.layer && st.layer !== next) currentMap.removeLayer(st.layer); } catch (e) {}
             st.layer = next;
+            st._displayedTs = ts;
             st._pendingLayer = null;
             // User may have hit "Satellite: Off" mid-swap — honor it.
             if (!st.visible) { try { currentMap.removeLayer(next); } catch (e) {} }
@@ -5339,13 +5379,19 @@ function setSatelliteFrame(idx) {
         next.addTo(currentMap);
     } else {
         // Layer hidden or not on the map — no visible flicker possible;
-        // the cheap in-place URL swap is fine.
+        // the cheap in-place URL swap is fine. Undo any ghost-guard hide so
+        // a later re-attach doesn't come back invisible.
+        if (st.layer.setOpacity && st.layer.options.opacity === 0) {
+            st.layer.setOpacity(st._baseOpacity || 0.85);
+        }
         st.layer.setUrl(newUrl);
+        st._displayedTs = ts;
     }
     const lbl = document.getElementById('satelliteFrameLabel');
-    // Flag frames auto-switched to IR (night, Himawari) so a "visible" loop
-    // showing IR clouds doesn't read as a glitch.
-    if (lbl) lbl.textContent = formatSatelliteFrameLabel(ts) + (effIR && !st.irMode ? ' · IR (night)' : '');
+    // Flag frames auto-switched to IR (night Himawari / GeoColor archive
+    // gap) so a "visible" loop showing IR clouds doesn't read as a glitch.
+    if (lbl) lbl.textContent = formatSatelliteFrameLabel(ts) +
+        (st.irMode ? '' : autoNightIR ? ' · IR (night)' : archiveIR ? ' · IR (archive)' : '');
     const slider = document.getElementById('satelliteSliderInput');
     if (slider && parseInt(slider.value,10) !== idx) slider.value = idx;
     // Echo the snapped frame on the storm-timeline bar so users can see
@@ -5516,6 +5562,11 @@ async function initSatelliteLayer(data, opts) {
         attribution: 'NASA GIBS / NOAA / JMA',
         crossOrigin: true,
     });
+    // Ghost-guard bookkeeping: which frame's imagery is on screen, and the
+    // canonical layer opacity (setOpacity mutates options.opacity, so the
+    // 0.85 literal above can't be re-read once the guard has hidden a frame).
+    st._displayedTs = frames[st.currentIdx];
+    st._baseOpacity = 0.85;
     // Respect the user's Satellite show/hide toggle: only attach the tile
     // layer to the map if satellite is currently visible. Without this guard,
     // flipping the IR toggle while Satellite is Off triggers an init that
