@@ -1,4 +1,4 @@
-# StormDPS — session handoff (updated 2026-07-12)
+# StormDPS — session handoff (updated 2026-07-21)
 
 For a fresh session (or another engineer) picking up cleanly. Authoritative
 context lives in `CLAUDE.md` (deploy rules, NTFS-mount hazards, project
@@ -9,11 +9,69 @@ point-in-time snapshot, not a spec; verify against current code before acting.
 push to `main` → Railway auto-deploy (~30 s–4 min). Repo:
 `C:\Users\Ryan\APPS\StormDPS-recovered`.
 
-**Deploy state:** local HEAD == origin/main == `cfc1056`. Selfcheck green
-(all 6 checks incl. `score_consistency` 208/0 and `surgedps_parity`); 175
-tests pass, 8 skipped.
+**Deploy state:** local HEAD == origin/main == `254c3d3`. Selfcheck green
+(all 6 probes; "2 active" — Bertha AL022026 + Fausto EP062026).
 
-**What shipped this session (2026-07-12) — see §2 items 12–17 for detail:**
+**What shipped this session (2026-07-21):**
+- **NHC forecast pipeline resurrected** (`2dabe6b`). NHC RETIRED the
+  `gis/forecast/archive/{id}_5day_latest.json` / `_5day_pgn_latest.json`
+  GeoJSON convention — hard 404 for EVERY storm — so `/storms/{id}/forecast`
+  had been silently empty for ALL AL/EP storms (the route swallows upstream
+  failures; JTWC basins were fine on their own bulletin-synth path, which is
+  why BAVI had a cone all July while Bertha had none). Cone, forecast line,
+  landfall panel, stall risk, forecast DPS band and forecast ERS were all
+  dead for NHC storms. `get_forecast_track` now reads what CurrentStorms.json
+  actually advertises per storm: the **TCM forecast advisory text**
+  (`forecastAdvisory.url`, regex parse via `_parse_tcm_forecast` — live
+  format says "GUSTS TO"; DD/HHMMZ month rollover handled closest-month in
+  `_tcm_datetime`) and the **official cone KMZ** (`trackCone.kmzFile`,
+  stdlib zip+ElementTree in `_parse_cone_kmz`, no new deps). The route falls
+  back to `_synthesize_cone` if the KMZ leg fails. `get_storm_snapshot` also
+  stopped burning a guaranteed-404 round-trip on the retired
+  `*_fcst_latest.json` (it always fell through to CurrentStorms anyway; one
+  call site has an 8-s timeout budget). Semantics: forecast `hour` is now
+  advisory-relative (0/9/21…) not synoptic TAU — all consumers interpolate,
+  reviewed fine; `time` is a display-only label ("Tue Jul 22 00:00Z").
+  Verified live: Bertha 7 taus + 1430-vertex official cone, Fausto 9 + 2154;
+  landfall panel "Mississippi River Delta, LA ~+18 h", stall risk moderate
+  (4.3 kt min), sidebar "SLOW" chip — all lit by this fix. 22
+  forecast/baseline tests green; fresh-eyes review: no blockers.
+- **Bertha (TD2→TS) full pipeline audit — every leg verified on the 3-h
+  cadence**: active feed, b-deck track (35 pts, every gap exactly 3.0 h —
+  densification working), SWR freshness (stale-serve → background revalidate
+  observed live), DPS 22.73 @ v16 with IMERG 10.14 in, SST 20/35 valid
+  (newest 3 null = normal ERDDAP 1–2 d lag), rainfall 6-h accumulations,
+  observed layer 3 stations, catalog parity (sidebar one hourly warm-cycle
+  behind — expected).
+- **Edge-cache pass** (`254c3d3` + operator dashboard rule).
+  `/storms/catalog/custom` sent NO Cache-Control → Cloudflare BYPASSed it
+  for every visitor; now mirrors catalog (300/900) and serves HITs.
+  `/storms/active` sends 60/60. Operator deployed a Cache Rule: URI Path
+  `/` OR `/index.html` OR `/api/v1/storms/active` → eligible, "use
+  cache-control header if present, bypass if not". Measured: homepage TTFB
+  270 ms → ~75 ms (edge HIT); active HITs. `/index.html` itself stays
+  BYPASS (that path's handler sends no Cache-Control — cosmetic, nobody
+  visits it). **PROCESS CHANGE: every index.html deploy MUST now "Purge
+  Custom URLs" for `/` + `/index.html`** — the old "homepage is DYNAMIC,
+  purge-free" fact is DEAD (§6 updated).
+- **Two scare-findings DEBUNKED — don't re-chase**: (1) "the page inits
+  ×4" is FALSE — the preview-pane console tool duplicates log entries;
+  `performance.getEntriesByType('resource')` proves every boot fetch fires
+  exactly once. (2) frontend `BUNDLE_VERSION=15` vs `_DPS_CACHE_VERSION`
+  `v16-ni-legs` is NOT drift — unrelated counters; live bundle_index
+  verified byte-identical to local.
+- **Toolchain notes**: `.env` GITHUB_TOKEN is STALE (gh_push.py → 401 Bad
+  credentials); native PowerShell git worked (secrets hook ran, push exit
+  code checked explicitly). Embedded python has NO fastapi — anything
+  importing api/routes must use `py` (3.13.14, fastapi 0.137.2); embedded
+  remains fine for offline/core tests.
+- Open follow-ups from the audit: SST/observed cold refetch after the
+  90-min active TTL costs ~12 s (layers pop in late; SWR-style stale-serve
+  on the volume cache would fix it); carto z5 basemap 503 burst on cold
+  load (third-party rate limit); SPA split remains the storm-present TBT
+  ceiling (§2).
+
+**What shipped 2026-07-12 — see §2 items 12–17 for detail:**
 - **All five basins now have "living legs."** Atlantic was always native; this
   session activated **WP** (Tranche B), **EP** (was already done), **SH**, and
   **NI** — each with real `*_` coastal + economic profiles in
@@ -83,7 +141,7 @@ python now has pytest (`python -m pytest tests/ -q` works, 133 offline).
 
 ---
 
-## 1. Where the product now stands (architecture overview — see the top block for the latest 2026-07-12 state)
+## 1. Where the product now stands (architecture overview — see the top block for the latest 2026-07-21 state)
 
 Everything below is LIVE, was fresh-eyes reviewed pre-push (`code-review`
 skill — it caught real blockers almost every round; keep the habit), and
@@ -143,9 +201,10 @@ carries its detail in git log + the docs listed in §4.
    `/surgedps?storm=active_<atcf>` — SurgeDPS `e9de16a` restored ?storm=
    parsing (operator-approved reversal of the 2026-05 removal, explicit
    links only). Verified live with BAVI (zone mode, Shanghai/Yangtze +44h).
-2. **Cloudflare Cache Rule #2** (operator dashboard): URI Path
-   `/api/v1/storms/catalog*` → eligible for cache (s-maxage=900 already
-   sent). Gotcha: field must be URI *Path*, not URI Full.
+2. ~~**Cloudflare Cache Rule #2**~~ **DONE 2026-07-21** — catalog was
+   already edge-HIT; `catalog/custom` fixed via origin headers (`254c3d3`);
+   `/storms/active` + homepage covered by the operator's new Cache Rule
+   (see top block; purge caveat in §6).
 3. **Catalog label vocabulary bug**: catalog entries can carry off-canon
    `dps_label` values (e.g. Katrina SID shows "Catastrophic" — not in the
    canonical 7-band set). The sidebar/catalog label path (noaa_client
@@ -302,6 +361,12 @@ carries its detail in git log + the docs listed in §4.
   and rule expressions: URI Full includes the scheme — use URI Path.
 - **Keep using the `code-review` skill before every push** — it found ~8
   genuine blockers across this session's ten pushes.
+- **Preview-pane QA traps (2026-07-21)**: the in-app browser loads pages
+  with `document.hidden=true` → rAF never fires → Leaflet leaves EVERY svg
+  path as "M0 0", so vector layers LOOK dead but aren't — verify layer
+  creation + API payloads, not pixels. And `read_console_messages`
+  DUPLICATES log entries (×2–4) — `performance.getEntriesByType('resource')`
+  is the ground truth for "how many times did X fetch".
 
 ## 6. Workflow must-knows (unchanged, verified again this session)
 
@@ -323,9 +388,14 @@ carries its detail in git log + the docs listed in §4.
   stdlib proxy on 127.0.0.1:8000 serving the working-tree frontend with
   /api/v1/* forwarded to production (index.html hardcodes that port for
   localhost API_BASE); test in the preview browser at desktop + 375 px.
-- **Homepage HTML is Cf-Cache-Status DYNAMIC** — index.html changes reach
-  users without a purge. `/frontend/*` is now edge-cached via Cache Rule
-  (versioned bundle URL → still purge-free).
+- **Homepage HTML is now EDGE-CACHED** (Cache Rule 2026-07-21: `/`,
+  `/index.html`, `/api/v1/storms/active`; TTL from the origin's
+  s-maxage=900/60). **index.html deploys MUST purge `/` + `/index.html`**
+  (Caching → Purge Custom URLs) or users see the old page for up to 15 min.
+  `/frontend/*` stays edge-cached via its own rule (versioned bundle URL →
+  still purge-free). The homepage embeds an active-storms JSON snapshot
+  server-side; a worst-case 15-min-stale first paint self-corrects because
+  the client refetches /storms/active on boot.
 
 ## 7. Related repos
 
