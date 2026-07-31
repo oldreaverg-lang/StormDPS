@@ -1,4 +1,32 @@
-# StormDPS — session handoff (updated 2026-07-22)
+# StormDPS — session handoff (updated 2026-07-31)
+
+**STAGED ON BRANCH `cost-trim` (2026-07-31) — NOT YET ON MAIN.** Railway ran
+out of credits 07-31 (site DOWN, "Application not found" at the Railway edge;
+operator is letting it wait for the 08-01 cycle reset — no storms threatening).
+Cost audit found memory = ~93% of the $23.69 bill (~2.2 GB avg resident,
+9 GB spikes; single gunicorn worker already). Staged work, to merge + VERIFY
+once the service is back:
+- **SATELLITE MAP LAYER RETIRED** (operator call: "a little buggy and isn't
+  worth the space"): 438 lines excised from index.html — state/init/teardown/
+  setSatelliteFrame (incl. the 07-22 ghost guard + IR archive fallback),
+  syncOverlaysToTimestampMs, renderMap auto-enable, anim-loop sync, syncedSatTs
+  span. Archived VERBATIM in docs/RETIRED_MAP_OVERLAYS.md ("Satellite imagery
+  layer (retired 2026-07-22)" section). Wind layers were ALREADY driven
+  directly by the storm timeline (setWindfieldFrameByIdx/setWindDirFrameByIdx
+  in syncVisualization) so nothing rewires. **Backend api/satellite_routes.py
+  stays LIVE — the /methodology 3D showcase consumes it.** Both inline scripts
+  pass node --check; NOT yet browser-verified (site was down).
+- **/health/memory** (main.py): /proc RSS+HWM, known module-cache sizes
+  (routes/seo/og_card attr names verified), ?deep=true heap census. Use it to
+  find the ~2 GB resident hog, THEN decide the next diet step (stream-parse
+  IBTrACS etc. deferred until the probe names the holder).
+- **MALLOC_ARENA_MAX=2** (Dockerfile) — glibc arena retention was likely
+  converting the 9 GB IBTrACS/bake spikes into paid baseline.
+- SurgeDPS project ($6.14): volume prune + backup retention are OPERATOR
+  dashboard actions; sleep mode explicitly declined for now.
+Merge protocol: merge cost-trim → main AFTER the service resumes, then
+deploy-verify (storm loads, animation plays, no /satellite fetches from
+index.html, /methodology 3D still works, /health/memory returns data).
 
 **What shipped 2026-07-22 (Bertha landfall day — sat-layer fix + bug-hunt):**
 - **Satellite ghost guard + IR archive fallback** (`e11debb`): operator saw

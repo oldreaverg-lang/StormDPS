@@ -441,6 +441,75 @@ async def storage_health():
     return storage_summary()
 
 
+@app.get("/health/memory")
+async def memory_health(deep: bool = False):
+    """Resident-memory diagnostics for the Railway cost audit (2026-07:
+    memory is ~93% of the bill). Names what is actually holding RAM.
+
+    Cheap by default (/proc stats + known module-cache sizes). ?deep=true
+    adds a full-heap census — seconds of work on a big heap, manual use only.
+    """
+    import gc
+    import sys as _sys
+
+    out = {"process": {}, "known_caches": {}, "gc_counts": gc.get_count()}
+
+    # Authoritative resident numbers on Linux (Railway).
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith(("VmRSS", "VmHWM")):
+                    k, v = line.split(":", 1)
+                    out["process"][k.strip().lower() + "_mb"] = round(int(v.split()[0]) / 1024, 1)
+    except OSError:
+        pass
+    try:
+        import resource
+        out["process"]["ru_maxrss_mb"] = round(
+            resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1)
+    except Exception:
+        pass
+
+    def _safe(fn):
+        try:
+            return fn()
+        except Exception:
+            return None
+
+    # The module-level structures big enough to matter, by name.
+    from api import routes as _routes
+    import seo as _seo
+    out["known_caches"] = {
+        "routes.active_storms_entries": _safe(lambda: len(_routes._active_storms_cache or [])),
+        "routes.preload_cache_set": _safe(lambda: _routes._preload_cache is not None),
+        "seo.bundle_cache_storms": _safe(
+            lambda: len((_seo._BUNDLE_CACHE or {}).get("storms", {})) if _seo._BUNDLE_CACHE else 0),
+        "seo.fallback_cache_entries": _safe(lambda: len(_seo._FALLBACK_CACHE)),
+        "seo.index_cache_kb": _safe(
+            lambda: round(len(_seo._INDEX_CACHE) / 1024, 1) if _seo._INDEX_CACHE else 0),
+        "og_card.cards": _safe(lambda: len(__import__("og_card")._cache)),
+    }
+
+    if deep:
+        import collections
+        objs = gc.get_objects()
+        by_type = collections.Counter(type(o).__name__ for o in objs)
+        big = sorted((o for o in objs if isinstance(o, (dict, list))),
+                     key=_sys.getsizeof, reverse=True)[:12]
+        out["heap"] = {
+            "total_objects": len(objs),
+            "top_types": by_type.most_common(15),
+            "largest_containers": [
+                {"type": type(o).__name__, "len": len(o),
+                 "shallow_kb": round(_sys.getsizeof(o) / 1024, 1)}
+                for o in big
+            ],
+        }
+        del objs, big  # don't pin the census
+
+    return out
+
+
 # Loops are expected to heartbeat at least this often (their interval is 1h; this
 # allows a couple of missed cycles + a deploy before we call them dead).
 _LOOP_STALE_SECONDS = 3 * 3600

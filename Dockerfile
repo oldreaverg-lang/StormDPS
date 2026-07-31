@@ -57,6 +57,13 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 # Railway sets PORT automatically (8080); default to 8080 for consistency
 ENV PORT=8080
 
+# glibc keeps one malloc arena per thread by default (8 × cores) and rarely
+# returns freed spike memory (IBTrACS refresh / bakes) to the OS — the RSS
+# high-water mark becomes the PAID baseline on Railway's per-GB-minute
+# billing. Two arenas trades a little allocator contention for a resident
+# footprint that tracks the real working set.
+ENV MALLOC_ARENA_MAX=2
+
 # Expose the port
 EXPOSE ${PORT}
 

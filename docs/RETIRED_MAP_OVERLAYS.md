@@ -1924,3 +1924,482 @@ function teardownSatelliteLayer(opts) {
 - **Panel rows used `adv-desktop-only`** + a ≤900px CSS rule so phones kept
   the simplified set; `initSatelliteLayer`'s mobile early-return is what
   actually prevents GIBS fetches on phones and it is still live.
+
+
+---
+
+# Satellite imagery layer (retired 2026-07-22)
+
+Removed for cost (tile egress/CPU/RAM churn) and recurring frame-sync bugs
+(operator call' "a little buggy and isn't worth the space"). The BACKEND
+proxy (api/satellite_routes.py) stays LIVE - the /methodology 3D showcase
+still consumes it. To restore the map layer: paste the blocks below back
+(anchors noted per block), re-add the syncedSatTs span to the scrubber bar,
+and re-wire the renderMap auto-enable + animation-loop sync. Includes the
+2026-07-22 ghost guard + GeoColor-archive IR fallback (commit e11debb).
+
+## Satellite layer state + frame label + sun-elevation auto-IR + setSatelliteFrame (ghost guard, IR archive fallback) + teardown + init (lines 5280-5666)
+
+```
+// ── Satellite layer state (mutable across calls) ─────────────────────────
+window._satelliteState = {
+    layer: null,        // current Leaflet tileLayer
+    frames: [],         // array of "YYYYMMDDTHHMM" strings
+    satellite: null,    // satellite name (goes-east, himawari, etc.)
+    currentIdx: 0,      // index into frames[]
+    irMode: false,      // true → infrared layer, false → visible/GeoColor
+    maxZoom: 7,         // max native zoom returned by server for current mode
+    layerLabel: '',     // human-readable product label (e.g. "GeoColor", "Band 13 IR")
+    visible: true,      // satellite layer show/hide toggle
+    sessionToken: 0,    // bumped on each initSatelliteLayer; stale awaits bail out
+    _pendingLayer: null, // back-buffer tileLayer loading the next frame (double-buffered swap)
+    _swapToken: 0,       // bumped per swap; stale 'load' callbacks bail out
+};
+
+// NOTE: lat/lon → satellite mapping now lives server-side (see
+// api/satellite_routes.py::choose_satellite). The frontend asks the
+// /satellite/frames/auto endpoint and reads the chosen satellite name from
+// the response so we can't drift out of sync with backend basin boundaries.
+
+function formatSatelliteFrameLabel(ts) {
+    // ts = YYYYMMDDTHHMM → "Apr 15  18:30Z"
+    if (!ts || ts.length < 13) return '--';
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const m = months[parseInt(ts.slice(4,6),10)-1] || '?';
+    const d = ts.slice(6,8);
+    const hh = ts.slice(9,11);
+    const mm = ts.slice(11,13);
+    return `${m} ${d}  ${hh}:${mm}Z`;
+}
+
+// Sun elevation angle (degrees) at a lat/lon for a UTC instant — standard
+// NOAA solar-position algorithm. Used to decide day vs night for the satellite
+// auto-IR switch below. Accurate to ~0.5°, far finer than the day/night call needs.
+function _sunElevationDeg(lat, lon, dateMs) {
+    const d = new Date(dateMs);
+    const rad = Math.PI / 180;
+    const doy = Math.floor((dateMs - Date.UTC(d.getUTCFullYear(), 0, 0)) / 86400000);
+    const hour = d.getUTCHours() + d.getUTCMinutes() / 60 + d.getUTCSeconds() / 3600;
+    const g = 2 * Math.PI / 365 * (doy - 1 + (hour - 12) / 24);   // fractional year (rad)
+    const decl = 0.006918 - 0.399912 * Math.cos(g) + 0.070257 * Math.sin(g)
+        - 0.006758 * Math.cos(2 * g) + 0.000907 * Math.sin(2 * g)
+        - 0.002697 * Math.cos(3 * g) + 0.00148 * Math.sin(3 * g);   // declination (rad)
+    const eot = 229.18 * (0.000075 + 0.001868 * Math.cos(g) - 0.032077 * Math.sin(g)
+        - 0.014615 * Math.cos(2 * g) - 0.040849 * Math.sin(2 * g)); // equation of time (min)
+    const tst = hour * 60 + eot + 4 * lon;                          // true solar time (min, lon east +)
+    const H = (tst / 4 - 180) * rad;                                // hour angle (rad)
+    const phi = lat * rad;
+    return Math.asin(Math.sin(phi) * Math.sin(decl) + Math.cos(phi) * Math.cos(decl) * Math.cos(H)) / rad;
+}
+
+// Should this satellite FRAME be shown in infrared even though the user hasn't
+// forced IR? Only for satellites whose "visible" product is a raw band that
+// goes black at night (Himawari = Band 3 Red Visible). GOES uses GeoColor,
+// which renders night itself (city lights + IR clouds), so it's never
+// auto-switched. Night = sun below the horizon at the storm's position for the
+// frame's time — so a live loop stays continuous instead of half-dark.
+function _autoIRForFrame(st, ts) {
+    if (!st || st.satellite !== 'himawari' || !ts || !window._satTsToMs) return false;
+    const tsMs = window._satTsToMs(ts);
+    if (!Number.isFinite(tsMs)) return false;
+    let lat = null, lon = null;
+    const sd = window.stormData || [];
+    if (sd.length) {
+        let bi = 0, bd = Infinity;
+        for (let i = 0; i < sd.length; i++) {
+            const t = Date.parse(sd[i].timestamp); if (isNaN(t)) continue;
+            const dd = Math.abs(t - tsMs); if (dd < bd) { bd = dd; bi = i; }
+        }
+        lat = sd[bi].lat; lon = sd[bi].lon;
+    } else if (typeof currentMap !== 'undefined' && currentMap) {
+        const c = currentMap.getCenter(); lat = c.lat; lon = c.lng;
+    }
+    if (lat == null) return false;
+    return _sunElevationDeg(lat, lon, tsMs) < 0;   // sun below horizon → night → IR
+}
+
+function setSatelliteFrame(idx) {
+    const st = window._satelliteState;
+    if (!st.layer || !st.frames.length) return;
+    idx = Math.max(0, Math.min(idx, st.frames.length - 1));
+    st.currentIdx = idx;
+    const ts = st.frames[idx];
+    // Effective IR = user forced IR, OR a night frame of a satellite whose
+    // visible product would be dark (Himawari), OR a frame past the GeoColor
+    // archive edge (GIBS keeps GeoColor ~2 days but Band13 IR for weeks —
+    // measured 2026-07-22: visible tiles for a 5-day-old frame are all
+    // transparent sentinels while IR has full imagery). The edge is learned
+    // at runtime: see the all-sentinel retry in the swap's load handler.
+    const frameMs = window._satTsToMs(ts);
+    const autoNightIR = _autoIRForFrame(st, ts);
+    const archiveIR = !!(st._irArchiveCutoffMs && frameMs <= st._irArchiveCutoffMs);
+    const effIR = st.irMode || autoNightIR || archiveIR;
+    st._effIR = effIR;   // remembered so updateSatelliteFrame can label it
+    const modeQ = effIR ? '?mode=ir' : '';
+    const newUrl = `${API_BASE}/satellite/tile/${st.satellite}/${ts}/{z}/{x}/{y}.png${modeQ}`;
+    // ── Double-buffered frame swap ──
+    // layer.setUrl() clears every tile and refetches, flashing gray basemap
+    // between frames (animation read as frame → gray → frame → gray). Instead:
+    // load the new frame in a back-buffer tileLayer while the CURRENT frame
+    // stays on screen, and only retire the old layer once the new one's
+    // tiles report 'load'. Rapid scrubbing cancels superseded swaps via
+    // _swapToken, so at most two tile layers ever exist.
+    if (st.visible && currentMap && st.layer._map) {
+        if (st._pendingLayer) {
+            try { currentMap.removeLayer(st._pendingLayer); } catch (e) {}
+            st._pendingLayer = null;
+        }
+        // ── Ghost guard ──
+        // The double-buffer deliberately keeps the on-screen frame visible
+        // while the next one loads (no gray flash between 30–60 min steps).
+        // Across a BIG time jump, though — first-paint snap to the track
+        // start, animation loop restart, multi-day scrubs — the held frame
+        // shows the storm at the wrong TIME, which reads as a position error
+        // (Bertha's 5-day northward Gulf run ≈ a "100 mi north" ghost). If
+        // the on-screen frame is >3 h from the target, hide it for the load
+        // window: a brief blank beats a ghost storm.
+        const _dispMs = st._displayedTs ? window._satTsToMs(st._displayedTs) : NaN;
+        const _base = st._baseOpacity || 0.85;
+        const bigJump = !isNaN(_dispMs) &&
+            Math.abs(frameMs - _dispMs) > 3 * 3600 * 1000;
+        if (st.layer.setOpacity) {
+            if (bigJump) st.layer.setOpacity(0);
+            else if (st.layer.options.opacity === 0) st.layer.setOpacity(_base);
+        }
+        // IR tops out at native zoom 6, visible/GeoColor at 7 — set
+        // maxNativeZoom per effective mode so an IR frame upsamples (rather
+        // than 404s) if the map is zoomed past 6.
+        const _opts = Object.assign({}, st.layer.options);
+        _opts.maxNativeZoom = effIR ? 6 : 7;
+        // setOpacity(0) mutates the source layer's options.opacity — never
+        // let the hidden state leak into the back-buffer copy.
+        _opts.opacity = _base;
+        const next = L.tileLayer(newUrl, _opts);
+        st._pendingLayer = next;
+        const mySwap = ++st._swapToken;
+        next.once('load', () => {
+            if (st._swapToken !== mySwap || st._pendingLayer !== next) {
+                try { currentMap.removeLayer(next); } catch (e) {}
+                return;
+            }
+            // Frame-emptiness check: GIBS has occasional gaps, and the newest
+            // frames may not be published yet — the tile proxy serves 1×1
+            // transparent sentinels for both. Swapping to an all-sentinel
+            // frame is what made the animation flash gray. If NO tile in the
+            // back-buffer carries real imagery, hold the current frame on
+            // screen and say so on the frame label instead.
+            let real = 0, total = 0;
+            for (const k in next._tiles) {
+                const t = next._tiles[k]; total++;
+                if (t.el && t.el.naturalWidth > 1) real++;
+            }
+            if (total > 0 && real === 0) {
+                try { currentMap.removeLayer(next); } catch (e) {}
+                st._pendingLayer = null;
+                // All-sentinel VISIBLE frame older than a day = we crossed the
+                // GeoColor archive edge (young empties are just pre-publication
+                // lag — keep those on the existing hold path). Learn the edge
+                // and re-render this frame — and implicitly all older ones —
+                // as IR, whose archive runs weeks deeper. The retry re-enters
+                // with archiveIR true, so a second all-sentinel result (IR
+                // genuinely missing too) lands on the hold below, not a loop.
+                if (!effIR && frameMs < Date.now() - 24 * 3600 * 1000) {
+                    st._irArchiveCutoffMs = Math.max(st._irArchiveCutoffMs || 0, frameMs);
+                    setSatelliteFrame(idx);
+                    return;
+                }
+                const lbl2 = document.getElementById('satelliteFrameLabel');
+                if (lbl2) lbl2.textContent = formatSatelliteFrameLabel(ts) + ' — no imagery yet';
+                return;
+            }
+            try { if (st.layer && st.layer !== next) currentMap.removeLayer(st.layer); } catch (e) {}
+            st.layer = next;
+            st._displayedTs = ts;
+            st._pendingLayer = null;
+            // User may have hit "Satellite: Off" mid-swap — honor it.
+            if (!st.visible) { try { currentMap.removeLayer(next); } catch (e) {} }
+        });
+        next.addTo(currentMap);
+    } else {
+        // Layer hidden or not on the map — no visible flicker possible;
+        // the cheap in-place URL swap is fine. Undo any ghost-guard hide so
+        // a later re-attach doesn't come back invisible.
+        if (st.layer.setOpacity && st.layer.options.opacity === 0) {
+            st.layer.setOpacity(st._baseOpacity || 0.85);
+        }
+        st.layer.setUrl(newUrl);
+        st._displayedTs = ts;
+    }
+    const lbl = document.getElementById('satelliteFrameLabel');
+    // Flag frames auto-switched to IR (night Himawari / GeoColor archive
+    // gap) so a "visible" loop showing IR clouds doesn't read as a glitch.
+    if (lbl) lbl.textContent = formatSatelliteFrameLabel(ts) +
+        (st.irMode ? '' : autoNightIR ? ' · IR (night)' : archiveIR ? ' · IR (archive)' : '');
+    const slider = document.getElementById('satelliteSliderInput');
+    if (slider && parseInt(slider.value,10) !== idx) slider.value = idx;
+    // Echo the snapped frame on the storm-timeline bar so users can see
+    // exactly which satellite frame the current timeline position resolved to.
+    const syncEl = document.getElementById('syncedSatTs');
+    if (syncEl) {
+        syncEl.style.display = 'inline-block';
+        syncEl.textContent = 'sat: ' + formatSatelliteFrameLabel(ts);
+    }
+
+    // Sync the windfield (wind-radii quadrants) + storm-timeline marker to
+    // the frame's nearest storm index. Without this, the "current position"
+    // storm icon stays pinned at the latest track point while the satellite
+    // and pressure fields show a past frame — which reads as the pressure
+    // minimum being misaligned from the storm center.
+    if (window.stormData && window.stormData.length) {
+        const tsMs = window._satTsToMs(ts);
+        if (!isNaN(tsMs)) {
+            let bestSi = 0, bestDiff = Infinity;
+            for (let i = 0; i < window.stormData.length; i++) {
+                const t = Date.parse(window.stormData[i].timestamp);
+                if (isNaN(t)) continue;
+                const diff = Math.abs(t - tsMs);
+                if (diff < bestDiff) { bestDiff = diff; bestSi = i; }
+            }
+            if (window._windfieldState && window._windfieldState.enabled
+                && typeof window.setWindfieldFrameByIdx === 'function') {
+                window.setWindfieldFrameByIdx(bestSi);
+            }
+            if (typeof window.setWindDirFrameByIdx === 'function') window.setWindDirFrameByIdx(bestSi);
+            // Snap the storm-timeline marker to the frame's storm index so
+            // the "current" track icon lines up with the satellite frame.
+            const curSi = Math.floor(window.currentAnimIndex || 0);
+            if (bestSi !== curSi && typeof syncVisualization === 'function') {
+                window.currentAnimIndex = bestSi;
+                const scrub = document.getElementById('scrubSlider');
+                if (scrub) scrub.value = bestSi;
+                try { syncVisualization(bestSi, true); } catch (e) {}
+            }
+        }
+    }
+}
+
+// Recenter the map on the storm's most-recent (eye) position. Useful when the
+// satellite + wind overlays make the dot harder to spot at a glance.
+window.zoomToStormEye = function() {
+    if (!window.stormData || !window.stormData.length || !currentMap) return;
+    const last = window.stormData[window.stormData.length - 1];
+    if (last && last.lat != null && last.lon != null) {
+        currentMap.setView([last.lat, last.lon], Math.max(currentMap.getZoom(), 6), {animate: true});
+    }
+};
+
+function teardownSatelliteLayer(opts) {
+    const keepOverlays = !!(opts && opts.keepOverlays);
+    const st = window._satelliteState;
+    if (st.layer && currentMap) {
+        try { currentMap.removeLayer(st.layer); } catch(e) {}
+    }
+    st.layer = null;
+    // Cancel any in-flight double-buffered frame swap so its 'load' callback
+    // can't resurrect a layer after teardown.
+    st._swapToken = (st._swapToken || 0) + 1;
+    if (st._pendingLayer && currentMap) {
+        try { currentMap.removeLayer(st._pendingLayer); } catch(e) {}
+    }
+    st._pendingLayer = null;
+    // When only swapping modes (IR toggle), keep the frame index and satellite
+    // name so initSatelliteLayer can refetch for the same session without
+    // disturbing the timeline scrubber or the other overlays.
+    if (!keepOverlays) {
+        st.frames = [];
+        st.satellite = null;
+        st.currentIdx = 0;
+        st.layerLabel = '';
+        const slider = document.getElementById('satelliteSlider');
+        if (slider) slider.style.display = 'none';
+        const syncEl = document.getElementById('syncedSatTs');
+        if (syncEl) syncEl.style.display = 'none';
+        const nameEl = document.getElementById('satelliteName');
+        if (nameEl) nameEl.textContent = '--';
+        const labelEl = document.getElementById('satelliteProductLabel');
+        if (labelEl) labelEl.textContent = '\u00a0';
+    }
+    // keepOverlays (the IR-toggle-era flag, now always false) skips the
+    // st.visible reset below. The wind/pressure/precip wipe that used to
+    // live here moved to docs/RETIRED_MAP_OVERLAYS.md §7c with its layers.
+    if (keepOverlays) return;
+    // NOTE: the windfield is deliberately NOT torn down here anymore. It is
+    // part of the always-on layer set: renderMap resets its state per storm
+    // and auto-enables it at +250ms; satellite init runs at +300ms for every
+    // active storm, so a teardown here would kill the windfield 50ms after
+    // it turned on (the panel-era flow relied on the user re-toggling it).
+    st.visible = true;  // reset so next init shows satellite
+}
+
+async function initSatelliteLayer(data, opts) {
+    // ≤900px gets the simplified mobile layer set: Windfield + Wind flow only
+    // (both storm-parametric, zero external fetches). Returning here means
+    // no GIBS tile or frame request ever fires on mobile.
+    if (window.innerWidth <= 900) {
+        // A satellite layer built at desktop width (window since snapped
+        // narrow) would otherwise survive with stale frames.
+        if (window._satelliteState.layer) teardownSatelliteLayer({});
+        return;
+    }
+    const keepOverlays = !!(opts && opts.keepOverlays);
+    const st = window._satelliteState;
+    // Capture the intended mode + session token *before* any await so a second
+    // toggle mid-flight can't corrupt the tile URL we're about to install.
+    const targetIrMode = !!st.irMode;
+    const myToken = ++st.sessionToken;
+
+    teardownSatelliteLayer({ keepOverlays });
+    if (!window._isActiveStorm || !data || !data.length || !currentMap) return;
+
+    // Use most recent point's position; backend picks the right satellite.
+    const last = data[data.length - 1];
+
+    // Cover the entire storm window so the timeline scrubber can drive the
+    // satellite layer for every observation point — not just the last 24h.
+    // Cap at 14 days (GIBS GeoColor archive depth) and use 60-min cadence
+    // for older spans, 30-min when the storm is very young.
+    const firstTs = new Date(data[0].timestamp).getTime();
+    const nowTs = Date.now();
+    const spanH = Math.max(24, Math.ceil((nowTs - firstTs) / 3600000) + 6);
+    const hoursParam = Math.min(spanH, 336);
+    const cadenceParam = (hoursParam <= 36) ? 30 : 60;
+
+    let frames = [];
+    let sat = null;
+    let serverMaxZoom = 7;
+    let layerLabel = '';
+    const modeParam = targetIrMode ? '&mode=ir' : '';
+    try {
+        const r = await fetch(`${API_BASE}/satellite/frames/auto?lat=${last.lat.toFixed(4)}&lon=${last.lon.toFixed(4)}&hours=${hoursParam}&cadence_min=${cadenceParam}${modeParam}`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const body = await r.json();
+        frames = body.frames || [];
+        sat = body.satellite || null;
+        serverMaxZoom = body.max_zoom || 7;
+        layerLabel = body.layer_label || '';
+    } catch (e) {
+        console.warn('[SATELLITE] frames fetch failed:', e);
+        return;
+    }
+    if (!frames.length || !sat) return;
+    // Another initSatelliteLayer call (or a teardown) superseded us — bail
+    // out before installing a stale layer that would bleed through the new one.
+    if (myToken !== st.sessionToken) return;
+
+    st.satellite = sat;
+    st.frames = frames;
+    st.currentIdx = frames.length - 1;  // start on most recent
+    st.maxZoom = serverMaxZoom;
+    st.layerLabel = layerLabel;
+
+    const modeQ = targetIrMode ? '?mode=ir' : '';
+    const tileUrl = `${API_BASE}/satellite/tile/${sat}/${frames[st.currentIdx]}/{z}/{x}/{y}.png${modeQ}`;
+    st.layer = L.tileLayer(tileUrl, {
+        opacity: 0.85,
+        zIndex: 200,        // above basemap, below track polylines + markers
+        // Allow Leaflet to upscale beyond the native product max; IR tops out
+        // at z=6 while GeoColor goes to z=7, so we pin to the per-mode cap
+        // returned by the server and let Leaflet interpolate above that.
+        maxZoom: Math.max(7, st.maxZoom),
+        maxNativeZoom: st.maxZoom,
+        attribution: 'NASA GIBS / NOAA / JMA',
+        crossOrigin: true,
+    });
+    // Ghost-guard bookkeeping: which frame's imagery is on screen, and the
+    // canonical layer opacity (setOpacity mutates options.opacity, so the
+    // 0.85 literal above can't be re-read once the guard has hidden a frame).
+    st._displayedTs = frames[st.currentIdx];
+    st._baseOpacity = 0.85;
+    // Respect the user's Satellite show/hide toggle: only attach the tile
+    // layer to the map if satellite is currently visible. Without this guard,
+    // flipping the IR toggle while Satellite is Off triggers an init that
+    // re-attaches the tile layer, overriding the user's intent.
+    if (st.visible) st.layer.addTo(currentMap);
+
+    // (Frame-scrubber wiring + panel-button enable blocks removed with the
+    // Advanced view panel — the layer set is fixed and always-on; the Storm
+    // Timeline is the only satellite-frame driver.)
+
+    // Snap to whatever the storm timeline is currently showing so the layers
+    // line up on first paint (timeline starts at index 0 = first observation).
+    const idx0 = (window.currentAnimIndex != null) ? Math.floor(window.currentAnimIndex) : 0;
+    if (data[idx0] && data[idx0].timestamp && window.syncOverlaysToTimestampMs) {
+        window.syncOverlaysToTimestampMs(new Date(data[idx0].timestamp).getTime());
+    }
+
+}
+```
+
+## Global helpers: _tsMsToSatTsString (dead), _satTsToMs, syncOverlaysToTimestampMs (lines 5936-5967)
+
+```
+// Attach to window explicitly. Plain function declarations here were
+// not consistently reaching global scope across browsers — likely a
+// deferred-script / parser quirk with adjacent declarations. Window
+// assignments sidestep it.
+window._tsMsToSatTsString = function(ms) {
+    const d = new Date(ms);
+    const pad = n => String(n).padStart(2, '0');
+    return d.getUTCFullYear() + pad(d.getUTCMonth()+1) + pad(d.getUTCDate())
+         + 'T' + pad(d.getUTCHours()) + pad(d.getUTCMinutes());
+};
+
+window._satTsToMs = function(ts) {
+    // 'YYYYMMDDTHHMM' -> epoch ms (UTC)
+    if (!ts || ts.length < 13) return NaN;
+    const Y = +ts.slice(0,4), M = +ts.slice(4,6)-1, D = +ts.slice(6,8);
+    const h = +ts.slice(9,11), m = +ts.slice(11,13);
+    return Date.UTC(Y, M, D, h, m);
+};
+
+// Drive the satellite (and wind, if enabled) overlay from a storm-timeline
+// timestamp (epoch ms). Snaps to the nearest available satellite frame.
+// No-op when the satellite layer hasn't initialized (non-active storms).
+window.syncOverlaysToTimestampMs = function(tsMs) {
+    const st = window._satelliteState;
+    if (!st || !st.frames || !st.frames.length) return;
+    let bestIdx = 0, bestDiff = Infinity;
+    for (let i = 0; i < st.frames.length; i++) {
+        const diff = Math.abs(window._satTsToMs(st.frames[i]) - tsMs);
+        if (diff < bestDiff) { bestDiff = diff; bestIdx = i; }
+    }
+    if (bestIdx !== st.currentIdx) setSatelliteFrame(bestIdx);
+};
+```
+
+## renderMap always-on auto-enable block (lines 6103-6115)
+
+```
+    // Satellite imagery is part of the always-on layer set for ACTIVE storms
+    // (initSatelliteLayer itself bails for non-active storms and early-returns
+    // on ≤900px so phones never fetch tiles). Also gate on the TRACK being
+    // current, not just _isActiveStorm — that flag is racy on slow direct-URL
+    // historic loads (the sidebar auto-load can set it true mid-fetch), and
+    // without the data check a 2005 track could get TODAY's GIBS imagery
+    // draped under it. GIBS keeps ~14 days, so an older track can never have
+    // matching imagery anyway.
+    setTimeout(() => { try {
+        const _lastTs = data && data.length ? Date.parse(data[data.length - 1].timestamp) : NaN;
+        const _fresh = !isNaN(_lastTs) && (Date.now() - _lastTs) < 12 * 86400000;
+        if (window._isActiveStorm && _fresh) initSatelliteLayer(data);
+    } catch(e) { console.warn('[SAT] storm-switch satellite init failed:', e); } }, 300);
+```
+
+## Animation-loop satellite sync (lines 6343-6349)
+
+```
+        // Snap the satellite frame (active storms only) to this timestamp
+        // via syncOverlaysToTimestampMs → setSatelliteFrame.
+        if (d1 && d1.timestamp) {
+            if (window._isActiveStorm && window.syncOverlaysToTimestampMs) {
+                syncOverlaysToTimestampMs(new Date(d1.timestamp).getTime());
+            }
+        }
+```
+
+## syncedSatTs scrubber-bar element (line 788)
+
+```
+            <span id="syncedSatTs" style="display:none;font-size:.65rem;color:#94a3b8;font-variant-numeric:tabular-nums;white-space:nowrap" title="Closest available satellite frame for the current timeline position">sat: --</span>
+```
+
