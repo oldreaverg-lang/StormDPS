@@ -5305,6 +5305,7 @@ window._windfieldState = {
     cache: null,          // Map<idx, {url, bounds}>
     enabled: false,
     currentIdx: -1,
+    _baseBounds: null,    // unshifted bounds of the overlay's current image (glide base)
 };
 
 function _windfieldImageFor(idx) {
@@ -5318,20 +5319,36 @@ function _windfieldImageFor(idx) {
     return img;
 }
 
-function _windfieldDraw(idx) {
+function _wfShiftBounds(bounds, latOff, lonOff) {
+    // Absolute shift of the cached per-snapshot bounds — recomputed from the
+    // base each frame, so repeated calls can't accumulate drift.
+    return [[bounds[0][0] + latOff, bounds[0][1] + lonOff],
+            [bounds[1][0] + latOff, bounds[1][1] + lonOff]];
+}
+
+function _windfieldDraw(idx, latOff, lonOff) {
     const st = window._windfieldState;
     if (!st.enabled || !currentMap) return;
     const clamped = Math.max(0, Math.min(idx, (window.stormData||[]).length - 1));
+    latOff = latOff || 0; lonOff = lonOff || 0;
+    // Same-frame glide: the animation interpolates the storm center between
+    // fixes (fractional index), so between integer indices we only slide the
+    // existing overlay's bounds — no canvas recompute, cheap per rAF tick.
+    if (clamped === st.currentIdx && st.overlay && st._baseBounds) {
+        try { st.overlay.setBounds(_wfShiftBounds(st._baseBounds, latOff, lonOff)); } catch(e) {}
+        return;
+    }
     const img = _windfieldImageFor(clamped);
     if (st.overlay) {
         try { currentMap.removeLayer(st.overlay); } catch(e) {}
         st.overlay = null;
     }
+    st._baseBounds = img ? img.bounds : null;
     if (img) {
-        st.overlay = L.imageOverlay(img.url, img.bounds, {
+        st.overlay = L.imageOverlay(img.url, _wfShiftBounds(img.bounds, latOff, lonOff), {
             opacity: 0.85,
             interactive: false,
-            // zIndex 220 places this above satellite tiles (200) but below
+            // zIndex 220 places this above the basemap but below
             // storm-track polylines/markers (400+) so track dots stay readable.
             zIndex: 220,
         }).addTo(currentMap);
@@ -5340,11 +5357,14 @@ function _windfieldDraw(idx) {
 }
 
 // Public sync hook: called from syncVisualization as the animation plays or
-// the user scrubs the storm timeline.
-window.setWindfieldFrameByIdx = function(stormIdx) {
+// the user scrubs the storm timeline. latOff/lonOff carry the interpolated
+// storm-center offset from the current snapshot, so the field stamp travels
+// WITH the marker and wind-direction particles between fixes instead of
+// sitting at the last fix and jumping when the index rolls over.
+window.setWindfieldFrameByIdx = function(stormIdx, latOff, lonOff) {
     const st = window._windfieldState;
     if (!st || !st.enabled) return;
-    _windfieldDraw(stormIdx);
+    _windfieldDraw(stormIdx, latOff, lonOff);
 };
 
 // Pre-compute and cache the Holland B image for every track index so the
@@ -5660,6 +5680,7 @@ function renderMap(data){
         wf.cache = null;
         wf.enabled = false;
         wf.currentIdx = -1;
+        wf._baseBounds = null;
     }
     // Reset the wind-flow layer for the incoming storm (stale per-index
     // caches would draw the previous storm's field), then auto-enable it
@@ -5902,15 +5923,9 @@ function syncVisualization(fi,snap){
         // Update wind field overlay
         updateWindField(bi);
 
-        // Redraw the Holland B windfield for THIS track index on every frame.
-        // Cheap client-side compute, memoized per index in _windfieldState.cache.
-        // This direct redraw is the ONLY driver (the satellite layer and its
-        // timeline-sync path were retired 2026-07-22 — see
-        // docs/RETIRED_MAP_OVERLAYS.md).
-        if (window._windfieldState && window._windfieldState.enabled
-            && typeof window.setWindfieldFrameByIdx === 'function') {
-            window.setWindfieldFrameByIdx(bi);
-        }
+        // (Holland B windfield redraw moved BELOW the index-change guard —
+        // it now glides every tick with the interpolated center, locked to
+        // the marker and wind-direction particles.)
         if (typeof window.setWindDirFrameByIdx === 'function') window.setWindDirFrameByIdx(bi);
 
         // Refresh the Storm Card with the snapshot at this timeline position.
@@ -5937,6 +5952,16 @@ function syncVisualization(fi,snap){
         if(currentDPSChart)currentDPSChart.update('none');
         if(currentIASChart)currentIASChart.update('none');
         if(currentERSChart)currentERSChart.update('none');
+    }
+
+    // Holland B windfield — EVERY tick, not just index changes: the offsets
+    // slide the cached image between fixes (setBounds only, no recompute) so
+    // the field stamp travels with the interpolated storm center exactly like
+    // the marker and the wind-direction particles. On an index rollover the
+    // offsets pass through zero, so the image swap lands with no jump.
+    if (window._windfieldState && window._windfieldState.enabled
+        && typeof window.setWindfieldFrameByIdx === 'function') {
+        window.setWindfieldFrameByIdx(bi, lat - d1.lat, lon - d1.lon);
     }
 
     // Animated center marker
