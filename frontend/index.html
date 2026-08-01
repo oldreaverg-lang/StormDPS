@@ -3131,6 +3131,95 @@ function calculateDPS(dataPoint) {
 }
 
 // ============================================================
+// STORM POWER INDEX (SPI) — 0-100, EXPERIMENTAL, DISPLAY-ONLY
+//
+// DPS answers "how much destruction will this cause": it multiplies
+// the surge term by shelf geometry and weights the components by
+// basin vulnerability, so a violent storm over deep open water scores
+// low BY DESIGN. That is correct for a threat score and misleading as
+// a read on storm strength (Typhoon Dolphin 2026: 140 kt, 921 mb, DPS
+// pinned ~35 while it was one of the strongest storms of the season).
+//
+// SPI answers the other question — how strong is the storm itself,
+// independent of what happens to be underneath it. Same physical
+// inputs as DPS with the geography removed:
+//   * surge term is the storm's OWN parametric surge, NOT shelved
+//   * no basin coefficients, no RI bonus, no no-landfall dampener
+//   * adds IKE, the rigorous total-energy measure that DPS only
+//     samples indirectly through its size term
+//
+// NEVER feeds DPS, the hero score, the bundle, or any ranking — it is
+// a second line on the chart and nothing else. ANALYST-MODE ONLY: it is
+// uncalibrated against ground truth, and a public "Storm Power: 74"
+// sitting beside the threat score would read as a second threat number
+// on a site that defers threat framing to the official agencies.
+//
+// WEIGHTS: intensity leads deliberately. A first cut at 35% energy /
+// 15% size put HALF the weight on storm extent, which (checked over
+// all 7,522 bundled snapshots) tied 69-kt Subtropical Storm Rebekah
+// with 159-kt Dorian at 67 and put both above 115-kt Harvey. Leading
+// with intensity restores the ordering a reader expects while IKE
+// still carries the "big storm hits harder than its category" signal.
+// ============================================================
+const SPI_W = { intensity: 0.45, energy: 0.25, surge: 0.20, size: 0.10 };
+const SPI_IKE_REF_TJ = 200;      // ~observed IKE max (198 TJ in the bundle)
+const SPI_V_MIN_KT = 34;         // tropical-storm floor
+const SPI_V_MAX_KT = 160;        // extreme Cat 5
+
+function calculateStormPower(dataPoint) {
+    const vms = dataPoint && dataPoint.max_wind_ms;
+    if (!vms || vms <= 0) return { score: 0, components: null, ikeMissing: true };
+    const v_kt = vms / 0.514444;
+
+    // Intensity — linear across the TS → extreme-Cat-5 range.
+    const I = Math.max(0, Math.min((v_kt - SPI_V_MIN_KT) / (SPI_V_MAX_KT - SPI_V_MIN_KT), 1));
+
+    // Energy — IKE spans orders of magnitude. sqrt (not log) keeps the
+    // top of the range discriminating: log would flatten a 60 TJ storm
+    // and a 150 TJ monster into nearly the same value.
+    const ike = dataPoint.ike_total_tj || 0;
+    const haveIke = ike > 0;
+    const E = haveIke ? Math.min(1, Math.sqrt(ike / SPI_IKE_REF_TJ)) : 0;
+
+    // Surge-generating capacity — the storm's own wind/pressure/size
+    // push, with NO shelf factor (that multiplier is what makes the
+    // DPS a location-aware score).
+    const S = Math.min((calculateSurgeParametric(dataPoint) || 0) / 25, 1);
+
+    // Size — the same wind-field extent term the DPS uses.
+    const R64_MAX = 45, R34_MAX = 300, WF_SOFTCAP = 3.0;
+    const r64 = dataPoint.r64_nm || 0, r34 = dataPoint.r34_nm || 0;
+    let Wf = 0;
+    if (r64 > 0) Wf = 0.7 * (r64 * r64) / (R64_MAX * R64_MAX) + 0.3 * (r34 * r34) / (R34_MAX * R34_MAX);
+    else if (r34 > 0) Wf = 0.3 * (r34 * r34) / (R34_MAX * R34_MAX);
+    Wf = Math.min(1, Math.log(1 + Wf) / Math.log(1 + WF_SOFTCAP));
+
+    // Data-gap guard. A fix with failed radii reports IKE 0 at full
+    // intensity (Dolphin 07-28 12Z: 100 kt, IKE 0.00 TJ), and a fix with
+    // no pressure silently zeroes the surge term inside
+    // calculateSurgeParametric. Either would punch a hole in the curve,
+    // so drop the affected term(s) and renormalize what's left rather
+    // than scoring a measurement failure as weakness.
+    const havePressure = !!(dataPoint.min_pressure_hpa);
+    const w = Object.assign({}, SPI_W);
+    if (!haveIke) w.energy = 0;
+    if (!havePressure) w.surge = 0;
+    const wsum = w.intensity + w.energy + w.surge + w.size;
+    if (wsum > 0 && wsum < 1) {
+        w.intensity /= wsum; w.energy /= wsum; w.surge /= wsum; w.size /= wsum;
+    }
+
+    const score = Math.max(0, Math.min(100,
+        Math.round(100 * (w.energy * E + w.intensity * I + w.surge * S + w.size * Wf))));
+    // Deliberately NO band label: 'Extreme'/'Very High'/'High'/... is the
+    // Powell-Reinhold SDP vocabulary shown one chart tab away, and two of
+    // those words are canonical DPS bands at DIFFERENT thresholds. A third
+    // meaning for the same words is exactly the cross-surface confusion the
+    // 2026-07-10 score audit removed. The number stands alone.
+    return { score, components: { E, I, S, Wf }, ikeMissing: !haveIke };
+}
+
+// ============================================================
 // STORM CONTEXT SUMMARY — auto-generated bullet points
 // ============================================================
 function generateStormContext(data) {
@@ -4511,7 +4600,10 @@ function renderAll(stormId,data){
     // Historical presets use hand-tuned zones (vulnerability at time of storm)
     // Active/forecast storms use FEMA NRI data (current infrastructure resilience)
     const useNRI = !preset;
-    data.forEach(d => { d.dps = calculateDPS(d); d.ias = calculateIAS(d); d.ers = calculateERS(d, useNRI); });
+    // d.spi (Storm Power Index) is EXPERIMENTAL and display-only: unlike
+    // d.dps below it is never overwritten by the server's canonical
+    // per-snapshot series, because no server series exists for it.
+    data.forEach(d => { d.dps = calculateDPS(d); d.ias = calculateIAS(d); d.ers = calculateERS(d, useNRI); d.spi = calculateStormPower(d); });
 
     // Prefer server-computed per-snapshot DPS series from the unified engine.
     // This is the canonical source — same formula that drives the hero and
@@ -4945,12 +5037,12 @@ function switchScoreTab(tabName){
     if(charts[tabName]) charts[tabName].resize();
 }
 
-function _buildScoreChart(canvasId, scores, data, label, lineColor, gradientStops, tooltipCb){
+function _buildScoreChart(canvasId, scores, data, label, lineColor, gradientStops, tooltipCb, extra){
     const ctx=document.getElementById(canvasId).getContext('2d');
     const gradient=ctx.createLinearGradient(0,0,0,ctx.canvas.clientHeight||300);
     gradientStops.forEach(s=>gradient.addColorStop(s[0],s[1]));
     const labels=data.map(d=>{const t=new Date(d.timestamp);return`${t.getMonth()+1}/${t.getDate()} ${String(t.getHours()).padStart(2,'0')}Z`});
-    return new Chart(ctx,{type:'line',data:{labels,datasets:[
+    const datasets=[
         {label,data:scores,borderColor:lineColor,backgroundColor:gradient,borderWidth:3,fill:true,tension:.35,pointRadius:0,pointHitRadius:10,
          segment:{borderColor:c=>{
             const v=c.p1.parsed.y;
@@ -4958,9 +5050,21 @@ function _buildScoreChart(canvasId, scores, data, label, lineColor, gradientStop
             if(v>=20)return'#047857';if(v>=10)return'#1d4ed8';return'#475569';
          }}
         }
-    ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+    ];
+    // Optional comparison series (dashed, unfilled) — used for the
+    // experimental Storm Power line on the DPS chart. Legend turns on
+    // only when there are two lines to tell apart.
+    if(extra&&extra.data){
+        datasets.push({label:extra.label,data:extra.data,borderColor:extra.color,
+            backgroundColor:extra.color,  // tooltip swatch (fill:false keeps the plot unfilled)
+            borderWidth:2,borderDash:[6,4],fill:false,tension:.35,pointRadius:0,pointHitRadius:10});
+    }
+    return new Chart(ctx,{type:'line',data:{labels,datasets},
+      options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
         onClick:(evt,els)=>{if(els&&els.length){if(window.animationFrameId)stopAnimation();const i=els[0].index;window.currentAnimIndex=i;document.getElementById('scrubSlider').value=i;syncVisualization(i,true)}},
-        plugins:{scrubLine:true,zoneBands:{zones:DPS_ZONES,showLabels:false},legend:{display:false},tooltip:{backgroundColor:'rgba(10,14,26,.95)',titleColor:'#f1f5f9',bodyColor:'#94a3b8',borderColor:'#1e293b',borderWidth:1,padding:10,cornerRadius:8,displayColors:true,titleFont:{weight:600},bodyFont:{size:12},callbacks:{label:tooltipCb}}},
+        plugins:{scrubLine:true,zoneBands:{zones:DPS_ZONES,showLabels:false},
+        legend:{display:!!(extra&&extra.data),position:'top',align:'end',
+            labels:{boxWidth:18,boxHeight:2,font:{size:10},color:'#5c6873',usePointStyle:false}},tooltip:{backgroundColor:'rgba(10,14,26,.95)',titleColor:'#f1f5f9',bodyColor:'#94a3b8',borderColor:'#1e293b',borderWidth:1,padding:10,cornerRadius:8,displayColors:true,titleFont:{weight:600},bodyFont:{size:12},callbacks:{label:tooltipCb}}},
         scales:{x:{grid:{color:'rgba(0,0,0,.07)',drawBorder:false},ticks:{maxTicksLimit:10,font:{size:10}}},y:{beginAtZero:true,max:100,grid:{color:'rgba(0,0,0,.07)',drawBorder:false},title:{display:true,text:'Score (0–100)',color:'#5c6873',font:{size:10,weight:600}},ticks:{font:{size:10},stepSize:20}}}}});
 }
 
@@ -4972,10 +5076,25 @@ function renderDPSChart(data){
     const dpsScores=data.map(d=>d.dps?d.dps.score:0);
     const iasScores=data.map(d=>d.ias?d.ias.score:0);
     const ersScores=data.map(d=>d.ers?d.ers.score:0);
+    const spiScores=data.map(d=>d.spi?d.spi.score:0);
 
-    currentDPSChart=_buildScoreChart('dpsCanvas',dpsScores,data,'Destructive Potential (DPS)','#f43f5e',
+    // Storm Power is ANALYST-MODE ONLY (see calculateStormPower): it is an
+    // uncalibrated experiment, and a second 0-100 number next to the threat
+    // score would read as a competing threat level in the public view.
+    const _spiSeries = window._analystMode
+        ? {label:'Storm Power (exp.)',data:spiScores,color:'#6366f1'}
+        : null;
+
+    currentDPSChart=_buildScoreChart('dpsCanvas',dpsScores,data,'Threat (DPS)','#f43f5e',
         [[0,'rgba(239,68,68,0.18)'],[0.4,'rgba(249,115,22,0.10)'],[1,'rgba(32,84,147,0.02)']],
-        c=>{const score=Math.round(c.parsed.y);return`DPS: ${score} / 100  —  ${getDPSBand(score)} Threat`;}  // banded from the SCORE — stored labels can be pre-canon (baked bundles)
+        c=>{
+            const score=Math.round(c.parsed.y);
+            // Second dataset = the experimental Storm Power line. No band
+            // word here on purpose — see calculateStormPower.
+            if(c.datasetIndex===1) return `Storm Power: ${score} / 100 — raw strength, ignores geography`;
+            return `DPS: ${score} / 100  —  ${getDPSBand(score)} Threat`;  // banded from the SCORE — stored labels can be pre-canon (baked bundles)
+        },
+        _spiSeries
     );
 
     currentIASChart=_buildScoreChart('iasCanvas',iasScores,data,'Impact Area (IAS)','#f97316',
@@ -4988,6 +5107,17 @@ function renderDPSChart(data){
         c=>{const score=Math.round(c.parsed.y);const d=data[c.dataIndex];const lbl=d&&d.ers?d.ers.label:'—';const zone=d&&d.ers&&d.ers.zone?' ('+d.ers.zone+')':'';return`ERS: ${score} / 100  —  ${lbl} Risk${zone}`;}
     );
 }
+
+// Analyst mode gates the Storm Power line, so flipping the toggle has to
+// rebuild the score charts. Guarded + fail-open: an error here must never
+// break the toggle itself (which also drives the hazard headline panels).
+window.addEventListener('analystmodechange', function () {
+    try {
+        if (window.stormData && window.stormData.length && typeof renderDPSChart === 'function') {
+            renderDPSChart(window.stormData);
+        }
+    } catch (e) { console.warn('[SPI] chart re-render on analyst toggle failed:', e); }
+});
 
 function renderChart(data){
     const ctx=document.getElementById('ikeChart').getContext('2d');if(currentChart)currentChart.destroy();
