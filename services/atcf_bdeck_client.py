@@ -169,14 +169,43 @@ class ATCFBDeckClient:
                 f"{region}/{yyyy}/{basin_l}{nn}{yyyy}/b{basin_l}{nn}{yyyy}.dat"
             )
 
-        try:
-            resp = await self.http.get(url)
-        except httpx.HTTPError as e:
-            logger.info(f"[BDECK] Fetch failed for {aid}: {e}")
-            return []
+        # Retry: the UCAR RAL mirror is intermittently unreachable from cloud
+        # hosts (measured 2026-08-01 — roughly 2 of 3 attempts failing from
+        # Railway while the same URL returned 200 from a home connection).
+        # An unretried miss silently downgrades the storm to a forecast-only
+        # track (see the JTWC fallback in api/routes get_storm_track), so a
+        # couple of cheap retries here are worth far more than the latency.
+        resp = None
+        _last_err = None
+        for _attempt in range(3):
+            if _attempt:
+                await asyncio.sleep(0.6 * _attempt)   # 0.6s, 1.2s
+            try:
+                # Shorter per-attempt timeout than the client default (15s):
+                # three attempts must stay well inside the frontend's 90s abort
+                # and Cloudflare's 100s ceiling, since this sits on top of the
+                # IBTrACS fetches earlier in the same request.
+                resp = await self.http.get(url, timeout=8.0)
+            except httpx.HTTPError as e:
+                _last_err = e
+                logger.info(f"[BDECK] {aid} attempt {_attempt + 1}/3 failed: {e}")
+                continue
+            if resp.status_code == 200:
+                break
+            _last_err = f"HTTP {resp.status_code}"
+            _sc = resp.status_code
+            resp = None
+            # 404 is the DEFINITIVE "no b-deck for this id" answer (the mirrors
+            # only carry the current season, and this step runs for any 8-char
+            # ATCF id IBTrACS missed, including probe traffic). Retrying it just
+            # burns two more round-trips and 1.8s of sleep for the same answer.
+            if _sc not in (429, 500, 502, 503, 504):
+                logger.info(f"[BDECK] {aid} → HTTP {_sc} (not retryable) at {url}")
+                break
+            logger.info(f"[BDECK] {aid} attempt {_attempt + 1}/3 → HTTP {_sc}")
 
-        if resp.status_code != 200:
-            logger.info(f"[BDECK] {aid} → HTTP {resp.status_code} at {url}")
+        if resp is None:
+            logger.warning(f"[BDECK] {aid} → unavailable ({_last_err}) at {url}")
             return []
 
         text = resp.text or ""

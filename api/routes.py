@@ -585,6 +585,29 @@ def _ike_cache_key(storm_id: str, grid_res_km: float, skip: int) -> str:
     return f"{safe_sid}_{h}.json"
 
 
+# Track sources that are NOT observed history. "jtwc" is the warning-bulletin
+# synthesis: current position + forecast positions at T+12h..T+120h. It exists
+# so a storm still renders when the b-deck mirror is down, but it must never be
+# mistaken for — or allowed to overwrite — analysed track history.
+_SYNTH_TRACK_SOURCES = frozenset({"jtwc"})
+
+
+def _load_ike_cache_entry(storm_id: str, grid_res_km: float, skip: int) -> dict | None:
+    """Full cached payload (results + provenance), IGNORING age.
+
+    Used by the forecast-downgrade guard, which deliberately prefers a stale
+    observed track over a fresh synthesized one, so the usual TTL must not
+    apply here.
+    """
+    path = _IKE_CACHE_DIR / _ike_cache_key(storm_id, grid_res_km, skip)
+    data = _cache_read(path)
+    if not isinstance(data, dict):
+        return None
+    if data.get("_version") != _IKE_CACHE_VERSION or data.get("_storm_id") != storm_id:
+        return None
+    return data
+
+
 def _load_ike_cache(storm_id: str, grid_res_km: float, skip: int,
                     max_age_s: float | None = None) -> list[dict] | None:
     """Load cached IKE results if present and valid (version + storm_id match).
@@ -2575,6 +2598,58 @@ async def get_storm_track(
             f"Try an ATCF ID (AL092008), IBTrACS SID, or storm name + year."
         )
 
+    # ── Forecast-downgrade guard ──────────────────────────────────────
+    # `source == "jtwc"` means every step above failed and we fell through
+    # to the warning-bulletin synthesis, which is NOT history: it is the
+    # current position plus forecast positions at T+12h..T+120h. Serving
+    # that as the storm's track rewrites its past with its future — the
+    # chart's x-axis runs forward, the observed lifecycle disappears, and
+    # DPS gets scored off forecast positions.
+    #
+    # Observed by the operator on Typhoon Dolphin 2026-08-01: the UCAR
+    # b-deck mirror was failing ~2 of 3 fetches from Railway, so the track
+    # flip-flopped between 47 observed points and 27 forecast points
+    # depending on which fetch won the cache refresh.
+    #
+    # A stale observed track beats a fresh forecast one, so prefer the last
+    # known good cache entry and leave it in place (returning here also
+    # skips the save below, so the synthesis can never overwrite it). The
+    # SWR refresh path lands here too — that is intended: it keeps the good
+    # entry stale so the next request retries the b-deck rather than
+    # locking in the downgrade.
+    if source in _SYNTH_TRACK_SOURCES:
+        _prior = _load_ike_cache_entry(storm_id, grid_resolution_km, skip_points)
+        if _prior and _prior.get("results") and _prior.get("_source") not in _SYNTH_TRACK_SOURCES:
+            logger.warning(
+                f"[TRACK] {storm_id} b-deck unavailable → warning-bulletin synthesis "
+                f"({len(snapshots)} forecast pts). Serving last known good "
+                f"{_prior.get('_source')} track ({len(_prior['results'])} pts, cached "
+                f"{_prior.get('_cached_at')}) instead of downgrading to a forecast."
+            )
+            # Reset the TTL clock WITHOUT touching the payload. Returning early
+            # skips _save_ike_cache (deliberately — that is what protects the
+            # good entry), but that also removes the throttle: _load_ike_cache
+            # gates on mtime alone, so a frozen mtime would make every request
+            # during the outage re-run the whole IBTrACS + b-deck + bulletin
+            # cascade uncoalesced (this endpoint has no singleflight). Touching
+            # the file restores a normal cache hit for _LIVE_TRACK_TTL_S, so the
+            # b-deck is retried once per TTL instead of once per viewer, while
+            # _cached_at in the payload still reports the data's true age.
+            try:
+                (_IKE_CACHE_DIR / _ike_cache_key(
+                    storm_id, grid_resolution_km, skip_points)).touch()
+            except OSError:
+                pass
+            return JSONResponse(content=_prior["results"], headers={
+                "X-Track-Cache": "stale-observed",
+                "X-Track-Degraded": "bdeck-unavailable",
+                "Cache-Control": "public, max-age=60"})
+        logger.warning(
+            f"[TRACK] {storm_id} serving SYNTHESIZED (forecast) track — b-deck "
+            f"unavailable and no observed track cached. Points are tagged "
+            f"track_source=jtwc."
+        )
+
     t0 = time.time()
 
     # Sample snapshots if skip_points > 0 (every Nth point)
@@ -2611,6 +2686,14 @@ async def get_storm_track(
     ike_batch = await _compute_ike_batch(snapshots, grid_resolution_m, max_workers=4)
 
     results = [_ike_to_response(ike, snap) for ike, snap in ike_batch]
+
+    # Stamp provenance on every point so consumers can tell analysed history
+    # from a forecast synthesis (see IKEResponse.track_source). This flows into
+    # the cache too — _ike_response_to_dict serializes the whole model — which
+    # is what lets the downgrade guard above recognise a good entry later.
+    if source:
+        for _r in results:
+            _r.track_source = source
 
     # --- Save to cache for future requests ---
     # Live storms are cached too, but read back only within _LIVE_TRACK_TTL_S

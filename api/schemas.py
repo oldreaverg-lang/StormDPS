@@ -59,6 +59,15 @@ class IKEResponse(BaseModel):
         description="Wind radii data confidence (0.0-1.0) from cross-source audit. "
                     "None if audit has not run for this advisory cycle.",
     )
+    track_source: Optional[str] = Field(
+        None,
+        description="Provenance of the track this point belongs to. "
+                    "'jtwc_bdeck' / 'nhc_bdeck' / 'ibtracs' / 'hurdat2' are OBSERVED "
+                    "analysis history. 'jtwc' is a warning-bulletin synthesis (current "
+                    "position plus FORECAST positions at T+12h..T+120h), served only "
+                    "when the b-deck is unavailable — those points are a forecast, not "
+                    "observations, and must be labelled as such wherever they are shown.",
+    )
     sdp: Optional[float] = Field(
         None,
         description="Surge Destructive Potential (Powell & Reinhold 2007), 0-6 scale, "
