@@ -28,6 +28,22 @@ Merge protocol: merge cost-trim → main AFTER the service resumes, then
 deploy-verify (storm loads, animation plays, no /satellite fetches from
 index.html, /methodology 3D still works, /health/memory returns data).
 
+**NEXT FEATURE (operator-approved 2026-07-31): RI Outlook via SHIPS-RII**,
+inspired by Rozoff et al. 2026 (WAF-D-25-0076, ensemble RI prediction; AMS
+full text blocked from this environment — method from press + the team's
+EnsGRIP precursor deck; GRIP blend: V=(1-P_RI)·V_fcst + P_RI·V_upper).
+Source VERIFIED LIVE: https://ftp.nhc.noaa.gov/atcf/stext/
+{YYMMDDHH}{BASIN##YY}_ships.txt — 6-hourly ~9 KB text per storm, free.
+Contains: (a) SEVEN RI probability lines, rigid format
+`SHIPS Prob RI for 30kt/ 24hr RI threshold=   11% is  1.3 times
+climatological mean ( 8.6%)` (thresholds 20kt/12h…65kt/72h);
+(b) `POT = MPI-VMAX (KT) :  63.6` → MPI = VMAX+POT, the GRIP upper bound
+for free (no SST-MPI computation needed). Plan: tiny ingest per active
+AL/EP storm per advisory → "RI Outlook" chip on the forecast panel +
+GRIP-blended upper edge for the Forecast DPS Band. Live test storm at
+verification time: Genevieve EP072026. JTWC basins have no SHIPS text —
+AL/EP only, fail-open.
+
 **What shipped 2026-07-22 (Bertha landfall day — sat-layer fix + bug-hunt):**
 - **Satellite ghost guard + IR archive fallback** (`e11debb`): operator saw
   "imagery ~100 mi north of track" — NOT a georef bug (IR centroid vs live
