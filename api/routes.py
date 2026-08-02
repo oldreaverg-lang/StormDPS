@@ -1309,6 +1309,31 @@ async def get_storm_forecast(request: Request, storm_id: str):
         logger.warning(f"[forecast] rain-hazard estimate failed for {storm_id}: {e}")
         forecast["rain_forecast"] = {"available": False, "note": "error"}
 
+    # ── RAPID-INTENSIFICATION OUTLOOK (SHIPS-RII) ──
+    # The site's own RI signal is retrospective: calculate_dps awards its RI
+    # bonus only after the b-deck shows the jump already happened, which is
+    # no use as a warning. NHC already computes and publishes a calibrated
+    # forward probability per storm per cycle; this reads it (one ~9 KB text
+    # fetch). Motivation and the GRIP upper-bound framing: Rozoff et al. 2026,
+    # WAF-D-25-0076 — see services/ships_client.
+    #
+    # NHC basins only (JTWC publishes no SHIPS text) and fail-open: this is
+    # enrichment, and its absence must never cost the caller the cone, the
+    # track, the landfall panel or the stall risk computed above.
+    # MPI and its headroom come from the SHIPS file itself (POT. INT. tau-0
+    # paired with SHIPS' own analysed vmax) rather than being reconstructed
+    # here from the TCM's tau-0 wind. Mixing the two sources looked harmless
+    # but is not: the client walks back up to 18 h for a cycle, so a stale
+    # SHIPS paired with a fresh TCM during rapid intensification could have
+    # published a physically impossible MPI.
+    try:
+        from services.ships_client import get_ri_outlook
+        forecast["ri_outlook"] = await get_ri_outlook(
+            storm_id, http_client=shared_client)      # None for JTWC basins
+    except Exception as e:
+        logger.warning(f"[forecast] RI outlook failed for {storm_id}: {e}")
+        forecast["ri_outlook"] = None
+
     forecast["fetched_at_utc"] = _dt.now(_tz.utc).isoformat()
 
     return forecast
