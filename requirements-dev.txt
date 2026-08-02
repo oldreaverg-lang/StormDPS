@@ -1,3 +1,18 @@
 # Dev / test dependencies (not needed at runtime).
 # Install with:  pip install -r requirements-dev.txt
 pytest>=7.4,<9
+
+# numpy is NOT optional for the "offline suite" despite the name: the tests
+# import core.dpi / core.ike (and core.ike imports numpy at module scope), so
+# without it pytest dies with 2 COLLECTION errors and exit code 2 — which is
+# exactly how CI sat red from 2026-07-10 (the landfall-panel commit, first
+# test to reach core) until 2026-08-02 without anyone noticing, taking the
+# golden-master scoring baseline down with it.
+#
+# Deliberately NOT `-r requirements.txt`: that pulls rasterio, duckdb,
+# earthaccess, xarray & co, which are slow and whose resolution has already
+# timed out a build once (see the version note in requirements.txt). numpy is
+# the ONLY third-party package the suite actually reaches — verified in a
+# clean venv. Pinned to match production so CI tests the same numpy the app
+# runs. If a future test imports fastapi/httpx/pydantic, add just that one.
+numpy==2.2.3
