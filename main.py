@@ -522,6 +522,12 @@ _LOOP_STALE_SECONDS = 3 * 3600
 # failures, so this can't fire on a transient blip or an untested (0-call) feed.
 _CRITICAL_SOURCES = {"jtwc_bdeck", "nhc_active", "nhc_forecast", "ibtracs", "hurdat2"}
 
+# Resident-memory page threshold. Well above the ~340 MB steady state
+# observed after MALLOC_ARENA_MAX=2 landed, and below the ~2.2 GB permanent
+# baseline that ran the Railway credits out on 2026-07-31. Compared against
+# CURRENT resident, never the peak — see check 6 in health_selfcheck.
+_MEM_RSS_PAGE_MB = 1500
+
 
 @app.get("/health/selfcheck")
 async def health_selfcheck():
@@ -671,6 +677,43 @@ async def health_selfcheck():
                 f"(rerun SurgeDPS scripts/build_dps_scores.py)")
     except Exception as e:
         checks["surgedps_parity"] = {"ok": True, "advisory_error": str(e)[:200]}
+
+    # 6) Resident memory. Memory was ~93% of the Railway bill and an unbounded
+    #    baseline is what exhausted the credits on 2026-07-31 — the site went
+    #    DOWN. MALLOC_ARENA_MAX=2 now lets glibc hand spike memory back to the
+    #    OS, so the number worth watching is CURRENT resident, not the peak:
+    #    the peak legitimately reaches ~3 GB during an IBTrACS refresh and
+    #    falls back to a few hundred MB. Page only when resident STAYS high,
+    #    which means the release stopped working and the bill is about to run
+    #    away again. Reporting both makes the release visible to a human.
+    try:
+        rss_mb = hwm_mb = None
+        with open("/proc/self/status") as _f:
+            for _line in _f:
+                if _line.startswith("VmRSS:"):
+                    rss_mb = int(_line.split()[1]) / 1024
+                elif _line.startswith("VmHWM:"):
+                    hwm_mb = int(_line.split()[1]) / 1024
+        if rss_mb is None:
+            checks["memory"] = {"ok": True, "detail": "VmRSS not reported"}
+        else:
+            _mem_ok = rss_mb < _MEM_RSS_PAGE_MB
+            checks["memory"] = {
+                "ok": _mem_ok,
+                "rss_mb": round(rss_mb, 1),
+                "peak_mb": round(hwm_mb, 1) if hwm_mb is not None else None,
+                "page_over_mb": _MEM_RSS_PAGE_MB,
+            }
+            if not _mem_ok:
+                failures.append(
+                    f"resident memory {rss_mb:.0f} MB over {_MEM_RSS_PAGE_MB} MB "
+                    f"— spike memory is no longer being released; inspect "
+                    f"/health/memory?deep=true before the bill runs away")
+    except Exception as e:
+        # Broad on purpose: no /proc (local Windows/macOS dev) raises OSError,
+        # but a malformed line would raise ValueError/IndexError, and a probe
+        # must never be able to fail the health endpoint it reports into.
+        checks["memory"] = {"ok": True, "detail": f"unavailable: {str(e)[:80]}"}
 
     ok = not failures
     from fastapi.responses import JSONResponse
