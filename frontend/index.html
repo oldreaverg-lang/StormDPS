@@ -183,6 +183,16 @@
         .chart-tab-pane{display:none;width:100%;height:100%;position:absolute;top:0;left:0;padding:.4rem;box-sizing:border-box}
         .chart-tab-pane.active{display:block;position:relative}
         .chart-tab-pane canvas{width:100%!important;height:100%!important}
+        .exposure-leverage{font-size:.72rem;line-height:1.5;color:var(--text-muted);
+            padding:.4rem .6rem;margin:.2rem .4rem 0;border-radius:var(--radius);
+            background:rgba(99,102,241,.06);border:1px solid rgba(99,102,241,.18)}
+        .exposure-leverage .lev-val{font-weight:800;font-variant-numeric:tabular-nums}
+        .exposure-leverage .lev-amp{color:#b45309}
+        .exposure-leverage .lev-waste{color:#4338ca}
+        .exposure-leverage .lev-sub{display:block;opacity:.8;margin-top:.15rem}
+        /* On a phone the full readout wrapped to 4 lines and ate ~27% of the
+           320px chart card. Keep the headline, drop the secondary extreme. */
+        @media(max-width:600px){.exposure-leverage .lev-sub{display:none}}
         .scrubber-bar{display:none;align-items:center;gap:.4rem;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:.3rem .6rem;flex-shrink:0}.scrubber-bar.visible{display:flex;animation:fadeIn .3s}
         .scrubber-bar input[type="range"]{flex:1;-webkit-appearance:none;background:transparent;border:none;padding:0;height:20px;cursor:pointer}.scrubber-bar input[type="range"]::-webkit-slider-track{height:6px;background:rgba(32,84,147,.22);border-radius:3px}.scrubber-bar input[type="range"]:hover::-webkit-slider-track{background:rgba(32,84,147,.35)}.scrubber-bar input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;background:var(--primary);border-radius:50%;margin-top:-7px;cursor:pointer;box-shadow:0 0 0 2px rgba(32,84,147,.25),0 0 10px rgba(32,84,147,.5);transition:box-shadow .15s}.scrubber-bar input[type="range"]:hover::-webkit-slider-thumb{box-shadow:0 0 0 3px rgba(32,84,147,.35),0 0 14px rgba(32,84,147,.6)}.scrubber-bar input[type="range"]::-moz-range-track{height:5px;background:rgba(32,84,147,.22);border-radius:3px;border:none}.scrubber-bar input[type="range"]::-moz-range-thumb{width:20px;height:20px;background:var(--primary);border-radius:50%;border:2px solid rgba(32,84,147,.4);cursor:pointer}
         .scrubber-time{font-size:.82rem;font-weight:700;color:var(--text-main);min-width:100px;text-align:center;font-variant-numeric:tabular-nums;letter-spacing:-.01em}.scrubber-ike{font-size:.78rem;font-weight:700;color:var(--primary);min-width:60px;text-align:right;font-variant-numeric:tabular-nums}
@@ -872,6 +882,10 @@
                         <div class="chart-tab-pane" id="tabIAS"><canvas id="iasCanvas"></canvas></div>
                         <div class="chart-tab-pane" id="tabERS"><canvas id="ersCanvas"></canvas></div>
                     </div>
+                    <!-- Exposure leverage: the signed gap between the threat
+                         score and the experimental Storm Power line. Analyst
+                         mode only (same gate as the line it measures). -->
+                    <div id="exposureLeverage" class="exposure-leverage" style="display:none"></div>
                     <div id="dpsContextBox" class="dps-context-box" style="display:none;">
                         <div class="dps-context-bullets" id="dpsContextBullets"></div>
                     </div>
@@ -5035,6 +5049,12 @@ function switchScoreTab(tabName){
     // at 0px until shown; resize on activation gives them their real size).
     const charts={dps:currentDPSChart,ias:currentIASChart,ers:currentERSChart};
     if(charts[tabName]) charts[tabName].resize();
+    // The threat-vs-power readout sits OUTSIDE .chart-tab-body (the panes are
+    // absolutely positioned at fixed height), so it does not switch with the
+    // tabs on its own — a DPS sentence would otherwise sit under the IAS or
+    // ERS curve. Show it only on its own tab, and only if it has content.
+    const _lev=document.getElementById('exposureLeverage');
+    if(_lev) _lev.style.display=(tabName==='dps'&&_lev.innerHTML)?'block':'none';
 }
 
 function _buildScoreChart(canvasId, scores, data, label, lineColor, gradientStops, tooltipCb, extra){
@@ -5068,6 +5088,74 @@ function _buildScoreChart(canvasId, scores, data, label, lineColor, gradientStop
         scales:{x:{grid:{color:'rgba(0,0,0,.07)',drawBorder:false},ticks:{maxTicksLimit:10,font:{size:10}}},y:{beginAtZero:true,max:100,grid:{color:'rgba(0,0,0,.07)',drawBorder:false},title:{display:true,text:'Score (0–100)',color:'#5c6873',font:{size:10,weight:600}},ticks:{font:{size:10},stepSize:20}}}}});
 }
 
+// ── Threat vs. power gap ─────────────────────────────────────────────
+// The SIGNED gap between the threat score and the experimental Storm
+// Power line, which is the whole point of plotting them together:
+//   threat > power  → the coast amplified the storm beyond its own
+//                     strength (shallow shelf, funnel geometry, what was
+//                     standing in the way). Katrina 2005 peaks at +14.
+//   power > threat  → strength with nothing under it. Typhoon Dolphin
+//                     2026 sits near -38 for days over open ocean.
+// Computed from the SAME arrays the chart plots, so the number can never
+// disagree with the curves the reader is looking at. Analyst mode only —
+// it describes the experimental line, so it shares that line's gate.
+//
+// NAMING: deliberately NOT "exposure" anything. "Exposure" already means
+// three different things on this same storm view (the ERS tab's economic
+// exposure, the DPS breakdown's Pop. Exposure factor, and the coastal
+// exposure index), and a fourth meaning is precisely the cross-surface
+// confusion the 2026-07-10 score audit removed. The internal id/classes
+// still read "exposureLeverage"/"lev-*" from the first draft; only the
+// user-facing wording is authoritative.
+//
+// FLOOR GATE: calculateStormPower zeroes its intensity term below
+// SPI_V_MIN_KT (34 kt) and DPS has no such floor, so at weak fixes the
+// difference measures OUR FLOOR, not the coast. Without this gate ~half
+// the "geography amplified" headlines landed on sub-34-kt snapshots
+// (Nicholas 2021 claimed +17 at a 28-kt fix). Only compare where both
+// series are actually meaningful.
+const _LEV_FLOOR_MS = SPI_V_MIN_KT * 0.514444;   // 34 kt → m/s
+const _LEV_MIN_GAP = 5;   // below this the difference is rounding, not signal
+
+function _renderExposureLeverage(labels, dpsScores, spiScores, data){
+    const el = document.getElementById('exposureLeverage');
+    if (!el) return;
+    const hide = () => { el.style.display = 'none'; el.innerHTML = ''; };
+    if (!window._analystMode || !dpsScores || !spiScores
+        || !dpsScores.length || !spiScores.length) return hide();
+
+    let amp = {gap: -Infinity, i: -1}, waste = {gap: -Infinity, i: -1};
+    for (let i = 0; i < dpsScores.length; i++){
+        const v = (data && data[i]) ? data[i].max_wind_ms : null;
+        if (!(v >= _LEV_FLOOR_MS)) continue;          // see FLOOR GATE above
+        const d = dpsScores[i] || 0, s = spiScores[i] || 0;
+        if (d - s > amp.gap)   amp   = {gap: d - s, i, d, s};
+        if (s - d > waste.gap) waste = {gap: s - d, i, d, s};
+    }
+    if (amp.i < 0 || waste.i < 0) return hide();       // never reached the floor
+
+    // Lead with whichever extreme is larger — that is the storm's story.
+    const ampLeads = amp.gap >= waste.gap;
+    const P = ampLeads ? amp : waste, S = ampLeads ? waste : amp;
+    if (P.gap < _LEV_MIN_GAP) return hide();           // no real separation
+
+    const fmt = (n) => (n > 0 ? '+' : '') + Math.round(n);
+    const cls = ampLeads ? 'lev-amp' : 'lev-waste';
+    // Print the SAME coalesced values the comparison used, so the prose can
+    // never disagree with the number it is explaining.
+    const headline = ampLeads
+        ? `threat (${Math.round(P.d)}) ran above the storm's own strength (${Math.round(P.s)}): the coast amplified it`
+        : `power (${Math.round(P.s)}) ran well ahead of realized threat (${Math.round(P.d)}): strength with little beneath it`;
+    const secondary = (S.gap >= _LEV_MIN_GAP)
+        ? `<span class="lev-sub">Also ${fmt(ampLeads ? -S.gap : S.gap)} at ${escapeHtml(labels[S.i])} — ${ampLeads
+            ? 'power outrunning threat'
+            : 'the coast amplifying it'}.</span>`
+        : '';
+    el.innerHTML = `Threat vs. power gap <span class="lev-val ${cls}">${fmt(ampLeads ? P.gap : -P.gap)}</span>`
+        + ` at ${escapeHtml(labels[P.i])} — ${headline}.${secondary}`;
+    el.style.display = 'block';
+}
+
 function renderDPSChart(data){
     if(currentDPSChart)currentDPSChart.destroy();
     if(currentIASChart)currentIASChart.destroy();
@@ -5096,6 +5184,13 @@ function renderDPSChart(data){
         },
         _spiSeries
     );
+
+    // Reads the chart's own labels so the cited timestamp is exactly the one
+    // on the x-axis. Fail-open: a readout error must not cost us the charts.
+    try {
+        _renderExposureLeverage(currentDPSChart.data.labels, dpsScores,
+                                _spiSeries ? spiScores : null, data);
+    } catch(e) { console.warn('[SPI] exposure leverage render failed:', e); }
 
     currentIASChart=_buildScoreChart('iasCanvas',iasScores,data,'Impact Area (IAS)','#f97316',
         [[0,'rgba(249,115,22,0.16)'],[0.5,'rgba(251,191,36,0.08)'],[1,'rgba(32,84,147,0.02)']],
