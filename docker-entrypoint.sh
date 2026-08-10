@@ -70,12 +70,26 @@ fi
 # are appended after our base list, allowing local-dev overrides like
 #   docker run img --reload
 # without rewriting this script.
+# --max-requests / --max-requests-jitter: recycle the worker periodically so
+# ANY slow leak has a ceiling. Without it a single worker runs for the life of
+# the deploy — this one went ~8 days and reached 8.6 GB peak / 2.1 GB floor,
+# which exhausted the hosting credits on 2026-07-31 and took the site down.
+#
+# Safe here specifically because --preload is on: the master holds the imported
+# app, so a recycle is a fork, not a cold boot. Runtime caches (the global
+# IBTrACS catalog) are rebuilt after one, and that rebuild is now a streaming
+# parse rather than the 1.6 GB materialisation it used to be — which is what
+# makes recycling cheap instead of self-defeating. The jitter matters even at
+# --workers 1: it keeps a recycle from landing on the same request count every
+# cycle, so a restart cannot repeatedly coincide with the 6-hourly refresh.
 PORT="${PORT:-8080}"
 exec gosu app:app gunicorn main:app \
     --worker-class uvicorn.workers.UvicornWorker \
     --bind "0.0.0.0:${PORT}" \
     --workers 1 \
     --preload \
+    --max-requests 5000 \
+    --max-requests-jitter 500 \
     --timeout 120 \
     --graceful-timeout 30 \
     --access-logfile - \

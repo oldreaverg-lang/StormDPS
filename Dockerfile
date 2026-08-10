@@ -64,6 +64,28 @@ ENV PORT=8080
 # footprint that tracks the real working set.
 ENV MALLOC_ARENA_MAX=2
 
+# MALLOC_ARENA_MAX alone did not hold the floor down, because it is the wrong
+# knob for this symptom: it caps how many arenas exist, not whether freed
+# memory goes back to the OS. glibc's mmap threshold is DYNAMIC by default —
+# it starts at 128 KB, and every time an mmap'd block is freed it ratchets up
+# to that block's size (capped at 32 MB), permanently. After the first few
+# large frees, everything under 32 MB is served from the brk heap instead and
+# is only returned when it happens to sit at the very top. That is exactly the
+# observed signature: blocks over 32 MB still released cleanly (a 3,458 MB
+# drop was measured in one 10 s window) while the floor climbed over days.
+#
+# Setting MALLOC_MMAP_THRESHOLD_ explicitly DISABLES that dynamic adjustment
+# (glibc: "if this parameter is set, the dynamic adjustment is disabled"), so
+# the process keeps behaving like a freshly-started one. Both values are
+# glibc's own defaults — this pins them rather than raising or lowering them.
+#
+# Cost: allocations between 128 KB and 32 MB now take an mmap/munmap syscall
+# pair instead of coming from the heap. For this workload — a handful of large
+# buffers, not a high-rate allocator — that is a fair trade for a floor that
+# does not ratchet.
+ENV MALLOC_MMAP_THRESHOLD_=131072
+ENV MALLOC_TRIM_THRESHOLD_=131072
+
 # Expose the port
 EXPOSE ${PORT}
 

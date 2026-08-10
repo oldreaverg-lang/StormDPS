@@ -156,8 +156,20 @@ def _safe_storm_id(storm_id: str) -> str:
     return cleaned
 
 # FIX 2: Custom ThreadPoolExecutor for CPU-bound IKE computations
+#
+# Pinned to a constant rather than derived from os.cpu_count(). Two reasons:
+# a thread's stack is charged to RSS once touched, so pool width is a memory
+# knob, not just a throughput one; and cpu_count() reports the HOST's cores
+# inside a container, which on a bigger Railway instance silently widens the
+# pool past anything this workload needs.
+#
+# 6 is not arbitrary: the only two submitters are the IKE batch, which the
+# caller already caps at 4 via an asyncio.Semaphore (see _compute_ike_batch),
+# and the single preload-bundle build. 4 + 1 + 1 spare covers both with no
+# queuing. Widening this would not increase IKE concurrency anyway — the
+# semaphore, not the pool, is what bounds it.
 _IKE_EXECUTOR = ThreadPoolExecutor(
-    max_workers=min(32, (os.cpu_count() or 4) * 2),
+    max_workers=6,
     thread_name_prefix="ike_compute",
 )
 
