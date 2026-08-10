@@ -16,3 +16,17 @@ pytest>=7.4,<9
 # clean venv. Pinned to match production so CI tests the same numpy the app
 # runs. If a future test imports fastapi/httpx/pydantic, add just that one.
 numpy==2.2.3
+
+# httpx: tests/test_ships_ri.py imports services.ships_client, which imports
+# httpx at module scope. Added 2026-08-10 after exactly the failure this file's
+# note above warned about happened anyway: the SHIPS commit (ecf399b) landed a
+# test reaching services/ three commits after numpy was added for core/, and
+# re-broke collection the same way. It was verified locally, where httpx is
+# installed — which is precisely why the clean-venv check below is the only
+# check that counts.
+#
+# BEFORE ADDING A TEST THAT IMPORTS FROM services/ OR api/, run:
+#     python -m venv /tmp/ci && /tmp/ci/bin/pip install -r requirements-dev.txt
+#     /tmp/ci/bin/python -m pytest -q
+# A pass in your normal environment proves nothing about CI.
+httpx==0.28.1
