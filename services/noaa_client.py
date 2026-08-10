@@ -1370,16 +1370,43 @@ class NOAAClient:
             sources = [False]  # archive only
 
         for use_recent in sources:
-            csv_text = await self._fetch_ibtracs(use_recent=use_recent)
-            if not csv_text:
-                logger.warning(f"IBTrACS fetch returned empty: use_recent={use_recent}")
-                continue
-
-            # Parse CSV off the event loop — IBTrACS files can be 100MB+
             loop = asyncio.get_event_loop()
-            partial_catalog = await loop.run_in_executor(
-                None, self._parse_ibtracs_catalog_chunk, csv_text, min_year, max_year
-            )
+
+            # STREAM the CSV rather than materialising it. The full archive is
+            # ~315 MB on disk; read_text() + io.StringIO held ~1.6 GB for the
+            # length of the parse (StringIO widens ASCII to UCS-4 at 4.00
+            # bytes/char, measured). With a 6-hour refresh TTL and an executor
+            # wide enough for several to overlap, that was the dominant term
+            # in this service's resident memory — 8.6 GB peak against a 2.1 GB
+            # floor, which exhausted the hosting credits on 2026-07-31 and
+            # took the site down. Streaming holds one row at a time.
+            path = await self._ibtracs_path(use_recent=use_recent)
+            if path is not None:
+                # Parity with the old `if not csv_text` warning: a zero-byte
+                # cache file would otherwise merge silently as an empty
+                # catalog instead of announcing that a source is missing.
+                try:
+                    if path.stat().st_size == 0:
+                        logger.warning(
+                            f"IBTrACS cache file is empty: {path.name}")
+                        continue
+                except OSError:
+                    logger.warning(f"IBTrACS cache file unreadable: {path}")
+                    continue
+                partial_catalog = await loop.run_in_executor(
+                    None, self._parse_ibtracs_catalog_file, path, min_year, max_year
+                )
+            else:
+                # No cache dir configured — fall back to the text path.
+                csv_text = await self._fetch_ibtracs(use_recent=use_recent)
+                if not csv_text:
+                    logger.warning(
+                        f"IBTrACS fetch returned empty: use_recent={use_recent}")
+                    continue
+                partial_catalog = await loop.run_in_executor(
+                    None, self._parse_ibtracs_catalog_chunk, csv_text,
+                    min_year, max_year
+                )
             for sid, entry in partial_catalog.items():
                 if sid not in catalog:
                     catalog[sid] = entry
@@ -1656,16 +1683,72 @@ class NOAAClient:
 
         return text
 
+    async def _ibtracs_path(self, use_recent: bool = True):
+        """Ensure the IBTrACS CSV is on disk and return its Path (or None).
+
+        The point is what this does NOT do: it never reads the file into
+        memory. Callers that only need to iterate rows should take this and
+        stream, rather than calling _fetch_ibtracs and building a 315 MB str.
+
+        Downloading is rare — the cache file has no TTL, so once present it
+        is reused — which is why the download itself is left on the existing
+        _fetch_ibtracs path rather than duplicated here. The recurring cost
+        this avoids is the every-6-hours re-read and parse.
+        """
+        if not self.cache_dir:
+            return None
+        cache_name = "ibtracs_recent.csv" if use_recent else "ibtracs_all.csv"
+        cached = self.cache_dir / cache_name
+        if cached.exists():
+            return cached
+        # Not cached yet: let the existing path download + write it, then
+        # hand back the file it just created. The one-time text
+        # materialisation here is acceptable; the repeated one was not.
+        await self._fetch_ibtracs(use_recent=use_recent)
+        return cached if cached.exists() else None
+
     def _parse_ibtracs_catalog_chunk(
         self, csv_text: str, min_year: int, max_year: int
     ) -> dict:
+        """Text-input wrapper. Prefer _parse_ibtracs_catalog_file.
+
+        This holds the whole CSV as a str AND then again as an io.StringIO
+        copy, and StringIO widens ASCII to UCS-4 — measured at exactly
+        4.00 bytes/char. For the 315 MB full archive that is ~1.6 GB resident
+        for the duration of the parse. Kept only for callers that already
+        have the text in hand.
         """
-        Parse one IBTrACS CSV file into a storm catalog dict (sync, runs in executor).
+        return self._parse_ibtracs_catalog_rows(
+            csv.DictReader(io.StringIO(csv_text)), min_year, max_year)
+
+    def _parse_ibtracs_catalog_file(
+        self, path, min_year: int, max_year: int
+    ) -> dict:
+        """Stream one IBTrACS CSV off disk into a catalog dict.
+
+        csv.DictReader pulls line by line straight from the file object, so
+        peak memory is one row plus the accumulated catalog instead of
+        ~5x the file size. This is the path the 6-hourly global-catalog
+        refresh takes; see get_ibtracs_catalog.
+
+        newline='' is the csv module's documented requirement (it lets the
+        reader handle newlines embedded in quoted fields itself);
+        errors='replace' keeps one bad byte in a 330 MB archive from taking
+        the whole refresh down.
+        """
+        with open(path, 'r', newline='', encoding='utf-8', errors='replace') as fh:
+            return self._parse_ibtracs_catalog_rows(
+                csv.DictReader(fh), min_year, max_year)
+
+    def _parse_ibtracs_catalog_rows(
+        self, reader, min_year: int, max_year: int
+    ) -> dict:
+        """
+        Parse IBTrACS rows into a storm catalog dict (sync, runs in executor).
 
         Returns {SID: entry_dict} for merging into the main catalog.
         """
         catalog = {}
-        reader = csv.DictReader(io.StringIO(csv_text))
         storm_count = 0
 
         for row in reader:
