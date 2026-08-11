@@ -1,11 +1,160 @@
-# StormDPS — session handoff (updated 2026-07-31)
+# StormDPS — session handoff (updated 2026-08-10)
 
-**STAGED ON BRANCH `cost-trim` (2026-07-31) — NOT YET ON MAIN.** Railway ran
+**Deploy state:** local HEAD == origin/main == `ef4f580`. Site healthy,
+`/health/selfcheck` GREEN (first time in 8 days), CI green, 186 tests pass.
+
+---
+
+## 2026-08-10 — memory root cause, CI repair, and a two-site security pass
+
+Read this section before touching memory, CI, or SurgeDPS.
+
+### The memory incident — root cause FOUND and fixed, but NOT fully closed
+
+**What it was.** Every 6 h (`_GLOBAL_IBTRACS_CATALOG_TTL`) the global catalog
+refreshes from the 315.6 MB IBTrACS archive. The code did
+`cached.read_text()` then `csv.DictReader(io.StringIO(csv_text))`. StringIO
+widens ASCII to UCS-4 at **exactly 4.00 bytes/char** (measured across three
+sizes), so ONE parse held **~1,578 MB** — 316 MB str + 1,262 MB StringIO. The
+observed 8,586 MB peak is 5.4 of those overlapping. This is what exhausted the
+Railway credits on 07-31 and took the site down.
+
+**Fix (`3ab930a`):** `get_ibtracs_catalog` now streams. `_ibtracs_path()`
+returns the cached file WITHOUT reading it; `_parse_ibtracs_catalog_file()`
+feeds `csv.DictReader` straight off the handle. The parse body moved unchanged
+into `_parse_ibtracs_catalog_rows()`, shared by both paths; the text wrapper
+stays for the other 11 `_fetch_ibtracs` callers. Download deliberately
+untouched — the cache file has no TTL, so it is fetched once; the recurring
+cost was the re-read.
+
+**Verified by EQUIVALENCE, which is the check that matters** (a silent
+disagreement would corrupt the storm catalog): full range 1851-2099 (1,129
+storms), recent, and a historic slice all produce IDENTICAL output, peak
+29.6 -> 0.9 MB (31.6x) on a synthetic IBTrACS-shaped fixture including the
+real archive's quirks (units row under the header, unnamed storms, quoted
+commas, blank numerics). In production the catalog is byte-identical:
+**998 entries, id-set sha1 `803beb98975d2834`, before and after.**
+
+**Mitigations (`ef4f580`)**, none dependent on the remaining unknown:
+- `MALLOC_MMAP_THRESHOLD_=131072` + `MALLOC_TRIM_THRESHOLD_=131072`.
+  **`MALLOC_ARENA_MAX=2` (added 08-01) was the WRONG KNOB** — it caps arena
+  count, not whether memory returns to the OS. glibc's mmap threshold is
+  DYNAMIC: it ratchets up to each freed mmap'd block's size (32 MB cap),
+  permanently, after which sub-32 MB allocations come from the brk heap and
+  only return if they sit at the top. That is the measured signature: >32 MB
+  blocks released cleanly (a 3,458 MB drop in one 10 s window) while the floor
+  climbed for 8 days. Setting the threshold explicitly DISABLES the dynamic
+  adjustment. Both values are glibc's own defaults — pinned, not tuned.
+- `--max-requests 5000 --max-requests-jitter 500`. The worker previously ran
+  for the life of the deploy (~8 days, 8.6 GB peak). Safe because `--preload`
+  is on: a recycle is a fork, not a cold boot. The hazard that a recycle drops
+  the in-memory catalog timestamp and re-triggers the refresh is neutralised
+  by the streaming parse landing first.
+- `_IKE_EXECUTOR` pinned to `max_workers=6` (was `min(32, cpu_count*2)`).
+  Thread stacks are charged to RSS once touched, and `cpu_count()` reports the
+  HOST's cores inside a container. 6 covers both submitters; the IKE batch is
+  already capped at 4 by an `asyncio.Semaphore` at the call site.
+
+**⚠️ STILL UNEXPLAINED: ~2.5 GB.** A process that booted at 95 MB reached a
+2,629 MB peak. RULED OUT WITH EVIDENCE, do not re-chase:
+- **NumPy** — production never executes a grid-based IKE computation. All
+  track points route through `core/ike_coaps.py`, which imports no NumPy
+  (census: 1,676 points across 23 storms, ZERO grid-path). 28,200 real
+  computes moved RSS **0.05 MB**. The grid code is unreachable (one branch
+  needs an empty dict `{}` no producer can emit).
+- **Unbounded Python caches** — 171,280 objects total, largest container
+  101 KB. The whole object graph is ~50-100 MB.
+- **Thread leak**, **`--preload`**.
+- **`_search_ibtracs_by_atcf_id` full-archive load** (routes.py:2453-2456) —
+  plausible on paper, REFUTED by measurement: an uncached track request swings
+  only 120 MB and releases it. NB my first test of this was INVALID (a
+  high-water mark cannot detect an allocation below it); the valid test samples
+  RSS *during* the request.
+
+**How to judge whether this is actually fixed:** a low reading right after a
+deploy PROVES NOTHING — that mistake was made on 08-01 (reported 106 MB,
+declared an 85% cost cut, wrong). Watch the FLOOR over days. Settles in the
+hundreds of MB = holding. Climbs toward GB = the unexplained allocator is
+still live.
+
+### The alarm was right and was overruled
+
+`/health/selfcheck` returned 503 continuously for 8 days and the healthcheck
+cron failed 31 consecutive runs — on a REAL condition (`resident memory
+2050 MB over 1500 MB`), with the other six probes green. **The operator saw
+those emails and asked about them, and was told it was nothing to worry about
+and could be kicked down the road. That answer was wrong.** Do not dismiss
+this alarm; it is the only thing standing between a memory regression and
+another credits-exhaustion outage. The alarm still needs a
+transient-vs-sustained split (spikes are normal; a risen floor is not) before
+it is fully actionable — that work is NOT done.
+
+### CI: red for 8 days, twice, both self-inflicted
+
+`requirements-dev.txt` installs ONLY what the suite reaches. It went red
+07-10 (numpy, fixed 08-02 by `a1cd11c`), held green for exactly TWO commits,
+then `ecf399b` (SHIPS RI outlook) added `tests/test_ships_ri.py` ->
+`services/ships_client.py` -> `import httpx`, which was not in the dev deps.
+Red again for 8 days. Fixed by `b5b3e55`.
+
+**RULE, now written into requirements-dev.txt:** before adding a test that
+imports from `services/` or `api/`, run it in a CLEAN VENV:
+```
+python -m venv /tmp/ci && /tmp/ci/bin/pip install -r requirements-dev.txt
+/tmp/ci/bin/python -m pytest -q
+```
+A pass in your normal environment proves nothing — that is exactly how both
+regressions shipped. Also note `ci.yml` is compile-and-import only and never
+runs pytest, so a green "CI" check is NOT a test signal.
+
+### Open on StormDPS (found in the 08-10 audit, none fixed)
+
+- **Two storms both named "Dolphin."** `/storms/active` returns WP142026 as
+  `DOLPHIN`; its own SSR page, the catalog, and its `/dps` all say `Chan-Hom`.
+  WP122026 is separately titled Dolphin. The wrong name ships in the homepage
+  SSR payload. The active feed is the wrong side.
+- **WP152026 (and any brand-new storm) has no real storm page and no OG card**
+  — both serve the not-found fallback shell while the storm is live in the
+  feed. Its track is also forecast-only (`track_source: jtwc`, 7 of 9 points
+  future-dated) because it has no b-deck yet; correctly TAGGED but nothing in
+  the UI surfaces the tag.
+- **Unknown storm ids take 11-35 s to 404**, with no negative cache.
+- Sitemap contains zero 2026-season storms despite them having real SSR pages.
+
+### SurgeDPS — 4 commits, 2 of them security (separate repo)
+
+See `C:\Users\Ryan\APPS\SurgeDPS-recovered\HANDOFF.md` for detail. Summary:
+`/api/cell` unauthenticated DoS bounded (`7f20cd1`), `/api/gauges` path
+traversal closed (`3e23ee6`), `?refresh` gated behind VALIDATION_TOKEN at all
+six endpoints + flood-zone cache byte-capped + orphaned vulnerable
+`api_server_fastapi.py` deleted (`236aa18`), flood-zone miss wall + a real LRU
+(`64566b4`). Also: **`/api/flood_zones` is NOT broken, it is UNSEEDED** —
+FEMA's WAF blocks Railway's egress at the TLS handshake, which is why
+`scripts/seed_flood_zones_local.py` exists; run it from a machine that can
+reach FEMA.
+
+### Process note
+
+The account **spend limit was reached** mid-session, which killed 10 of 13
+investigation agents and BOTH memory commits shipped without adversarial
+review. Every other change today was reviewed and review caught a real defect
+in most of them — including two of mine in this session's own work (an
+antimeridian break that would have 400'd legitimate CPHC cells, and a
+"byte-capped LRU" that was actually FIFO and gave the hot set no protection).
+Treat `3ab930a` and `ef4f580` as provisional until reviewed or proven by
+several days of live data.
+
+---
+
+## 2026-07-31 — cost trim (MERGED to main 2026-08-01 as `c9ea77a`, verified live)
+
+Railway ran
 out of credits 07-31 (site DOWN, "Application not found" at the Railway edge;
-operator is letting it wait for the 08-01 cycle reset — no storms threatening).
+operator let it wait for the 08-01 cycle reset — no storms threatening).
 Cost audit found memory = ~93% of the $23.69 bill (~2.2 GB avg resident,
-9 GB spikes; single gunicorn worker already). Staged work, to merge + VERIFY
-once the service is back:
+9 GB spikes; single gunicorn worker already). All of the following is now ON
+MAIN and live — the "staged / verify once the service is back" wording that
+used to head this section was stale from 08-01 to 08-10:
 - **SATELLITE MAP LAYER RETIRED** (operator call: "a little buggy and isn't
   worth the space"): 438 lines excised from index.html — state/init/teardown/
   setSatelliteFrame (incl. the 07-22 ghost guard + IR archive fallback),
@@ -22,13 +171,29 @@ once the service is back:
   IBTrACS etc. deferred until the probe names the holder).
 - **MALLOC_ARENA_MAX=2** (Dockerfile) — glibc arena retention was likely
   converting the 9 GB IBTrACS/bake spikes into paid baseline.
+  **⚠️ This hypothesis was WRONG and the knob did not hold the floor down.**
+  See the 2026-08-10 section: arena count is not the retention mechanism; the
+  dynamic mmap threshold is. `MALLOC_MMAP_THRESHOLD_` was added 08-10.
+  `MALLOC_ARENA_MAX=2` was kept (harmless, mildly useful) but it is not the
+  fix and should not be cited as one.
 - SurgeDPS project ($6.14): volume prune + backup retention are OPERATOR
   dashboard actions; sleep mode explicitly declined for now.
 Merge protocol: merge cost-trim → main AFTER the service resumes, then
 deploy-verify (storm loads, animation plays, no /satellite fetches from
 index.html, /methodology 3D still works, /health/memory returns data).
+**DONE 2026-08-01** (`c9ea77a`), all five checks passed. Caveat recorded for
+posterity: the 08-01 verification read `/health/memory` immediately after the
+deploy, saw 106 MB, and concluded an ~85% cost cut. That was a fresh fork
+reading its own boot footprint — it proved nothing, and the floor was back
+over 2 GB within days. Judge memory by the FLOOR over days, never by a
+post-deploy sample.
 
-**NEXT FEATURE (operator-approved 2026-07-31): RI Outlook via SHIPS-RII**,
+**FEATURE — RI Outlook via SHIPS-RII: BACKEND SHIPPED `ecf399b`, NO UI YET.**
+`services/ships_client.py` + 9 offline tests in `tests/test_ships_ri.py`;
+`ri_outlook` is attached in `get_storm_forecast` and is live in the API
+response right now. Nothing in `frontend/index.html` renders it — the chip and
+the GRIP-blended band edge described below are still unbuilt. Original spec,
+operator-approved 2026-07-31:
 inspired by Rozoff et al. 2026 (WAF-D-25-0076, ensemble RI prediction; AMS
 full text blocked from this environment — method from press + the team's
 EnsGRIP precursor deck; GRIP blend: V=(1-P_RI)·V_fcst + P_RI·V_upper).
