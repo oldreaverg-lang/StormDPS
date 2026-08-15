@@ -20,7 +20,7 @@ import math
 import re
 import zipfile
 import xml.etree.ElementTree as ET
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from timeutil import utcnow
 from typing import Optional
 from pathlib import Path
@@ -173,6 +173,11 @@ def _parse_tcm_forecast(text: str) -> list[dict]:
             "gust_kt": int(init_wind.group(2)) if init_wind else None,
             # Display-only label (frontend tooltips) — nothing parses it.
             "time": base.strftime("%a %b %d %H:%MZ"),
+            # Machine-readable valid time of this analysis (tau=0) center. `base`
+            # is naive UTC, so stamp an explicit +00:00 offset or JS Date() would
+            # read it as browser-local. Lets consumers pick the freshest current
+            # position by comparing this against the best-track tail timestamp.
+            "valid_time_utc": base.replace(tzinfo=timezone.utc).isoformat(),
         })
 
         matches = list(_TCM_FCST_RE.finditer(text))
@@ -193,6 +198,7 @@ def _parse_tcm_forecast(text: str) -> list[dict]:
                 "max_wind_kt": int(wind.group(1)) if wind else None,
                 "gust_kt": int(wind.group(2)) if wind else None,
                 "time": valid.strftime("%a %b %d %H:%MZ"),
+                "valid_time_utc": valid.replace(tzinfo=timezone.utc).isoformat(),
             })
         return points
     except Exception as e:

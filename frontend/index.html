@@ -3659,7 +3659,15 @@ function renderActiveStorms(storms){
         const cls=classificationShort(s.classification);
         const wind=kt?`${kt} kt`:'--';
         const pres=s.pressure_mb?`${s.pressure_mb} mb`:'';
-        const loc=s.lat&&s.lon?`${Math.abs(s.lat).toFixed(1)}\u00b0${s.lat>=0?'N':'S'} ${Math.abs(s.lon).toFixed(1)}\u00b0${s.lon>=0?'E':'W'}`:'';
+        // Prefer the freshest advisory tau=0 position for THIS storm's chip when
+        // it is available (the /storms/active feed can be hours stale \u2014 a
+        // fail-open cache freeze; the advisory analysis center is fresher). Match
+        // by id, case-insensitive. Falls back to the active-list lat/lon.
+        let _cLat=s.lat, _cLon=s.lon;
+        const _ov=window._currentPosOverride;
+        if(_ov && _ov.id && String(_ov.id).toUpperCase()===String(s.id||'').toUpperCase()
+            && _ov.lat!=null && _ov.lon!=null){ _cLat=_ov.lat; _cLon=_ov.lon; }
+        const loc=(_cLat!=null&&_cLon!=null)?`${Math.abs(_cLat).toFixed(1)}\u00b0${_cLat>=0?'N':'S'} ${Math.abs(_cLon).toFixed(1)}\u00b0${_cLon>=0?'E':'W'}`:'';
         // Quick stall hint from current movement speed
         const mvSpd = s.movement_speed_knots;
         let stallHint = '';
@@ -5916,6 +5924,64 @@ async function toggleWindDirLayer() {
     _windDirDraw(idx, idx, 0);
 }
 
+// ── Freshest "current position" (NHC/JTWC advisory tau=0) ────────────────────
+// The observed best-track tail (window.stormData's last fix) is a 6-hourly
+// synoptic center, so it lags the just-issued advisory analysis position by up
+// to a synoptic interval (~3-9h) — which is why the map's current dot sat behind
+// the storm's true center for Hernan (00Z/18Z vs NHC's 03Z). The advisory's
+// tau=0 analysis center (forecast_track[0]) is the freshest authoritative point
+// and the app already fetches it; we surface it as a dedicated current-position
+// marker. This is PURE presentation: it never mutates window.stormData or any
+// scored data, so no DPS score can move.
+function _parseUtcMs(s){
+    // Parse an ISO time; if it carries no timezone, assume UTC (JTWC t0 may be
+    // naive). Returns epoch ms, or NaN.
+    if(!s) return NaN;
+    let t = String(s).trim();
+    if(!/([zZ])|([+-]\d\d:?\d\d)$/.test(t)) t += 'Z';
+    return Date.parse(t);
+}
+// Choose the freshest current position: the advisory tau=0 point, but ONLY when
+// its valid time is at least as recent as the newest observed best-track fix, so
+// a held/stale advisory can never regress the displayed center behind the track.
+// Returns {lat,lon,valid_time_utc,max_wind_kt} or null (caller keeps track tail).
+function freshestCurrentPos(fc){
+    try{
+        const ft = fc && fc.forecast_track;
+        if(!ft || !ft.length) return null;
+        const p0 = ft[0];
+        if(!p0 || p0.hour !== 0 || p0.lat == null || p0.lon == null) return null;
+        const fValid = _parseUtcMs(fc.valid_time_utc);
+        if(isNaN(fValid)) return null;               // no trustworthy time → don't override
+        const sd = window.stormData || [];
+        const tail = sd.length ? sd[sd.length-1] : null;
+        const tValid = tail ? _parseUtcMs(tail.timestamp) : NaN;
+        if(!isNaN(tValid) && fValid < tValid) return null;   // advisory older than track → keep tail
+        return { lat: p0.lat, lon: p0.lon, valid_time_utc: fc.valid_time_utc, max_wind_kt: p0.max_wind_kt };
+    }catch(e){ return null; }
+}
+// Draw (or move) the dedicated current-position marker — a ringed dot distinct
+// from the small track fixes and the animated scrubber marker, so it reads as
+// "the storm is HERE now". Removes any prior instance first.
+function drawCurrentPosMarker(cur){
+    if(!currentMap || !cur) return;
+    try{ if(window._currentPosMarker) currentMap.removeLayer(window._currentPosMarker); }catch(e){}
+    window._currentPosMarker = null;
+    try{
+        const col = (typeof intensityColor === 'function') ? intensityColor(cur.max_wind_kt) : '#f8fafc';
+        const m = L.circleMarker([cur.lat, cur.lon], {
+            radius: 9, fillColor: col, color: '#ffffff', weight: 3, fillOpacity: .95,
+            className: 'current-pos-marker', interactive: true,
+        }).addTo(currentMap);
+        try{ m.bringToFront(); }catch(e){}
+        let when = '';
+        const ms = _parseUtcMs(cur.valid_time_utc);
+        if(!isNaN(ms)) when = ' · ' + new Date(ms).toUTCString().replace(':00 GMT',' UTC').replace(' GMT',' UTC');
+        m.bindTooltip('Current position' + when, {direction:'top', offset:L.point(0,-8), className:'forecast-label'});
+        window._currentPosMarker = m;
+    }catch(e){ console.warn('[CURRENT-POS] marker draw failed:', e); }
+}
+
 
 function renderMap(data){
 
@@ -6076,6 +6142,26 @@ function renderMap(data){
                 // panel over B. _forecastFetchedSid tracks the CURRENT storm.
                 if(window._forecastFetchedSid !== sid)return;
                 window._forecastValidUtc = fc.valid_time_utc || null;  // forecast age for ERS line / tooltips
+
+                // ── Freshest current position ──────────────────────────────
+                // Drive the displayed current position from the advisory tau=0
+                // analysis center when it is fresher than the best-track tail
+                // (which lags by up to a synoptic interval). Presentation-only:
+                // we set a display override + a dedicated marker and NEVER touch
+                // window.stormData, so no DPS score is affected. The sidebar
+                // chip reads this override (by id) via renderActiveStorms.
+                try{
+                    const _cur = freshestCurrentPos(fc);
+                    if(_cur){
+                        _cur.id = sid;
+                        window._currentPosOverride = _cur;
+                        drawCurrentPosMarker(_cur);
+                        // Refresh the sidebar chip so its lat/lon text matches.
+                        if(Array.isArray(window._activeStorms)) renderActiveStorms(window._activeStorms);
+                    } else {
+                        window._currentPosOverride = null;
+                    }
+                }catch(e){ console.warn('[CURRENT-POS] override failed:', e); }
 
                 // ── Forecast-uncertainty DPS band (public, live storms) ──
                 // Range the PEAK DPS could reach given the official intensity error,

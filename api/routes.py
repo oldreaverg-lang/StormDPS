@@ -1280,6 +1280,15 @@ async def get_storm_forecast(request: Request, storm_id: str):
         except Exception as e:
             logger.warning(f"[forecast] JTWC synth failed for {storm_id}: {e}")
 
+    # Surface the tau=0 (analysis / current) valid time at the top level so the
+    # rain-forecast audit log (below) and the frontend's freshest-current-position
+    # selection have a machine-readable timestamp. The JTWC path already sets this;
+    # for the NHC path derive it from the freshly-stamped tau=0 forecast point.
+    if not forecast.get("valid_time_utc"):
+        _ft0 = (forecast.get("forecast_track") or [{}])[0]
+        forecast["valid_time_utc"] = (
+            _ft0.get("valid_time_utc") if _ft0.get("hour") == 0 else None)
+
     # If we got a track but no official cone (e.g. NHC cone KMZ fetch/parse
     # failed), synthesize the climatological cone rather than drawing a
     # bare forecast line.
