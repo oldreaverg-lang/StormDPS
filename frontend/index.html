@@ -1493,8 +1493,11 @@ function setupSnapshotTabs(data, peakDpsObj, peakDpsIdx, compiled, isActive) {
         const currentDps = data[currentIdx].dps;
         _snapshotTabData.push({ label: 'Current', dpsObj: currentDps, type: 'current', idx: currentIdx });
         _snapshotTabData.push({ label: 'Peak', dpsObj: peakDpsObj, type: 'peak', idx: peakDpsIdx });
-        labelEl.textContent = 'Live Snapshot';
-        tipEl.setAttribute('data-tip', 'Current: real-time DPS at this moment. Peak: the highest single-snapshot DPS recorded so far.');
+        // "Current" = the most recent BEST-TRACK fix (the ~6-hourly synoptic
+        // update), which can trail the latest advisory by a few hours — so it is
+        // not a real-time value. Label it honestly rather than "real-time / live".
+        labelEl.textContent = 'Latest Snapshot';
+        tipEl.setAttribute('data-tip', 'Current: DPS at the most recent best-track fix (updated on the ~6-hourly synoptic cycle, so it can trail the newest advisory by a few hours). Peak: the highest single-snapshot DPS recorded so far.');
     } else if (compiled && compiled.landfalls && compiled.landfalls.length > 0) {
         // Historical with landfalls: one tab per landfall + peak tab
         compiled.landfalls.forEach((lf, i) => {
@@ -3631,8 +3634,14 @@ function escapeHtml(v){
 
 let _lastActiveStormsJson='';
 function renderActiveStorms(storms){
-    // Skip re-rendering if data hasn't changed (avoids unnecessary DOM rebuilds)
-    const currentJson=JSON.stringify(storms);
+    // Skip re-rendering if data hasn't changed (avoids unnecessary DOM rebuilds).
+    // The chip lat/lon also depends on the fresh-position override and which storm
+    // is loaded, so fold both into the memo key — otherwise, when /storms/active
+    // is unchanged (e.g. frozen), the forecast handler's re-render call would
+    // early-return and the chip would never pick up the fresh advisory position.
+    const currentJson=JSON.stringify(storms)
+        +'|'+JSON.stringify(window._currentPosOverride||null)
+        +'|'+(window._currentStormId||'');
     if(currentJson===_lastActiveStormsJson) return;
     _lastActiveStormsJson=currentJson;
 
@@ -3661,11 +3670,18 @@ function renderActiveStorms(storms){
         const pres=s.pressure_mb?`${s.pressure_mb} mb`:'';
         // Prefer the freshest advisory tau=0 position for THIS storm's chip when
         // it is available (the /storms/active feed can be hours stale \u2014 a
-        // fail-open cache freeze; the advisory analysis center is fresher). Match
-        // by id, case-insensitive. Falls back to the active-list lat/lon.
+        // fail-open cache freeze; the advisory analysis center is fresher).
+        // The override is only trusted for the storm CURRENTLY loaded on the map:
+        // it is set from that storm's live forecast fetch, and a switch to another
+        // storm whose forecast fails leaves the previous override in place \u2014 so we
+        // additionally require _ov.id === _currentStormId, or a stale previous-cycle
+        // tau0 could freeze a still-active storm's chip and bypass the freshness
+        // guard. Falls back to the active-list lat/lon.
         let _cLat=s.lat, _cLon=s.lon;
         const _ov=window._currentPosOverride;
-        if(_ov && _ov.id && String(_ov.id).toUpperCase()===String(s.id||'').toUpperCase()
+        const _loadedId=String(window._currentStormId||'').toUpperCase();
+        const _sid=String(s.id||'').toUpperCase();
+        if(_ov && _ov.id && String(_ov.id).toUpperCase()===_sid && _sid===_loadedId
             && _ov.lat!=null && _ov.lon!=null){ _cLat=_ov.lat; _cLon=_ov.lon; }
         const loc=(_cLat!=null&&_cLon!=null)?`${Math.abs(_cLat).toFixed(1)}\u00b0${_cLat>=0?'N':'S'} ${Math.abs(_cLon).toFixed(1)}\u00b0${_cLon>=0?'E':'W'}`:'';
         // Quick stall hint from current movement speed
@@ -6135,6 +6151,11 @@ function renderMap(data){
         // for the same active storm (e.g. tab refocus, slider re-init).
         if(sid && window._forecastFetchedSid !== sid){
             window._forecastFetchedSid = sid;
+            // Drop any previous storm's current-position override the moment we
+            // commit to a new storm, so a failed/empty forecast for the new storm
+            // can't leave a stale override behind (defense-in-depth; renderActiveStorms
+            // also gates the override on _currentStormId).
+            window._currentPosOverride = null;
             fetch(`${API_BASE}/storms/${sid}/forecast`).then(r=>r.ok?r.json():null).then(fc=>{
                 if(!fc||!currentMap)return;
                 // Staleness guard: a slow response for storm A resolving after

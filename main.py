@@ -715,6 +715,98 @@ async def health_selfcheck():
         # must never be able to fail the health endpoint it reports into.
         checks["memory"] = {"ok": True, "detail": f"unavailable: {str(e)[:80]}"}
 
+    # 7) Live-storm current-position consistency (the seam that shipped the
+    #    Aug-2026 Hernan bug: the UI's "current position" read a staler feed —
+    #    the /storms/active fail-open cache or the 6-hourly best-track tail —
+    #    than the freshest one it already held, the advisory tau=0 center). For
+    #    each ACTIVE storm, /storms/active lat/lon and the forecast tau=0 center
+    #    (forecast_track[0]) are two representations of the SAME advisory cycle,
+    #    so they must agree to within a few km. A large gap means one feed froze
+    #    while the other advanced — the sidebar chip / map marker is then showing
+    #    a stale position (Hernan diverged ~108 km at diagnosis). Also pages if
+    #    the forecast pipeline itself stalled (tau=0 older than one advisory
+    #    cycle). Fetch/probe errors stay ADVISORY: a transient egress blip must
+    #    not page (check 3 already pages on sustained nhc_active/nhc_forecast
+    #    failure); this probe catches the subtler case where the forecast is
+    #    fetchably-fresh but /active has frozen — exactly the Hernan scenario.
+    try:
+        import math
+        from datetime import datetime as _dtc, timezone as _tzc
+        import api.routes as _routes
+        from services.noaa_client import NOAAClient
+
+        def _hav_km(la1, lo1, la2, lo2):
+            p = math.pi / 180.0
+            h = (math.sin((la2 - la1) * p / 2) ** 2
+                 + math.cos(la1 * p) * math.cos(la2 * p) * math.sin((lo2 - lo1) * p / 2) ** 2)
+            return 2 * 6371.0 * math.asin(math.sqrt(h))
+
+        _POS_DIVERGE_KM = 50.0   # normal /active-vs-tau0 gap is ~0; one missed cycle is >100 km
+        _TAU0_STALE_H = 9.0      # one synoptic + advisory cycle
+        now_utc = _dtc.now(_tzc.utc)
+        active = _routes._active_storms_cache or []
+        client = getattr(app.state, "http_client", None)
+        per_storm, unverified, probe_fail = [], [], []
+        async with NOAAClient(http_client=client) as _noaa:
+            for s in active:
+                sid = str(s.get("id") or "")
+                if not sid:
+                    continue
+                try:
+                    fc = await asyncio.wait_for(_noaa.get_forecast_track(sid), timeout=8.0)
+                except Exception as e:
+                    unverified.append({"id": sid, "reason": f"forecast unavailable: {str(e)[:60]}"})
+                    continue
+                ft = (fc or {}).get("forecast_track") or []
+                tau0 = ft[0] if (ft and ft[0].get("hour") == 0) else None
+                if not tau0 or tau0.get("lat") is None or tau0.get("lon") is None:
+                    unverified.append({"id": sid, "reason": "no tau=0 center in forecast"})
+                    continue
+                a_lat, a_lon = s.get("lat"), s.get("lon")
+                diverge_km = (round(_hav_km(a_lat, a_lon, tau0["lat"], tau0["lon"]), 1)
+                              if a_lat is not None and a_lon is not None else None)
+                tau0_age_h = None
+                vt = tau0.get("valid_time_utc")
+                if vt:
+                    try:
+                        _dt = _dtc.fromisoformat(vt)
+                        if _dt.tzinfo is None:
+                            _dt = _dt.replace(tzinfo=_tzc.utc)
+                        tau0_age_h = round((now_utc - _dt).total_seconds() / 3600, 1)
+                    except Exception:
+                        pass
+                per_storm.append({"id": sid, "diverge_km": diverge_km, "tau0_age_h": tau0_age_h,
+                                  "active_pos": [a_lat, a_lon], "tau0_pos": [tau0["lat"], tau0["lon"]]})
+                if diverge_km is not None and diverge_km > _POS_DIVERGE_KM:
+                    probe_fail.append(
+                        f"live position for {sid}: displayed /active center is "
+                        f"{diverge_km:.0f} km from the fresh advisory tau=0 (a position feed froze)")
+                if tau0_age_h is not None and tau0_age_h > _TAU0_STALE_H:
+                    probe_fail.append(
+                        f"forecast stalled for {sid}: advisory tau=0 is {tau0_age_h:.0f} h old "
+                        f"(> {_TAU0_STALE_H:.0f} h)")
+        cache_age_min = None
+        try:
+            if _routes._active_storms_cache_time is not None:
+                cache_age_min = round(
+                    (now_utc - _routes._active_storms_cache_time).total_seconds() / 60, 1)
+        except Exception:
+            pass
+        checks["live_position"] = {
+            "ok": not probe_fail,
+            "active_storms": len(active),
+            "verified": len(per_storm),
+            "unverified": unverified,
+            "max_diverge_km": max(
+                [r["diverge_km"] for r in per_storm if r["diverge_km"] is not None], default=0),
+            "active_cache_age_min": cache_age_min,
+            "per_storm": per_storm,
+            "page_over_km": _POS_DIVERGE_KM,
+        }
+        failures.extend(probe_fail)
+    except Exception as e:
+        checks["live_position"] = {"ok": True, "advisory_error": str(e)[:200]}
+
     ok = not failures
     from fastapi.responses import JSONResponse
     return JSONResponse(
