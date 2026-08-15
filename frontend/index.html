@@ -5527,11 +5527,58 @@ function toggleObservedLayer(){
 // same indices repeatedly, so memoizing is worth it.
 window._windfieldState = {
     overlay: null,        // active L.imageOverlay on the map
-    cache: null,          // Map<idx, {url, bounds}>
+    cache: null,          // Map<idx | "bi:qs", {url, bounds}>
     enabled: false,
     currentIdx: -1,
+    currentKey: null,     // quantized frame key of the drawn shape (glide skips when unchanged)
     _baseBounds: null,    // unshifted bounds of the overlay's current image (glide base)
 };
+
+// ── Wind-field SHAPE interpolation (smooth animation for EVERY storm) ─────
+// The animation already glides the storm CENTER between fixes every rAF tick,
+// but the field SHAPE/intensity (the Holland-B image and the wind-flow grid)
+// used to recompute only on integer index changes — so a storm with a native
+// ~6h track visibly "stepped" its field size/intensity every fix.
+//
+// We now morph the shape between the two bracketing fixes, quantized to a few
+// sub-steps per segment (position still glides every tick). This is PURE
+// client-side rendering: the blended snapshot is fed ONLY to
+// computeWindFieldImage / _computeWindUVPayload, never to the /track or /dps
+// scoring path, so it cannot move any DPS score. It applies uniformly to
+// historical, live, and aged-out storms — no backend densify, no re-bake.
+const _WF_SUBSTEPS = 4;   // shape recomputes per segment; higher = smoother, costlier
+function _lerpNum(a, b, fr) {
+    // Linear blend that degrades gracefully when a field is missing on one fix.
+    if (typeof a === 'number' && isFinite(a) && typeof b === 'number' && isFinite(b)) return a + (b - a) * fr;
+    if (typeof a === 'number' && isFinite(a)) return a;
+    return b;
+}
+function _blendSnapshot(d1, d2, fr) {
+    // Interpolate position + Holland-B shape fields between adjacent fixes.
+    // (Mirrors the field set the backend live-storm densifier lerps, but here on
+    // the client with zero scoring impact — see note above.)
+    if (!d1) return null;
+    if (!d2 || d2 === d1) return { ...d1 };
+    const o = { ...d1 };
+    o.lat = _lerpNum(d1.lat, d2.lat, fr);
+    o.lon = _lerpNum(d1.lon, d2.lon, fr);
+    o.max_wind_ms         = _lerpNum(d1.max_wind_ms, d2.max_wind_ms, fr);
+    o.min_pressure_hpa    = _lerpNum(d1.min_pressure_hpa, d2.min_pressure_hpa, fr);
+    o.rmw_nm              = _lerpNum(d1.rmw_nm, d2.rmw_nm, fr);
+    o.r34_nm              = _lerpNum(d1.r34_nm, d2.r34_nm, fr);
+    o.forward_speed_knots = _lerpNum(d1.forward_speed_knots, d2.forward_speed_knots, fr);
+    // Heading: keep d1's — a plain angle lerp glitches across the 0/360 wrap, and
+    // heading is ~constant along a single leg. (Defaults to 0 downstream if absent.)
+    o.forward_direction_deg = d1.forward_direction_deg;
+    // Quadrant R34: blend only when BOTH fixes carry a quadrant object, else keep
+    // d1's so we never render a half-formed asymmetry.
+    const q1 = d1.r34_quadrants, q2 = d2.r34_quadrants;
+    o.r34_quadrants = (q1 && q2) ? {
+        NE: _lerpNum(q1.NE, q2.NE, fr), SE: _lerpNum(q1.SE, q2.SE, fr),
+        SW: _lerpNum(q1.SW, q2.SW, fr), NW: _lerpNum(q1.NW, q2.NW, fr),
+    } : q1;
+    return o;
+}
 
 function _windfieldImageFor(idx) {
     const st = window._windfieldState;
@@ -5544,6 +5591,26 @@ function _windfieldImageFor(idx) {
     return img;
 }
 
+// Windfield image for a quantized sub-step within segment [bi, ni]. At the
+// segment start (qs<=0) we reuse the cheap integer-index cache. For sub-steps we
+// blend the SHAPE at fraction qs/S but keep the image CENTERED at bi, so the
+// existing per-tick glide offset (which is measured from d1=data[bi]) positions
+// it at the true interpolated center with no double-counting or position steps.
+function _windfieldImageForFrac(bi, ni, qs) {
+    const st = window._windfieldState;
+    if (!st.cache) st.cache = new Map();
+    if (qs <= 0 || ni === bi) return _windfieldImageFor(bi);
+    const key = bi + ':' + qs;
+    if (st.cache.has(key)) return st.cache.get(key);
+    const sd = window.stormData;
+    if (!sd || bi < 0 || bi >= sd.length || ni < 0 || ni >= sd.length) { st.cache.set(key, null); return null; }
+    const blended = _blendSnapshot(sd[bi], sd[ni], Math.min(1, qs / _WF_SUBSTEPS));
+    if (blended) { blended.lat = sd[bi].lat; blended.lon = sd[bi].lon; }  // center at bi; glide offset positions it
+    const img = blended ? computeWindFieldImage(blended, currentMap) : null;
+    st.cache.set(key, img);
+    return img;
+}
+
 function _wfShiftBounds(bounds, latOff, lonOff) {
     // Absolute shift of the cached per-snapshot bounds — recomputed from the
     // base each frame, so repeated calls can't accumulate drift.
@@ -5551,19 +5618,27 @@ function _wfShiftBounds(bounds, latOff, lonOff) {
             [bounds[1][0] + latOff, bounds[1][1] + lonOff]];
 }
 
-function _windfieldDraw(idx, latOff, lonOff) {
+function _windfieldDraw(bi, ni, fr, latOff, lonOff) {
     const st = window._windfieldState;
     if (!st.enabled || !currentMap) return;
-    const clamped = Math.max(0, Math.min(idx, (window.stormData||[]).length - 1));
+    const n = (window.stormData || []).length;
+    if (!n) return;
+    bi = Math.max(0, Math.min(bi, n - 1));
+    ni = Math.max(0, Math.min(ni == null ? bi : ni, n - 1));
     latOff = latOff || 0; lonOff = lonOff || 0;
-    // Same-frame glide: the animation interpolates the storm center between
-    // fixes (fractional index), so between integer indices we only slide the
-    // existing overlay's bounds — no canvas recompute, cheap per rAF tick.
-    if (clamped === st.currentIdx && st.overlay && st._baseBounds) {
+    const S = _WF_SUBSTEPS;
+    let qs = Math.round((fr || 0) * S);
+    if (qs < 0) qs = 0; else if (qs > S) qs = S;
+    // Frame key = (segment start) or (segment + sub-step). The SHAPE only changes
+    // when this key changes; POSITION glides every tick regardless.
+    const fkey = (qs <= 0) ? ('i' + bi) : (bi + ':' + qs);
+    // Same-frame glide: shape unchanged since last tick — only slide the cached
+    // overlay's bounds by the interpolated center offset. No canvas recompute.
+    if (fkey === st.currentKey && st.overlay && st._baseBounds) {
         try { st.overlay.setBounds(_wfShiftBounds(st._baseBounds, latOff, lonOff)); } catch(e) {}
         return;
     }
-    const img = _windfieldImageFor(clamped);
+    const img = _windfieldImageForFrac(bi, ni, qs);
     if (st.overlay) {
         try { currentMap.removeLayer(st.overlay); } catch(e) {}
         st.overlay = null;
@@ -5578,7 +5653,8 @@ function _windfieldDraw(idx, latOff, lonOff) {
             zIndex: 220,
         }).addTo(currentMap);
     }
-    st.currentIdx = clamped;
+    st.currentKey = fkey;
+    st.currentIdx = bi;
 }
 
 // Public sync hook: called from syncVisualization as the animation plays or
@@ -5586,10 +5662,10 @@ function _windfieldDraw(idx, latOff, lonOff) {
 // storm-center offset from the current snapshot, so the field stamp travels
 // WITH the marker and wind-direction particles between fixes instead of
 // sitting at the last fix and jumping when the index rolls over.
-window.setWindfieldFrameByIdx = function(stormIdx, latOff, lonOff) {
+window.setWindfieldFrameByIdx = function(bi, ni, fr, latOff, lonOff) {
     const st = window._windfieldState;
     if (!st || !st.enabled) return;
-    _windfieldDraw(stormIdx, latOff, lonOff);
+    _windfieldDraw(bi, ni, fr, latOff, lonOff);
 };
 
 // Pre-compute and cache the Holland B image for every track index so the
@@ -5602,15 +5678,23 @@ function _windfieldPrewarmAll() {
     if (!st || !st.enabled) return;
     const n = (window.stormData || []).length;
     if (!n) return;
-    let i = 0;
+    const S = _WF_SUBSTEPS;
+    // Warm every integer fix first (so a static view / scrub is instant), then
+    // every intra-segment sub-step (so the timelapse morphs smoothly on first
+    // play with no compute hitch). Sliced across idle callbacks either way.
+    const jobs = [];
+    for (let i = 0; i < n; i++) jobs.push([i, i, 0]);
+    for (let i = 0; i < n - 1; i++)
+        for (let s = 1; s < S; s++) jobs.push([i, i + 1, s]);
+    let k = 0;
     const schedule = window.requestIdleCallback
         ? (fn) => window.requestIdleCallback(fn, { timeout: 250 })
         : (fn) => setTimeout(fn, 0);
     function slice() {
         if (!st.enabled) return;   // bailed if toggled off / storm changed mid-warm
         let budget = 6;            // ~6 frames per slice keeps each tick short
-        while (i < n && budget-- > 0) { _windfieldImageFor(i); i++; }
-        if (i < n) schedule(slice);
+        while (k < jobs.length && budget-- > 0) { const j = jobs[k++]; _windfieldImageForFrac(j[0], j[1], j[2]); }
+        if (k < jobs.length) schedule(slice);
     }
     schedule(slice);
 }
@@ -5651,7 +5735,7 @@ function toggleWindfieldLayer() {
     const stormIdx = (window.currentAnimIndex != null)
         ? Math.floor(window.currentAnimIndex)
         : ((window.stormData || []).length - 1);
-    _windfieldDraw(stormIdx);
+    _windfieldDraw(stormIdx, stormIdx, 0, 0, 0);
     // Warm the per-index image cache so the whole animation is ready to play
     // through immediately — every frame stored up front, no first-play hitch.
     _windfieldPrewarmAll();
@@ -5663,7 +5747,7 @@ function toggleWindfieldLayer() {
 // every storm with no external API, unlike the retired Open-Meteo/ERA5 overlay.
 // Mirrors the windfield (speed) layer's per-frame, cache-by-index model.
 // Default OFF (opt-in toggle).
-window._windDirState = { layer: null, cache: null, enabled: false, currentIdx: -1 };
+window._windDirState = { layer: null, cache: null, enabled: false, currentIdx: -1, currentKey: null, _creating: false };
 
 // Build a leaflet-velocity [U,V] payload from one track fix, or null if too weak.
 function _computeWindUVPayload(dp) {
@@ -5746,19 +5830,44 @@ function _windUVPayloadFor(idx) {
     return p;
 }
 
-async function _windDirDraw(idx) {
+// Wind-flow UV grid for a quantized sub-step within segment [bi, ni]. Unlike the
+// windfield image, the flow layer has no separate glide offset, so the blended
+// payload is centered at the true interpolated position (qs/S), stepping the flow
+// field S× finer than the old once-per-fix behavior.
+function _windUVPayloadForFrac(bi, ni, qs) {
+    const st = window._windDirState;
+    if (!st.cache) st.cache = new Map();
+    if (qs <= 0 || ni === bi) return _windUVPayloadFor(bi);
+    const key = bi + ':' + qs;
+    if (st.cache.has(key)) return st.cache.get(key);
+    const sd = window.stormData;
+    if (!sd || bi < 0 || bi >= sd.length || ni < 0 || ni >= sd.length) { st.cache.set(key, null); return null; }
+    const blended = _blendSnapshot(sd[bi], sd[ni], Math.min(1, qs / _WF_SUBSTEPS));
+    const p = blended ? _computeWindUVPayload(blended) : null;
+    st.cache.set(key, p);
+    return p;
+}
+
+async function _windDirDraw(bi, ni, qs) {
     const st = window._windDirState;
     if (!st.enabled || !currentMap) return;
-    const clamped = Math.max(0, Math.min(idx, (window.stormData || []).length - 1));
-    const payload = _windUVPayloadFor(clamped);
-    st.currentIdx = clamped;
+    const n = (window.stormData || []).length;
+    if (!n) return;
+    bi = Math.max(0, Math.min(bi, n - 1));
+    ni = Math.max(0, Math.min(ni == null ? bi : ni, n - 1));
+    const payload = _windUVPayloadForFrac(bi, ni, qs || 0);
+    st.currentIdx = bi;
     if (!payload) {
         if (st.layer) { try { currentMap.removeLayer(st.layer); } catch (e) {} st.layer = null; }
         return;
     }
     if (st.layer) { try { st.layer.setData(payload); } catch (e) {} return; }
-    try { await loadLeafletVelocity(); } catch (e) { console.warn('[WINDFLOW] velocity load failed', e); return; }
-    if (!st.enabled) return;                              // toggled off while loading
+    // A first-time layer create is already in flight — clear the frame key so the
+    // next tick re-attempts and converges to the current frame once the layer exists.
+    if (st._creating) { st.currentKey = null; return; }
+    st._creating = true;
+    try { await loadLeafletVelocity(); } catch (e) { st._creating = false; console.warn('[WINDFLOW] velocity load failed', e); return; }
+    if (!st.enabled) { st._creating = false; return; }    // toggled off while loading
     st.layer = L.velocityLayer({
         displayValues: false, data: payload,
         maxVelocity: 70, velocityScale: 0.011, particleAge: 60,
@@ -5767,13 +5876,27 @@ async function _windDirDraw(idx) {
         // blue/cyan low-speed stops vanished over water.
         colorScale: ['#6366f1','#0891b2','#16a34a','#ca8a04','#ea580c','#dc2626','#9d174d'],
     }).addTo(currentMap);
+    st._creating = false;
     try { st.layer.setZIndex && st.layer.setZIndex(240); } catch (e) {}
     try { const c = st.layer._canvasLayer && st.layer._canvasLayer._canvas; if (c) c.style.opacity = '0.75'; } catch (e) {}
 }
 
-window.setWindDirFrameByIdx = function (stormIdx) {
+window.setWindDirFrameByIdx = function (bi, ni, fr) {
     const st = window._windDirState;
-    if (st && st.enabled) _windDirDraw(stormIdx);
+    if (!(st && st.enabled)) return;
+    const n = (window.stormData || []).length;
+    if (!n) return;
+    bi = Math.max(0, Math.min(bi, n - 1));
+    ni = Math.max(0, Math.min(ni == null ? bi : ni, n - 1));
+    const S = _WF_SUBSTEPS;
+    let qs = Math.round((fr || 0) * S);
+    if (qs < 0) qs = 0; else if (qs > S) qs = S;
+    // Recompute the flow field only when the quantized frame changes — the field
+    // shape is unchanged between sub-steps, so skip the setData/rebuild otherwise.
+    const fkey = (qs <= 0) ? ('i' + bi) : (bi + ':' + qs);
+    if (fkey === st.currentKey) return;
+    st.currentKey = fkey;
+    _windDirDraw(bi, ni, qs);
 };
 
 async function toggleWindDirLayer() {
@@ -5790,7 +5913,7 @@ async function toggleWindDirLayer() {
     st.enabled = true;
     if (btn) { btn.textContent = 'Wind flow: On'; btn.style.background = 'rgba(34,211,238,.85)'; btn.style.color = '#06343a'; btn.style.borderColor = 'rgba(8,145,178,.6)'; }
     const idx = (window.currentAnimIndex != null) ? Math.floor(window.currentAnimIndex) : ((window.stormData || []).length - 1);
-    _windDirDraw(idx);
+    _windDirDraw(idx, idx, 0);
 }
 
 
@@ -5905,6 +6028,7 @@ function renderMap(data){
         wf.cache = null;
         wf.enabled = false;
         wf.currentIdx = -1;
+        wf.currentKey = null;
         wf._baseBounds = null;
     }
     // Reset the wind-flow layer for the incoming storm (stale per-index
@@ -5913,7 +6037,7 @@ function renderMap(data){
     if (window._windDirState) {
         const wd = window._windDirState;
         if (wd.layer && currentMap) { try { currentMap.removeLayer(wd.layer); } catch(e) {} }
-        wd.layer = null; wd.cache = null; wd.enabled = false; wd.currentIdx = -1;
+        wd.layer = null; wd.cache = null; wd.enabled = false; wd.currentIdx = -1; wd.currentKey = null; wd._creating = false;
     }
     // Delay so the map container's ResizeObserver has a chance to reflow
     // before the Holland B image overlay computes its geographic bounds.
@@ -6148,10 +6272,9 @@ function syncVisualization(fi,snap){
         // Update wind field overlay
         updateWindField(bi);
 
-        // (Holland B windfield redraw moved BELOW the index-change guard —
-        // it now glides every tick with the interpolated center, locked to
-        // the marker and wind-direction particles.)
-        if (typeof window.setWindDirFrameByIdx === 'function') window.setWindDirFrameByIdx(bi);
+        // (Both the Holland-B windfield image AND the wind-flow particle field
+        // are redrawn BELOW the index-change guard now — they morph their shape
+        // between fixes every tick, locked to the interpolated storm center.)
 
         // Refresh the Storm Card with the snapshot at this timeline position.
         if (window.updateStormCard) window.updateStormCard(d1);
@@ -6179,14 +6302,20 @@ function syncVisualization(fi,snap){
         if(currentERSChart)currentERSChart.update('none');
     }
 
-    // Holland B windfield — EVERY tick, not just index changes: the offsets
-    // slide the cached image between fixes (setBounds only, no recompute) so
-    // the field stamp travels with the interpolated storm center exactly like
-    // the marker and the wind-direction particles. On an index rollover the
-    // offsets pass through zero, so the image swap lands with no jump.
+    // Wind field + wind-flow — EVERY tick, not just integer index changes. The
+    // POSITION glides continuously (windfield: the lat/lon offsets slide the
+    // cached image via setBounds; wind-flow: the blended payload is re-centered),
+    // while the field SHAPE morphs between fixes in a few quantized sub-steps so
+    // native-cadence (e.g. 6h) tracks no longer step their size/intensity at each
+    // fix. Purely client-side rendering — no snapshot reaches the scoring engine,
+    // so this smooths EVERY storm (historical included) with zero score impact.
     if (window._windfieldState && window._windfieldState.enabled
         && typeof window.setWindfieldFrameByIdx === 'function') {
-        window.setWindfieldFrameByIdx(bi, lat - d1.lat, lon - d1.lon);
+        window.setWindfieldFrameByIdx(bi, ni, fr, lat - d1.lat, lon - d1.lon);
+    }
+    if (window._windDirState && window._windDirState.enabled
+        && typeof window.setWindDirFrameByIdx === 'function') {
+        window.setWindDirFrameByIdx(bi, ni, fr);
     }
 
     // Animated center marker
