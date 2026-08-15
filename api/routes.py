@@ -490,7 +490,12 @@ _ACTIVE_TRACK_TTL_S = 5400  # 90 minutes
 #           — ni_* coastal/economic profiles (Bay of Bengal extreme surge) +
 #           landfall-intensity bonus. Bump so warmed NI storms recompute
 #           instead of serving old open-ocean scores.
-_DPS_CACHE_VERSION = "v16-ni-legs"
+# v17-cp-basin (2026-08-14): detect_basin's EASTERN_PACIFIC box extended west
+#           to 180° so Central Pacific storms (CPHC, e.g. Lala CP012026) score
+#           with EP coefficients instead of falling through to the ATLANTIC
+#           default. Bump so any live storm whose mean track longitude sits in
+#           140°W–180° recomputes under the correct basin.
+_DPS_CACHE_VERSION = "v17-cp-basin"
 
 # Cache for global IBTrACS catalog to avoid repeated large downloads/parses.
 # We also persist a json cache file so restarts can reuse the catalog quickly.
@@ -2377,7 +2382,7 @@ async def get_storm_track(
     # making the hourly DPS refresh loop actually pick up live advisories.
     _is_live_jtwc = prefix in ("WP", "IO", "SH") and len(storm_id) == 8
     _is_live_nhc = False
-    if prefix in ("AL", "EP") and len(storm_id) == 8 and _active_storms_cache:
+    if prefix in ("AL", "EP", "CP") and len(storm_id) == 8 and _active_storms_cache:
         _is_live_nhc = any(
             (s.get("id") or "").upper() == storm_id.upper()
             for s in _active_storms_cache
@@ -2455,11 +2460,11 @@ async def get_storm_track(
                     _monitor.record_failure("ibtracs", error="SID lookup failed", latency_ms=(time.time() - t0) * 1000)
                     snapshots = []
 
-            # 3) IBTrACS by ATCF ID for AL/EP/WP/IO/SH storms (e.g. AL092017,
-            #    WP262013 Haiyan). Covers historical basins globally. In-season
-            #    WP/IO/SH storms won't be in IBTrACS yet (multi-month lag) —
+            # 3) IBTrACS by ATCF ID for AL/EP/CP/WP/IO/SH storms (e.g.
+            #    AL092017, WP262013 Haiyan). Covers historical basins globally.
+            #    In-season storms won't be in IBTrACS yet (multi-month lag) —
             #    those fall to step 3a (b-deck) below.
-            if not snapshots and prefix in ("AL", "EP", "WP", "IO", "SH") and len(storm_id) == 8:
+            if not snapshots and prefix in ("AL", "EP", "CP", "WP", "IO", "SH") and len(storm_id) == 8:
                 t0 = time.time()
                 try:
                     csv_text = await client._fetch_ibtracs(use_recent=True)
@@ -2486,13 +2491,13 @@ async def get_storm_track(
             # 3a) ATCF b-deck — HISTORY from storm birth to latest synoptic
             #     analysis. Primary source for all in-season storms:
             #     - JTWC (WP/IO/SH): UCAR RAL mirror
-            #     - NHC  (EP/AL):    NHC FTP (ftp.nhc.noaa.gov/atcf/btk/)
+            #     - NHC  (EP/AL/CP): NHC FTP (ftp.nhc.noaa.gov/atcf/btk/)
             #     IBTrACS has a multi-month publication lag so current-year
             #     storms fall through to here. The b-deck carries the full
             #     observed track so users see "where the storm has been."
-            if not snapshots and prefix in ("WP", "IO", "SH", "EP", "AL") and len(storm_id) == 8:
+            if not snapshots and prefix in ("WP", "IO", "SH", "EP", "AL", "CP") and len(storm_id) == 8:
                 t0 = time.time()
-                source_tag = "nhc_bdeck" if prefix in ("EP", "AL") else "jtwc_bdeck"
+                source_tag = "nhc_bdeck" if prefix in ("EP", "AL", "CP") else "jtwc_bdeck"
                 try:
                     from services.atcf_bdeck_client import ATCFBDeckClient
                     async with ATCFBDeckClient() as bdeck:
@@ -2529,9 +2534,10 @@ async def get_storm_track(
                     _monitor.record_failure("jtwc", error=f"JTWC lookup failed: {e}", latency_ms=(time.time() - t0) * 1000)
                     snapshots = []
 
-            # 4) Fallback: HURDAT2/EBTRK for Atlantic/East Pacific ATCF IDs
+            # 4) Fallback: HURDAT2/EBTRK for Atlantic/East+Central Pacific
+            #    ATCF IDs (the "nepac" HURDAT2 file carries CP storms too).
             #    Only try if IBTrACS didn't have it (e.g. very recent advisory data)
-            if not snapshots and prefix in ("AL", "EP") and len(storm_id) == 8:
+            if not snapshots and prefix in ("AL", "EP", "CP") and len(storm_id) == 8:
                 if NOAAClient.nhc_is_down():
                     logger.info(f"[TRACK] Skipping HURDAT2 for {storm_id} — NHC recently unreachable")
                 else:

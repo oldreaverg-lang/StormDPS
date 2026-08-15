@@ -6,7 +6,7 @@ storms from two public sources:
       https://hurricanes.ral.ucar.edu/realtime/plots/{region}/{year}/{basin}{NN}{YYYY}/b{basin}{NN}{YYYY}.dat
     where region is one of {northwestpacific, northindian, southernhemisphere}
 
-  * NHC storms (EP/AL) — NHC FTP:
+  * NHC/CPHC storms (EP/AL/CP) — NHC FTP:
       https://ftp.nhc.noaa.gov/atcf/btk/b{basin}{NN}{YYYY}.dat
 
 Why this exists
@@ -83,8 +83,10 @@ _BASIN_REGION = {
     "SI": "southernhemisphere",
 }
 
-# NHC FTP b-deck basins (EP = East Pacific, AL = Atlantic)
-_NHC_BASINS = {"EP", "AL"}
+# NHC FTP b-deck basins (EP = East Pacific, AL = Atlantic, CP = Central
+# Pacific). CPHC storms live in the SAME atcf/btk directory as AL/EP —
+# bcp{NN}{YYYY}.dat — so CP needs no separate source.
+_NHC_BASINS = {"EP", "AL", "CP"}
 
 
 class ATCFBDeckClientError(Exception):

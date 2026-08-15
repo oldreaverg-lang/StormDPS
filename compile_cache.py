@@ -259,8 +259,13 @@ def detect_basin(snapshots):
     if -100 <= norm_lon <= -10 and 0 <= mean_lat <= 60:
         return "ATLANTIC"
 
-    # Eastern Pacific: 100°W–140°W, 0°–35°N
-    if -140 <= norm_lon <= -100 and 0 <= mean_lat <= 35:
+    # Eastern Pacific: 100°W–180°, 0°–35°N. Extends across the Central
+    # Pacific (140°W–180°) so CPHC storms score with EP coefficients — CPHC
+    # shares EP climatology, and before 2026-08 this band fell through to the
+    # ATLANTIC default (Lala CP012026 would have scored with Atlantic surge
+    # weighting). Southern-hemisphere storms near these longitudes are
+    # unaffected: this box requires lat >= 0.
+    if -180 <= norm_lon <= -100 and 0 <= mean_lat <= 35:
         return "EASTERN_PACIFIC"
 
     # Western Pacific: 100°E–180°E, 0°–60°N

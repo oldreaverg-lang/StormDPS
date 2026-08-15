@@ -91,8 +91,10 @@ function detectBasin(lat, lon) {
         return "ATLANTIC";
     }
 
-    // Eastern Pacific
-    if (normLon >= -140 && normLon <= -100 && lat >= 0 && lat <= 35) {
+    // Eastern Pacific (extends across the Central Pacific to the dateline —
+    // CPHC storms share EP climatology; kept in sync with the inline
+    // detectBasin in index.html, 2026-08-14)
+    if (normLon >= -180 && normLon <= -100 && lat >= 0 && lat <= 35) {
         return "EASTERN_PACIFIC";
     }
 

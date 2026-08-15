@@ -61,14 +61,16 @@ def _hurdat2_url_for(storm_id: str) -> tuple[str, str]:
     """Pick the right HURDAT2 file + cache filename based on storm prefix.
 
     Returns (download_url, cache_filename). NHC publishes Atlantic
-    (AL prefix) and East Pacific (EP prefix) HURDAT2 reanalyses as
-    separate files; CP (Central Pacific) storms don't have a HURDAT2
-    file at all and rely on IBTrACS exclusively.
+    (AL prefix) and Pacific HURDAT2 reanalyses as separate files. The
+    Pacific file is "nepac" — NORTHEAST AND NORTH CENTRAL Pacific — so
+    it carries CP-prefixed CPHC storms too (e.g. Iniki CP111992); an
+    earlier version of this docstring claimed CP had no HURDAT2 file,
+    which was wrong and kept CP storms IBTrACS-only.
     """
     prefix = (storm_id or "")[:2].upper()
-    if prefix == "EP":
+    if prefix in ("EP", "CP"):
         return (HURDAT2_EPAC_URL, "hurdat2_epac.txt")
-    # Default: Atlantic file. Covers AL prefix; for CP / WP / IO / SH the
+    # Default: Atlantic file. Covers AL prefix; for WP / IO / SH the
     # caller falls back to IBTrACS after a HURDAT2 parse miss.
     return (HURDAT2_URL, "hurdat2_atl.txt")
 
@@ -627,7 +629,8 @@ class NOAAClient:
         return storms
 
     async def _fetch_nhc_active_storms(self) -> list[dict]:
-        """NHC CurrentStorms.json — Atlantic + Eastern Pacific only."""
+        """NHC CurrentStorms.json — Atlantic, Eastern Pacific, and Central
+        Pacific (CPHC storms appear here too, e.g. cp012026 Lala)."""
         resp = await self._request_with_retry("GET", NHC_ACTIVE_STORMS_URL)
         resp.raise_for_status()
         data = resp.json()
@@ -693,7 +696,7 @@ class NOAAClient:
 
         result = {"storm_id": storm_id, "forecast_track": [], "cone_polygon": []}
 
-        if basin not in ("al", "ep"):
+        if basin not in ("al", "ep", "cp"):
             logger.debug(f"Skipping NHC forecast track for non-NHC basin: {basin.upper()}")
             return result
 

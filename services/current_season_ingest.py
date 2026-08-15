@@ -12,8 +12,8 @@ no name and can't be browsed or searched.
 
 This module closes that gap automatically for every basin:
 
-  * NHC (AL Atlantic, EP East Pacific): the best-track working directory
-    ``ftp.nhc.noaa.gov/atcf/btk/``.
+  * NHC (AL Atlantic, EP East Pacific, CP Central Pacific): the best-track
+    working directory ``ftp.nhc.noaa.gov/atcf/btk/``.
   * JTWC (WP West Pacific, IO North Indian, SH Southern Hemisphere): the UCAR
     RAL realtime mirror, one listable directory per region.
 
@@ -42,10 +42,13 @@ from services.atcf_bdeck_client import ATCFBDeckClient
 
 logger = logging.getLogger(__name__)
 
-# --- NHC (Atlantic + East Pacific) ------------------------------------------
+# --- NHC (Atlantic + East Pacific + Central Pacific) -------------------------
 _BTK_INDEX_URL = "https://ftp.nhc.noaa.gov/atcf/btk/"
-# b{basin}{nn}{yyyy}.dat for the NHC basins only.
-_BDECK_RE = re.compile(r"b(al|ep)(\d{2})(\d{4})\.dat", re.IGNORECASE)
+# b{basin}{nn}{yyyy}.dat for the NHC basins only. CPHC (Central Pacific)
+# storms sit in this same directory as bcp*.dat — omitting them left Lala
+# (CP012026, 2026-08) invisible to the catalog/search while the active feed
+# showed her.
+_BDECK_RE = re.compile(r"b(al|ep|cp)(\d{2})(\d{4})\.dat", re.IGNORECASE)
 
 # --- JTWC (UCAR RAL realtime mirror) ----------------------------------------
 # Each region dir is a listable Apache autoindex of per-storm folders named
@@ -58,7 +61,10 @@ _JTWC_REGIONS = [
 ]
 
 # ATCF prefix -> catalog basin code. SH is split into SI/SP by longitude below.
-_PREFIX_TO_BASIN = {"AL": "NA", "EP": "EP", "WP": "WP", "IO": "NI"}
+# CP maps to EP on purpose: IBTrACS codes Central Pacific storms as basin EP
+# (CP is a subbasin), and the frontend's BASIN_NAMES has no CP chip — a CP
+# code here would render as a raw "CP" label and fragment the basin filter.
+_PREFIX_TO_BASIN = {"AL": "NA", "EP": "EP", "CP": "EP", "WP": "WP", "IO": "NI"}
 
 _INVEST_THRESHOLD = 90   # storm numbers >= 90 are invests / genesis areas
 _MIN_TS_KT = 34          # filter sub-TS, matching the custom-storm loader
