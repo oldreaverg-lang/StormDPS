@@ -747,43 +747,63 @@ async def health_selfcheck():
         active = _routes._active_storms_cache or []
         client = getattr(app.state, "http_client", None)
         per_storm, unverified, probe_fail = [], [], []
-        async with NOAAClient(http_client=client) as _noaa:
-            for s in active:
-                sid = str(s.get("id") or "")
-                if not sid:
-                    continue
+
+        async def _probe_storm(s):
+            sid = str(s.get("id") or "")
+            if not sid:
+                return None
+            try:
+                async with NOAAClient(http_client=client) as _noaa:
+                    fc = await _noaa.get_forecast_track(sid)
+            except Exception as e:
+                return {"_unverified": {"id": sid, "reason": f"forecast unavailable: {str(e)[:60]}"}}
+            ft = (fc or {}).get("forecast_track") or []
+            tau0 = ft[0] if (ft and ft[0].get("hour") == 0) else None
+            if not tau0 or tau0.get("lat") is None or tau0.get("lon") is None:
+                return {"_unverified": {"id": sid, "reason": "no tau=0 center in forecast"}}
+            a_lat, a_lon = s.get("lat"), s.get("lon")
+            diverge_km = (round(_hav_km(a_lat, a_lon, tau0["lat"], tau0["lon"]), 1)
+                          if a_lat is not None and a_lon is not None else None)
+            tau0_age_h = None
+            vt = tau0.get("valid_time_utc")
+            if vt:
                 try:
-                    fc = await asyncio.wait_for(_noaa.get_forecast_track(sid), timeout=8.0)
-                except Exception as e:
-                    unverified.append({"id": sid, "reason": f"forecast unavailable: {str(e)[:60]}"})
+                    _dt = _dtc.fromisoformat(vt)
+                    if _dt.tzinfo is None:
+                        _dt = _dt.replace(tzinfo=_tzc.utc)
+                    tau0_age_h = round((now_utc - _dt).total_seconds() / 3600, 1)
+                except Exception:
+                    pass
+            return {"id": sid, "diverge_km": diverge_km, "tau0_age_h": tau0_age_h,
+                    "active_pos": [a_lat, a_lon], "tau0_pos": [tau0["lat"], tau0["lon"]]}
+
+        # HARD latency bound: the probe fetches a live advisory per active storm,
+        # so NHC egress slowness could otherwise slow (or gateway-503) the health
+        # endpoint — and a flaky healthcheck cries wolf. Fetch concurrently under
+        # one overall budget; on blowing it, report advisory and never page/hang.
+        probe_timed_out = False
+        if active:
+            try:
+                results = await asyncio.wait_for(
+                    asyncio.gather(*[_probe_storm(s) for s in active], return_exceptions=True),
+                    timeout=8.0)
+            except asyncio.TimeoutError:
+                probe_timed_out = True
+                results = []
+            for r in results:
+                if not isinstance(r, dict):
+                    continue  # None (blank id) or a gather exception → advisory
+                if "_unverified" in r:
+                    unverified.append(r["_unverified"])
                     continue
-                ft = (fc or {}).get("forecast_track") or []
-                tau0 = ft[0] if (ft and ft[0].get("hour") == 0) else None
-                if not tau0 or tau0.get("lat") is None or tau0.get("lon") is None:
-                    unverified.append({"id": sid, "reason": "no tau=0 center in forecast"})
-                    continue
-                a_lat, a_lon = s.get("lat"), s.get("lon")
-                diverge_km = (round(_hav_km(a_lat, a_lon, tau0["lat"], tau0["lon"]), 1)
-                              if a_lat is not None and a_lon is not None else None)
-                tau0_age_h = None
-                vt = tau0.get("valid_time_utc")
-                if vt:
-                    try:
-                        _dt = _dtc.fromisoformat(vt)
-                        if _dt.tzinfo is None:
-                            _dt = _dt.replace(tzinfo=_tzc.utc)
-                        tau0_age_h = round((now_utc - _dt).total_seconds() / 3600, 1)
-                    except Exception:
-                        pass
-                per_storm.append({"id": sid, "diverge_km": diverge_km, "tau0_age_h": tau0_age_h,
-                                  "active_pos": [a_lat, a_lon], "tau0_pos": [tau0["lat"], tau0["lon"]]})
-                if diverge_km is not None and diverge_km > _POS_DIVERGE_KM:
+                per_storm.append(r)
+                if r["diverge_km"] is not None and r["diverge_km"] > _POS_DIVERGE_KM:
                     probe_fail.append(
-                        f"live position for {sid}: displayed /active center is "
-                        f"{diverge_km:.0f} km from the fresh advisory tau=0 (a position feed froze)")
-                if tau0_age_h is not None and tau0_age_h > _TAU0_STALE_H:
+                        f"live position for {r['id']}: displayed /active center is "
+                        f"{r['diverge_km']:.0f} km from the fresh advisory tau=0 (a position feed froze)")
+                if r["tau0_age_h"] is not None and r["tau0_age_h"] > _TAU0_STALE_H:
                     probe_fail.append(
-                        f"forecast stalled for {sid}: advisory tau=0 is {tau0_age_h:.0f} h old "
+                        f"forecast stalled for {r['id']}: advisory tau=0 is {r['tau0_age_h']:.0f} h old "
                         f"(> {_TAU0_STALE_H:.0f} h)")
         cache_age_min = None
         try:
@@ -797,6 +817,7 @@ async def health_selfcheck():
             "active_storms": len(active),
             "verified": len(per_storm),
             "unverified": unverified,
+            "timed_out": probe_timed_out,
             "max_diverge_km": max(
                 [r["diverge_km"] for r in per_storm if r["diverge_km"] is not None], default=0),
             "active_cache_age_min": cache_age_min,
