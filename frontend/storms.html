@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>All Storms — Complete Hurricane &amp; Typhoon Index | StormDPS</title>
+    <meta name="description" content="Every tropical cyclone scored by StormDPS, listed by season with its Destructive Power Score. 223 storms across the Atlantic, Pacific, and Indian Ocean basins — each links to a full interactive analysis.">
+    <meta name="author" content="StormDPS">
+    <link rel="canonical" href="https://stormdps.com/storms">
+
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="All Storms — Complete Hurricane &amp; Typhoon Index">
+    <meta property="og:description" content="Every tropical cyclone scored by StormDPS, listed by season with its Destructive Power Score.">
+    <meta property="og:url" content="https://stormdps.com/storms">
+    <meta property="og:image" content="https://stormdps.com/frontend/logo-512.png">
+    <meta property="og:site_name" content="StormDPS">
+    <meta name="twitter:card" content="summary">
+
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "CollectionPage",
+        "name": "All Storms — Complete Hurricane & Typhoon Index",
+        "description": "Every tropical cyclone scored by the StormDPS Destructive Power Score, listed by season.",
+        "url": "https://stormdps.com/storms",
+        "isPartOf": {"@type": "WebSite", "name": "StormDPS", "url": "https://stormdps.com"},
+        "publisher": {"@type": "Organization", "name": "StormDPS", "url": "https://stormdps.com"}
+    }
+    </script>
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+            {"@type": "ListItem", "position": 1, "name": "StormDPS", "item": "https://stormdps.com/"},
+            {"@type": "ListItem", "position": 2, "name": "All Storms", "item": "https://stormdps.com/storms"}
+        ]
+    }
+    </script>
+
+    <link rel="icon" type="image/x-icon" href="/frontend/favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="/frontend/logo-32.png">
+    <meta name="theme-color" content="#eceef0">
+    <link rel="preload" as="font" type="font/woff2" href="/frontend/fonts/public-sans-latin.woff2" crossorigin>
+    <style>@font-face{font-family:'Public Sans';font-style:normal;font-weight:100 900;font-display:optional;src:url('/frontend/fonts/public-sans-latin.woff2') format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+        :root {
+            --primary:#205493; --bg-dark:#eceef0; --bg-card:#ffffff; --bg-input:#f7f8fa;
+            --text-main:#1b1f24; --text-muted:#404b57; --text-dim:#5c6873; --border:#d4d9de;
+            --radius:10px;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family:'Public Sans',-apple-system,BlinkMacSystemFont,sans-serif;
+               background:var(--bg-dark); color:var(--text-main); line-height:1.7; font-size:16px; }
+        header { background:rgba(255,255,255,.96); backdrop-filter:blur(12px); padding:1rem 1.5rem;
+                 border-bottom:1px solid var(--border); display:flex; align-items:center;
+                 justify-content:space-between; position:sticky; top:0; z-index:100; }
+        .logo { display:flex; align-items:center; gap:.6rem; color:var(--text-main); text-decoration:none; }
+        .logo-icon { width:32px; height:32px; border-radius:8px; overflow:hidden; }
+        .logo-icon img { width:100%; height:100%; object-fit:cover; }
+        .logo-text { font-size:1.1rem; font-weight:700; letter-spacing:-.03em; }
+        nav { display:flex; flex-wrap:wrap; gap:1.25rem; row-gap:.5rem; align-items:center; }
+        nav a { color:var(--text-muted); text-decoration:none; font-weight:600; font-size:.95rem; }
+        nav a:hover { color:var(--text-main); }
+        nav a.cta { color:var(--primary); }
+        main { max-width:980px; margin:0 auto; padding:3rem 1.5rem 6rem; }
+        h1.page-title { font-size:clamp(1.8rem,4vw,2.6rem); font-weight:800; letter-spacing:-.03em;
+                        line-height:1.2; margin-bottom:.75rem; }
+        .lede { font-size:1.15rem; color:var(--text-muted); margin-bottom:1.5rem; }
+        a.inline { color:var(--primary); text-decoration:underline; text-decoration-color:rgba(32,84,147,.4); }
+        .jump { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius);
+                padding:.9rem 1.1rem; margin-bottom:2.5rem; font-size:.9rem; }
+        .jump b { display:block; margin-bottom:.4rem; color:var(--text-muted); font-size:.75rem;
+                  text-transform:uppercase; letter-spacing:.05em; }
+        .jump a { color:var(--primary); text-decoration:none; font-weight:700;
+                  font-variant-numeric:tabular-nums; margin-right:.85rem; }
+        .jump a:hover { text-decoration:underline; }
+        h2.season { font-size:1.4rem; font-weight:700; letter-spacing:-.02em; margin:2.5rem 0 .25rem;
+                    scroll-margin-top:5rem; }
+        .season-meta { color:var(--text-dim); font-size:.85rem; margin-bottom:.8rem; }
+        .slist { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:.35rem .9rem;
+                 background:var(--bg-card); border:1px solid var(--border); border-radius:14px;
+                 padding:1rem 1.2rem; }
+        .sitem { display:flex; align-items:baseline; gap:.55rem; padding:.3rem 0; }
+        .sitem a { color:var(--primary); text-decoration:none; font-weight:700; }
+        .sitem a:hover { text-decoration:underline; }
+        .sitem .bs { color:var(--text-dim); font-size:.8rem; }
+        .sitem .sp { margin-left:auto; }
+        .dps-pill { display:inline-flex; align-items:center; padding:2px 8px; border-radius:999px;
+                    font-size:.78rem; font-weight:700; color:#fff; font-variant-numeric:tabular-nums; }
+        .dps-historic { background:#7c2d12; color:#fecaca; }
+        .dps-catastrophic { background:#b91c1c; color:#fff; }
+        .dps-severe { background:#d97706; color:#fff; }
+        .dps-notable { background:#047857; color:#fff; }
+        footer { padding:2rem 1.5rem; text-align:center; color:var(--text-dim); font-size:.85rem;
+                 border-top:1px solid var(--border); }
+        footer a { color:var(--text-muted); text-decoration:none; margin:0 .6rem; }
+        footer a:hover { color:var(--text-main); }
+        @media (max-width:640px) {
+            header { flex-wrap:wrap; padding:.7rem 1rem; }
+            header .logo { width:100%; }
+            header nav { width:100%; margin-top:.55rem; gap:.35rem .95rem; }
+            header nav a { font-size:.88rem; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <a href="/" class="logo">
+            <span class="logo-icon"><img src="/frontend/logo-128.png" alt=""></span>
+            <span class="logo-text">StormDPS</span>
+        </a>
+        <nav>
+            <a href="/">Tracker</a>
+            <a href="/methodology">Methodology</a>
+            <a href="/historic-storms">Historic</a>
+            <a href="/data">Data</a>
+            <a href="/about">About</a>
+            <a href="/surgedps" class="cta">SurgeDPS</a>
+        </nav>
+    </header>
+
+    <main>
+        <h1 class="page-title">All storms in the StormDPS catalog</h1>
+        <p class="lede">Every one of the <strong>223 tropical cyclones</strong> scored by the
+            <a href="/methodology" class="inline">Destructive Power Score</a>, listed by season.
+            Each links to a full interactive analysis — track, wind field, score components, and
+            side-by-side comparison. Looking for the headline events instead? See the
+            <a href="/historic-storms" class="inline">most destructive storms ranked</a>.</p>
+
+        <div class="jump"><b>Jump to season</b>
+            <a href="#s2026">2026</a> <a href="#s2025">2025</a> <a href="#s2024">2024</a> <a href="#s2023">2023</a> <a href="#s2022">2022</a> <a href="#s2021">2021</a> <a href="#s2020">2020</a> <a href="#s2019">2019</a> <a href="#s2018">2018</a> <a href="#s2017">2017</a> <a href="#s2016">2016</a> <a href="#s2015">2015</a> <a href="#s2012">2012</a> <a href="#s2008">2008</a> <a href="#s2005">2005</a>
+        </div>
+
+        <h2 class="season" id="s2026">2026 season</h2>
+        <p class="season-meta">4 storms scored</p>
+        <div class="slist">
+            <div class="sitem"><a href="/storm/2026051S15076">Horacio</a><span class="bs">S. Indian · Cat 5</span><span class="sp dps-pill dps-notable">25</span></div>
+            <div class="sitem"><a href="/storm/2026011S14076">Dudzai</a><span class="bs">S. Indian · Cat 4</span><span class="sp dps-pill dps-notable">21</span></div>
+            <div class="sitem"><a href="/storm/2026010S17148">Koji</a><span class="bs">S. Pacific · TS/TD</span><span class="sp dps-pill dps-notable">20</span></div>
+            <div class="sitem"><a href="/storm/2026076S12157">Narelle</a><span class="bs">S. Pacific · TS/TD</span><span class="sp dps-pill dps-notable">14</span></div>
+        </div>
+        <h2 class="season" id="s2025">2025 season</h2>
+        <p class="season-meta">18 storms scored</p>
+        <div class="slist">
+            <div class="sitem"><a href="/storm/2025308N10143">Fung-Wong</a><span class="bs">W. Pacific · Cat 3</span><span class="sp dps-pill dps-severe">75</span></div>
+            <div class="sitem"><a href="/storm/AL132025">Melissa</a><span class="bs">Atlantic · Cat 5</span><span class="sp dps-pill dps-severe">72</span></div>
+            <div class="sitem"><a href="/storm/2025262N16133">Ragasa</a><span class="bs">W. Pacific · Cat 5</span><span class="sp dps-pill dps-severe">71</span></div>
+            <div class="sitem"><a href="/storm/AL052025">Erin</a><span class="bs">Atlantic · Cat 2</span><span class="sp dps-pill dps-severe">68</span></div>
+            <div class="sitem"><a href="/storm/AL082025">Humberto</a><span class="bs">Atlantic · Cat 5</span><span class="sp dps-pill dps-severe">64</span></div>
+            <div class="sitem"><a href="/storm/2025305N10138">Kalmaegi</a><span class="bs">W. Pacific · Cat 3</span><span class="sp dps-pill dps-severe">62</span></div>
+            <div class="sitem"><a href="/storm/AL092025">Imelda</a><span class="bs">Atlantic · Cat 1</span><span class="sp dps-pill dps-severe">46</span></div>
+            <div class="sitem"><a href="/storm/AL072025">Gabrielle</a><span class="bs">Atlantic · Cat 4</span><span class="sp dps-pill dps-severe">45</span></div>
+            <div class="sitem"><a href="/storm/2025278N15254">Priscilla</a><span class="bs">E. Pacific · Cat 3</span><span class="sp dps-pill dps-notable">35</span></div>
+            <div class="sitem"><a href="/storm/AL102025">Jerry</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">19</span></div>
+            <div class="sitem"><a href="/storm/AL042025">Dexter</a><span class="bs">Atlantic · Cat 1</span><span class="sp dps-pill dps-notable">17</span></div>
+            <div class="sitem"><a href="/storm/AL032025">Chantal</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">17</span></div>
+            <div class="sitem"><a href="/storm/2025322S10131">Fina</a><span class="bs">S. Pacific · Cat 3</span><span class="sp dps-pill dps-notable">17</span></div>
+            <div class="sitem"><a href="/storm/AL062025">Fernand</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">10</span></div>
+            <div class="sitem"><a href="/storm/AL122025">Lorenzo</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">8</span></div>
+            <div class="sitem"><a href="/storm/AL022025">Barry</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">7</span></div>
+            <div class="sitem"><a href="/storm/AL012025">Andrea</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">7</span></div>
+            <div class="sitem"><a href="/storm/AL112025">Karen</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">5</span></div>
+        </div>
+        <h2 class="season" id="s2024">2024 season</h2>
+        <p class="season-meta">23 storms scored</p>
+        <div class="slist">
+            <div class="sitem"><a href="/storm/2024244N09137">Yagi</a><span class="bs">W. Pacific · Cat 3</span><span class="sp dps-pill dps-catastrophic">85</span></div>
+            <div class="sitem"><a href="/storm/AL142024">Milton</a><span class="bs">Atlantic · Cat 3</span><span class="sp dps-pill dps-catastrophic">81</span></div>
+            <div class="sitem"><a href="/storm/AL092024">Helene</a><span class="bs">Atlantic · Cat 4</span><span class="sp dps-pill dps-catastrophic">80</span></div>
+            <div class="sitem"><a href="/storm/AL022024">Beryl</a><span class="bs">Atlantic · Cat 4</span><span class="sp dps-pill dps-catastrophic">80</span></div>
+            <div class="sitem"><a href="/storm/2024201N12133">Gaemi</a><span class="bs">W. Pacific · Cat 3</span><span class="sp dps-pill dps-severe">62</span></div>
+            <div class="sitem"><a href="/storm/2024298N13150">Kong-Rey</a><span class="bs">W. Pacific · Cat 3</span><span class="sp dps-pill dps-severe">60</span></div>
+            <div class="sitem"><a href="/storm/AL062024">Francine</a><span class="bs">Atlantic · Cat 2</span><span class="sp dps-pill dps-severe">53</span></div>
+            <div class="sitem"><a href="/storm/AL182024">Rafael</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-severe">53</span></div>
+            <div class="sitem"><a href="/storm/AL042024">Debby</a><span class="bs">Atlantic · Cat 1</span><span class="sp dps-pill dps-severe">46</span></div>
+            <div class="sitem"><a href="/storm/2024270N24128">Krathon</a><span class="bs">W. Pacific · Cat 4</span><span class="sp dps-pill dps-severe">45</span></div>
+            <div class="sitem"><a href="/storm/AL012024">Alberto</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-severe">44</span></div>
+            <div class="sitem"><a href="/storm/AL052024">Ernesto</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-severe">44</span></div>
+            <div class="sitem"><a href="/storm/AL122024">Kirk</a><span class="bs">Atlantic · Cat 4</span><span class="sp dps-pill dps-notable">37</span></div>
+            <div class="sitem"><a href="/storm/AL082024">AL082024</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">32</span></div>
+            <div class="sitem"><a href="/storm/AL152024">Nadine</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">32</span></div>
+            <div class="sitem"><a href="/storm/AL192024">Sara</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">24</span></div>
+            <div class="sitem"><a href="/storm/AL102024">Isaac</a><span class="bs">Atlantic · Cat 2</span><span class="sp dps-pill dps-notable">19</span></div>
+            <div class="sitem"><a href="/storm/AL172024">Patty</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">12</span></div>
+            <div class="sitem"><a href="/storm/AL032024">Chris</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">12</span></div>
+            <div class="sitem"><a href="/storm/AL162024">Oscar</a><span class="bs">Atlantic · Cat 1</span><span class="sp dps-pill dps-notable">12</span></div>
+            <div class="sitem"><a href="/storm/AL132024">Leslie</a><span class="bs">Atlantic · Cat 2</span><span class="sp dps-pill dps-notable">10</span></div>
+            <div class="sitem"><a href="/storm/AL072024">Gordon</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">8</span></div>
+            <div class="sitem"><a href="/storm/AL112024">Joyce</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">6</span></div>
+        </div>
+        <h2 class="season" id="s2023">2023 season</h2>
+        <p class="season-meta">22 storms scored</p>
+        <div class="slist">
+            <div class="sitem"><a href="/storm/AL102023">Idalia</a><span class="bs">Atlantic · Cat 3</span><span class="sp dps-pill dps-severe">69</span></div>
+            <div class="sitem"><a href="/storm/AL132023">Lee</a><span class="bs">Atlantic · Cat 5</span><span class="sp dps-pill dps-severe">64</span></div>
+            <div class="sitem"><a href="/storm/AL082023">Franklin</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-severe">62</span></div>
+            <div class="sitem"><a href="/storm/AL012023">AL012023</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">34</span></div>
+            <div class="sitem"><a href="/storm/AL152023">Nigel</a><span class="bs">Atlantic · Cat 2</span><span class="sp dps-pill dps-notable">32</span></div>
+            <div class="sitem"><a href="/storm/AL162023">Ophelia</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">30</span></div>
+            <div class="sitem"><a href="/storm/AL202023">Tammy</a><span class="bs">Atlantic · Cat 1</span><span class="sp dps-pill dps-notable">30</span></div>
+            <div class="sitem"><a href="/storm/AL142023">Margot</a><span class="bs">Atlantic · Cat 1</span><span class="sp dps-pill dps-notable">26</span></div>
+            <div class="sitem"><a href="/storm/AL172023">Philippe</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">24</span></div>
+            <div class="sitem"><a href="/storm/AL022023">Arlene</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">17</span></div>
+            <div class="sitem"><a href="/storm/AL052023">Don</a><span class="bs">Atlantic · Cat 1</span><span class="sp dps-pill dps-notable">15</span></div>
+            <div class="sitem"><a href="/storm/AL222023">AL222023</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">15</span></div>
+            <div class="sitem"><a href="/storm/AL062023">Gert</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">14</span></div>
+            <div class="sitem"><a href="/storm/AL092023">Harold</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">12</span></div>
+            <div class="sitem"><a href="/storm/AL072023">Emily</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">12</span></div>
+            <div class="sitem"><a href="/storm/AL032023">Bret</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">12</span></div>
+            <div class="sitem"><a href="/storm/AL212023">AL212023</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">10</span></div>
+            <div class="sitem"><a href="/storm/AL182023">Rina</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">9</span></div>
+            <div class="sitem"><a href="/storm/AL042023">Cindy</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">7</span></div>
+            <div class="sitem"><a href="/storm/AL122023">Katia</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">6</span></div>
+            <div class="sitem"><a href="/storm/AL192023">Sean</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">6</span></div>
+            <div class="sitem"><a href="/storm/AL112023">Jose</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">5</span></div>
+        </div>
+        <h2 class="season" id="s2022">2022 season</h2>
+        <p class="season-meta">17 storms scored</p>
+        <div class="slist">
+            <div class="sitem"><a href="/storm/AL092022">Ian</a><span class="bs">Atlantic · Cat 4</span><span class="sp dps-pill dps-historic">91</span></div>
+            <div class="sitem"><a href="/storm/AL072022">Fiona</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-severe">71</span></div>
+            <div class="sitem"><a href="/storm/AL062022">Earl</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-severe">50</span></div>
+            <div class="sitem"><a href="/storm/AL172022">Nicole</a><span class="bs">Atlantic · Cat 1</span><span class="sp dps-pill dps-severe">44</span></div>
+            <div class="sitem"><a href="/storm/AL012022">Alex</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">28</span></div>
+            <div class="sitem"><a href="/storm/AL022022">Bonnie</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">25</span></div>
+            <div class="sitem"><a href="/storm/AL162022">Martin</a><span class="bs">Atlantic · Cat 1</span><span class="sp dps-pill dps-notable">24</span></div>
+            <div class="sitem"><a href="/storm/AL052022">Danielle</a><span class="bs">Atlantic · Cat 1</span><span class="sp dps-pill dps-notable">17</span></div>
+            <div class="sitem"><a href="/storm/AL152022">Lisa</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">15</span></div>
+            <div class="sitem"><a href="/storm/AL142022">Karl</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">13</span></div>
+            <div class="sitem"><a href="/storm/AL132022">Julia</a><span class="bs">Atlantic · Cat 1</span><span class="sp dps-pill dps-notable">12</span></div>
+            <div class="sitem"><a href="/storm/AL032022">Colin</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">11</span></div>
+            <div class="sitem"><a href="/storm/AL082022">Gaston</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">8</span></div>
+            <div class="sitem"><a href="/storm/AL042022">AL042022</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">7</span></div>
+            <div class="sitem"><a href="/storm/AL102022">Hermine</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">0</span></div>
+            <div class="sitem"><a href="/storm/AL112022">AL112022</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">0</span></div>
+            <div class="sitem"><a href="/storm/AL122022">AL122022</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">0</span></div>
+        </div>
+        <h2 class="season" id="s2021">2021 season</h2>
+        <p class="season-meta">21 storms scored</p>
+        <div class="slist">
+            <div class="sitem"><a href="/storm/AL092021">Ida</a><span class="bs">Atlantic · Cat 4</span><span class="sp dps-pill dps-catastrophic">87</span></div>
+            <div class="sitem"><a href="/storm/AL182021">Sam</a><span class="bs">Atlantic · Cat 4</span><span class="sp dps-pill dps-severe">55</span></div>
+            <div class="sitem"><a href="/storm/AL212021">Wanda</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-severe">44</span></div>
+            <div class="sitem"><a href="/storm/AL122021">Larry</a><span class="bs">Atlantic · Cat 3</span><span class="sp dps-pill dps-severe">43</span></div>
+            <div class="sitem"><a href="/storm/AL032021">Claudette</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">38</span></div>
+            <div class="sitem"><a href="/storm/AL072021">Grace</a><span class="bs">Atlantic · Cat 3</span><span class="sp dps-pill dps-notable">37</span></div>
+            <div class="sitem"><a href="/storm/AL012021">Ana</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">29</span></div>
+            <div class="sitem"><a href="/storm/AL052021">Elsa</a><span class="bs">Atlantic · Cat 1</span><span class="sp dps-pill dps-notable">27</span></div>
+            <div class="sitem"><a href="/storm/AL152021">Odette</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">26</span></div>
+            <div class="sitem"><a href="/storm/AL142021">Nicholas</a><span class="bs">Atlantic · Cat 1</span><span class="sp dps-pill dps-notable">23</span></div>
+            <div class="sitem"><a href="/storm/AL192021">Teresa</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">22</span></div>
+            <div class="sitem"><a href="/storm/AL162021">Peter</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">20</span></div>
+            <div class="sitem"><a href="/storm/AL082021">Henri</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">19</span></div>
+            <div class="sitem"><a href="/storm/AL062021">Fred</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">15</span></div>
+            <div class="sitem"><a href="/storm/AL112021">Julian</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">14</span></div>
+            <div class="sitem"><a href="/storm/AL022021">Bill</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">11</span></div>
+            <div class="sitem"><a href="/storm/AL042021">Danny</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">9</span></div>
+            <div class="sitem"><a href="/storm/AL132021">Mindy</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">8</span></div>
+            <div class="sitem"><a href="/storm/AL202021">Victor</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">8</span></div>
+            <div class="sitem"><a href="/storm/AL172021">Rose</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">7</span></div>
+            <div class="sitem"><a href="/storm/AL102021">Kate</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">0</span></div>
+        </div>
+        <h2 class="season" id="s2020">2020 season</h2>
+        <p class="season-meta">31 storms scored</p>
+        <div class="slist">
+            <div class="sitem"><a href="/storm/AL132020">Laura</a><span class="bs">Atlantic · Cat 4</span><span class="sp dps-pill dps-catastrophic">87</span></div>
+            <div class="sitem"><a href="/storm/AL202020">Teddy</a><span class="bs">Atlantic · Cat 4</span><span class="sp dps-pill dps-severe">69</span></div>
+            <div class="sitem"><a href="/storm/AL312020">Iota</a><span class="bs">Atlantic · Cat 4</span><span class="sp dps-pill dps-severe">68</span></div>
+            <div class="sitem"><a href="/storm/AL262020">Delta</a><span class="bs">Atlantic · Cat 3</span><span class="sp dps-pill dps-severe">65</span></div>
+            <div class="sitem"><a href="/storm/AL292020">Eta</a><span class="bs">Atlantic · Cat 4</span><span class="sp dps-pill dps-severe">64</span></div>
+            <div class="sitem"><a href="/storm/AL282020">Zeta</a><span class="bs">Atlantic · Cat 3</span><span class="sp dps-pill dps-severe">57</span></div>
+            <div class="sitem"><a href="/storm/AL272020">Epsilon</a><span class="bs">Atlantic · Cat 3</span><span class="sp dps-pill dps-severe">55</span></div>
+            <div class="sitem"><a href="/storm/AL222020">Beta</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-severe">49</span></div>
+            <div class="sitem"><a href="/storm/AL032020">Cristobal</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-severe">44</span></div>
+            <div class="sitem"><a href="/storm/AL092020">Isaias</a><span class="bs">Atlantic · Cat 1</span><span class="sp dps-pill dps-severe">40</span></div>
+            <div class="sitem"><a href="/storm/AL192020">Sally</a><span class="bs">Atlantic · Cat 2</span><span class="sp dps-pill dps-notable">39</span></div>
+            <div class="sitem"><a href="/storm/AL172020">Paulette</a><span class="bs">Atlantic · Cat 2</span><span class="sp dps-pill dps-notable">38</span></div>
+            <div class="sitem"><a href="/storm/AL012020">Arthur</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">36</span></div>
+            <div class="sitem"><a href="/storm/AL082020">Hanna</a><span class="bs">Atlantic · Cat 1</span><span class="sp dps-pill dps-notable">32</span></div>
+            <div class="sitem"><a href="/storm/AL252020">Gamma</a><span class="bs">Atlantic · Cat 1</span><span class="sp dps-pill dps-notable">26</span></div>
+            <div class="sitem"><a href="/storm/AL062020">Fay</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">21</span></div>
+            <div class="sitem"><a href="/storm/AL242020">Alpha</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">17</span></div>
+            <div class="sitem"><a href="/storm/AL122020">Kyle</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">15</span></div>
+            <div class="sitem"><a href="/storm/AL042020">Dolly</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">15</span></div>
+            <div class="sitem"><a href="/storm/AL142020">Marco</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">14</span></div>
+            <div class="sitem"><a href="/storm/AL152020">Omar</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">11</span></div>
+            <div class="sitem"><a href="/storm/AL302020">Theta</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">11</span></div>
+            <div class="sitem"><a href="/storm/AL112020">Josephine</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">11</span></div>
+            <div class="sitem"><a href="/storm/AL232020">Wilfred</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">10</span></div>
+            <div class="sitem"><a href="/storm/AL022020">Bertha</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">10</span></div>
+            <div class="sitem"><a href="/storm/AL052020">Edouard</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">9</span></div>
+            <div class="sitem"><a href="/storm/AL162020">Nana</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">9</span></div>
+            <div class="sitem"><a href="/storm/AL212020">Vicky</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">7</span></div>
+            <div class="sitem"><a href="/storm/AL072020">Gonzalo</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">6</span></div>
+            <div class="sitem"><a href="/storm/AL182020">Rene</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">5</span></div>
+            <div class="sitem"><a href="/storm/AL102020">AL102020</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">0</span></div>
+        </div>
+        <h2 class="season" id="s2019">2019 season</h2>
+        <p class="season-meta">20 storms scored</p>
+        <div class="slist">
+            <div class="sitem"><a href="/storm/AL052019">Dorian</a><span class="bs">Atlantic · Cat 4</span><span class="sp dps-pill dps-historic">90</span></div>
+            <div class="sitem"><a href="/storm/AL022019">Barry</a><span class="bs">Atlantic · Cat 1</span><span class="sp dps-pill dps-severe">55</span></div>
+            <div class="sitem"><a href="/storm/AL092019">Humberto</a><span class="bs">Atlantic · Cat 3</span><span class="sp dps-pill dps-severe">50</span></div>
+            <div class="sitem"><a href="/storm/AL142019">Melissa</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-severe">49</span></div>
+            <div class="sitem"><a href="/storm/AL162019">Nestor</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">39</span></div>
+            <div class="sitem"><a href="/storm/AL132019">Lorenzo</a><span class="bs">Atlantic · Cat 4</span><span class="sp dps-pill dps-notable">37</span></div>
+            <div class="sitem"><a href="/storm/AL192019">Rebekah</a><span class="bs">Atlantic · Cat 1</span><span class="sp dps-pill dps-notable">24</span></div>
+            <div class="sitem"><a href="/storm/AL202019">Sebastien</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">19</span></div>
+            <div class="sitem"><a href="/storm/AL112019">Imelda</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">19</span></div>
+            <div class="sitem"><a href="/storm/AL102019">Jerry</a><span class="bs">Atlantic · Cat 1</span><span class="sp dps-pill dps-notable">18</span></div>
+            <div class="sitem"><a href="/storm/AL172019">Olga</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">14</span></div>
+            <div class="sitem"><a href="/storm/AL062019">Erin</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">14</span></div>
+            <div class="sitem"><a href="/storm/AL122019">Karen</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">12</span></div>
+            <div class="sitem"><a href="/storm/AL182019">Pablo</a><span class="bs">Atlantic · Cat 1</span><span class="sp dps-pill dps-notable">12</span></div>
+            <div class="sitem"><a href="/storm/AL072019">Fernand</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">12</span></div>
+            <div class="sitem"><a href="/storm/AL082019">Gabrielle</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">11</span></div>
+            <div class="sitem"><a href="/storm/AL012019">Andrea</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">9</span></div>
+            <div class="sitem"><a href="/storm/AL042019">Chantal</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">5</span></div>
+            <div class="sitem"><a href="/storm/AL032019">AL032019</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">0</span></div>
+            <div class="sitem"><a href="/storm/AL152019">AL152019</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">0</span></div>
+        </div>
+        <h2 class="season" id="s2018">2018 season</h2>
+        <p class="season-meta">16 storms scored</p>
+        <div class="slist">
+            <div class="sitem"><a href="/storm/AL142018">Michael</a><span class="bs">Atlantic · Cat 5</span><span class="sp dps-pill dps-catastrophic">82</span></div>
+            <div class="sitem"><a href="/storm/AL062018">Florence</a><span class="bs">Atlantic · Cat 2</span><span class="sp dps-pill dps-severe">76</span></div>
+            <div class="sitem"><a href="/storm/AL132018">Leslie</a><span class="bs">Atlantic · Cat 1</span><span class="sp dps-pill dps-notable">37</span></div>
+            <div class="sitem"><a href="/storm/AL032018">Chris</a><span class="bs">Atlantic · Cat 2</span><span class="sp dps-pill dps-notable">25</span></div>
+            <div class="sitem"><a href="/storm/AL162018">Oscar</a><span class="bs">Atlantic · Cat 2</span><span class="sp dps-pill dps-notable">24</span></div>
+            <div class="sitem"><a href="/storm/AL082018">Helene</a><span class="bs">Atlantic · Cat 2</span><span class="sp dps-pill dps-notable">18</span></div>
+            <div class="sitem"><a href="/storm/AL052018">Ernesto</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">15</span></div>
+            <div class="sitem"><a href="/storm/AL072018">Gordon</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">15</span></div>
+            <div class="sitem"><a href="/storm/AL012018">Alberto</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">15</span></div>
+            <div class="sitem"><a href="/storm/AL092018">Isaac</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">14</span></div>
+            <div class="sitem"><a href="/storm/AL022018">Beryl</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">14</span></div>
+            <div class="sitem"><a href="/storm/AL122018">Kirk</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">13</span></div>
+            <div class="sitem"><a href="/storm/AL042018">Debby</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">11</span></div>
+            <div class="sitem"><a href="/storm/AL102018">Joyce</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">9</span></div>
+            <div class="sitem"><a href="/storm/AL152018">Nadine</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">5</span></div>
+            <div class="sitem"><a href="/storm/AL112018">AL112018</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">0</span></div>
+        </div>
+        <h2 class="season" id="s2017">2017 season</h2>
+        <p class="season-meta">19 storms scored</p>
+        <div class="slist">
+            <div class="sitem"><a href="/storm/AL112017">Irma</a><span class="bs">Atlantic · Cat 5</span><span class="sp dps-pill dps-historic">91</span></div>
+            <div class="sitem"><a href="/storm/AL152017">Maria</a><span class="bs">Atlantic · Cat 5</span><span class="sp dps-pill dps-catastrophic">85</span></div>
+            <div class="sitem"><a href="/storm/AL092017">Harvey</a><span class="bs">Atlantic · Cat 4</span><span class="sp dps-pill dps-catastrophic">84</span></div>
+            <div class="sitem"><a href="/storm/AL122017">Jose</a><span class="bs">Atlantic · Cat 4</span><span class="sp dps-pill dps-severe">60</span></div>
+            <div class="sitem"><a href="/storm/AL032017">Cindy</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-severe">47</span></div>
+            <div class="sitem"><a href="/storm/AL162017">Nate</a><span class="bs">Atlantic · Cat 1</span><span class="sp dps-pill dps-severe">42</span></div>
+            <div class="sitem"><a href="/storm/AL142017">Lee</a><span class="bs">Atlantic · Cat 3</span><span class="sp dps-pill dps-notable">35</span></div>
+            <div class="sitem"><a href="/storm/AL082017">Gert</a><span class="bs">Atlantic · Cat 2</span><span class="sp dps-pill dps-notable">30</span></div>
+            <div class="sitem"><a href="/storm/AL172017">Ophelia</a><span class="bs">Atlantic · Cat 3</span><span class="sp dps-pill dps-notable">26</span></div>
+            <div class="sitem"><a href="/storm/AL012017">Arlene</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">23</span></div>
+            <div class="sitem"><a href="/storm/AL102017">AL102017</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">21</span></div>
+            <div class="sitem"><a href="/storm/AL132017">Katia</a><span class="bs">Atlantic · Cat 2</span><span class="sp dps-pill dps-notable">20</span></div>
+            <div class="sitem"><a href="/storm/AL192017">Rina</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">15</span></div>
+            <div class="sitem"><a href="/storm/AL072017">Franklin</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">15</span></div>
+            <div class="sitem"><a href="/storm/AL022017">Bret</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">12</span></div>
+            <div class="sitem"><a href="/storm/AL182017">Philippe</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">11</span></div>
+            <div class="sitem"><a href="/storm/AL062017">Emily</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">10</span></div>
+            <div class="sitem"><a href="/storm/AL052017">Don</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">6</span></div>
+            <div class="sitem"><a href="/storm/AL042017">AL042017</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">0</span></div>
+        </div>
+        <h2 class="season" id="s2016">2016 season</h2>
+        <p class="season-meta">16 storms scored</p>
+        <div class="slist">
+            <div class="sitem"><a href="/storm/AL142016">Matthew</a><span class="bs">Atlantic · Cat 4</span><span class="sp dps-pill dps-catastrophic">82</span></div>
+            <div class="sitem"><a href="/storm/AL092016">Hermine</a><span class="bs">Atlantic · Cat 1</span><span class="sp dps-pill dps-severe">51</span></div>
+            <div class="sitem"><a href="/storm/AL152016">Nicole</a><span class="bs">Atlantic · Cat 4</span><span class="sp dps-pill dps-severe">49</span></div>
+            <div class="sitem"><a href="/storm/AL072016">Gaston</a><span class="bs">Atlantic · Cat 3</span><span class="sp dps-pill dps-severe">44</span></div>
+            <div class="sitem"><a href="/storm/AL032016">Colin</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-severe">40</span></div>
+            <div class="sitem"><a href="/storm/AL162016">Otto</a><span class="bs">Atlantic · Cat 3</span><span class="sp dps-pill dps-notable">34</span></div>
+            <div class="sitem"><a href="/storm/AL012016">Alex</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">32</span></div>
+            <div class="sitem"><a href="/storm/AL022016">Bonnie</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">20</span></div>
+            <div class="sitem"><a href="/storm/AL112016">Julia</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">18</span></div>
+            <div class="sitem"><a href="/storm/AL122016">Karl</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">17</span></div>
+            <div class="sitem"><a href="/storm/AL102016">Ian</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">17</span></div>
+            <div class="sitem"><a href="/storm/AL042016">Danielle</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">14</span></div>
+            <div class="sitem"><a href="/storm/AL082016">AL082016</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">13</span></div>
+            <div class="sitem"><a href="/storm/AL052016">Earl</a><span class="bs">Atlantic · Cat 1</span><span class="sp dps-pill dps-notable">12</span></div>
+            <div class="sitem"><a href="/storm/AL132016">Lisa</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">10</span></div>
+            <div class="sitem"><a href="/storm/AL062016">Fiona</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">6</span></div>
+        </div>
+        <h2 class="season" id="s2015">2015 season</h2>
+        <p class="season-meta">13 storms scored</p>
+        <div class="slist">
+            <div class="sitem"><a href="/storm/2015180N09160">Chan-Hom</a><span class="bs">W. Pacific · TS/TD</span><span class="sp dps-pill dps-severe">70</span></div>
+            <div class="sitem"><a href="/storm/AL112015">Joaquin</a><span class="bs">Atlantic · Cat 4</span><span class="sp dps-pill dps-severe">65</span></div>
+            <div class="sitem"><a href="/storm/AL012015">Ana</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">37</span></div>
+            <div class="sitem"><a href="/storm/AL022015">Bill</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">30</span></div>
+            <div class="sitem"><a href="/storm/AL042015">Danny</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">29</span></div>
+            <div class="sitem"><a href="/storm/AL082015">Henri</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">25</span></div>
+            <div class="sitem"><a href="/storm/AL122015">Kate</a><span class="bs">Atlantic · Cat 1</span><span class="sp dps-pill dps-notable">24</span></div>
+            <div class="sitem"><a href="/storm/AL052015">Erika</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">18</span></div>
+            <div class="sitem"><a href="/storm/AL032015">Claudette</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">10</span></div>
+            <div class="sitem"><a href="/storm/AL102015">Ida</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">10</span></div>
+            <div class="sitem"><a href="/storm/AL062015">Fred</a><span class="bs">Atlantic · Cat 1</span><span class="sp dps-pill dps-notable">5</span></div>
+            <div class="sitem"><a href="/storm/AL072015">Grace</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">0</span></div>
+            <div class="sitem"><a href="/storm/AL092015">AL092015</a><span class="bs">Atlantic · TS/TD</span><span class="sp dps-pill dps-notable">0</span></div>
+        </div>
+        <h2 class="season" id="s2012">2012 season</h2>
+        <p class="season-meta">1 storm scored</p>
+        <div class="slist">
+            <div class="sitem"><a href="/storm/AL182012">Sandy</a><span class="bs">Atlantic · Cat 1</span><span class="sp dps-pill dps-catastrophic">87</span></div>
+        </div>
+        <h2 class="season" id="s2008">2008 season</h2>
+        <p class="season-meta">1 storm scored</p>
+        <div class="slist">
+            <div class="sitem"><a href="/storm/AL092008">Ike</a><span class="bs">Atlantic · Cat 3</span><span class="sp dps-pill dps-catastrophic">89</span></div>
+        </div>
+        <h2 class="season" id="s2005">2005 season</h2>
+        <p class="season-meta">1 storm scored</p>
+        <div class="slist">
+            <div class="sitem"><a href="/storm/AL122005">Katrina</a><span class="bs">Atlantic · Cat 4</span><span class="sp dps-pill dps-historic">94</span></div>
+        </div>
+
+    </main>
+
+    <footer>
+        <a href="/">Tracker</a> ·
+        <a href="/methodology">Methodology</a> ·
+        <a href="/historic-storms">Historic</a> ·
+        <a href="/storms">All storms</a> ·
+        <a href="/data">Data</a> ·
+        <a href="/faq">FAQ</a> ·
+        <a href="/about">About</a> ·
+        <a href="/commercial">Commercial</a> ·
+        <a href="/privacy">Privacy</a> ·
+        <a href="/surgedps">SurgeDPS</a>
+        <p style="margin-top:.6rem;color:var(--text-dim)">StormDPS — open-data hurricane destructive-power scoring</p>
+    </footer>
+</body>
+</html>

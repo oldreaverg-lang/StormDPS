@@ -1679,6 +1679,23 @@ def compile():
     except Exception as e:
         print(f"[sitemap] regen skipped (non-fatal): {e}")
 
+    # Refresh the hand-written SEO hub pages from the bundle. historic-storms.html
+    # had hardcoded scores that drifted ~10 points from the engine (it published
+    # Helene 90 while the bundle said 80) because no bake step ever touched it;
+    # storms.html is the full crawlable index that gives every /storm/<id> page an
+    # internal link. Both best-effort — never fail the bake over a hub page.
+    for _script, _tag in (("gen_historic_storms.py", "historic-storms"),
+                          ("gen_storms_index.py", "storms-index")):
+        try:
+            import subprocess as _sp
+            import sys as _sys
+            _p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts", _script)
+            if os.path.exists(_p):
+                _r = _sp.run([_sys.executable, _p], capture_output=True, text=True, timeout=60)
+                print((_r.stdout or _r.stderr).strip() or f"[{_tag}] (no output)")
+        except Exception as e:
+            print(f"[{_tag}] regen skipped (non-fatal): {e}")
+
     # Summary table
     print(f"\n{'Storm':<12} {'Basin':<14} {'DPS':>5} {'Peak':>5} {'Rain':>5} {'Level':<10}")
     print("-" * 65)

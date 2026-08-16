@@ -25,6 +25,9 @@ STATIC = [
     ("/methodology", "monthly", "0.9"),
     ("/data", "monthly", "0.9"),
     ("/historic-storms", "monthly", "0.9"),
+    # Full crawlable storm index — the internal-link hub that gives every
+    # /storm/<id> page a real inbound link (GSC orphan-page fix, 2026-08).
+    ("/storms", "weekly", "0.9"),
     ("/faq", "monthly", "0.8"),
     ("/about", "monthly", "0.7"),
     ("/commercial", "monthly", "0.7"),
