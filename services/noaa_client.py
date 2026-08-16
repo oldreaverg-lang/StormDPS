@@ -123,14 +123,21 @@ _TCM_FCST_WIND_RE = re.compile(
 _TCM_MOVE_RE = re.compile(
     r"PRESENT MOVEMENT TOWARD[^\n]*?(\d{1,3})\s+DEGREES\s+AT\s+(\d{1,3})\s+KT")
 _TCM_PRES_RE = re.compile(r"MINIMUM CENTRAL PRESSURE\s+(\d{3,4})\s+MB")
+# Anchor the storm type on the advisory headline ("<TYPE> <NAME> FORECAST/ADVISORY
+# NUMBER ..."), captured within a single line. A fixed text[:600] window fails on
+# NHC's HTML-wrapped .shtml products (the <head> pushes the headline past 600
+# chars), and scanning the whole text would false-match the "NATIONAL/CENTRAL
+# PACIFIC HURRICANE CENTER" byline. This isolates the type+name on the headline.
+_TCM_HEADLINE_RE = re.compile(r"([A-Z][A-Z0-9 .\-]*?)\s+FORECAST/ADVISORY\s+NUMBER")
 
 
 def _tcm_storm_class(text: str) -> Optional[str]:
-    """Short storm-type code from the TCM header line (HURRICANE HERNAN
+    """Short storm-type code from the TCM headline (HURRICANE HERNAN
     FORECAST/ADVISORY ...). Matches the short codes NHC's CurrentStorms feed
     uses (TD/TS/HU), so it drops into the chip badge unchanged. More specific
     phrases are checked first (SUBTROPICAL STORM before TROPICAL STORM)."""
-    head = text[:600].upper()
+    m = _TCM_HEADLINE_RE.search(text)
+    head = (m.group(1) if m else text[:400]).upper()
     for needle, short in (
         ("POTENTIAL TROPICAL CYCLONE", "PTC"),
         ("SUBTROPICAL DEPRESSION", "STD"),

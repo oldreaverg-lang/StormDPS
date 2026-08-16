@@ -97,6 +97,20 @@ def test_storm_class_from_header_variants():
         assert _tcm_storm_class(header) == expected, header
 
 
+def test_storm_class_from_html_wrapped_advisory():
+    # NHC's forecastAdvisory URL is an .shtml page: HTML <head> boilerplate pushes
+    # the "<TYPE> <NAME> FORECAST/ADVISORY" headline past a fixed char window, and
+    # the "...HURRICANE CENTER" byline would false-match a whole-text scan. The
+    # headline anchor must resolve the true type and ignore the byline.
+    from services.noaa_client import _tcm_storm_class
+    html = ("<!DOCTYPE html>\n<html><head>" + ("x" * 700) + "</head><body><pre>\n"
+            "TROPICAL STORM LALA FORECAST/ADVISORY NUMBER  12\n"
+            "NWS CENTRAL PACIFIC HURRICANE CENTER HONOLULU HI   CP012026\n"
+            "</pre></body></html>")
+    assert _tcm_storm_class(html) == "TS"           # not "HU" from the byline
+    assert _tcm_storm_class(html.replace("TROPICAL STORM LALA", "HURRICANE LALA")) == "HU"
+
+
 def test_stationary_movement_is_none():
     tcm = _SAMPLE_TCM.replace(
         "PRESENT MOVEMENT TOWARD THE WEST OR 275 DEGREES AT  14 KT",
