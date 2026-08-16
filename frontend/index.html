@@ -3662,12 +3662,10 @@ function renderActiveStorms(storms){
 
     badge.style.display='inline';
     list.innerHTML=storms.map(s=>{
-        const kt=s.intensity_knots||0;
-        const color=intensityColor(kt);
-        const label=intensityLabel(kt);
-        const cls=classificationShort(s.classification);
-        const wind=kt?`${kt} kt`:'--';
-        const pres=s.pressure_mb?`${s.pressure_mb} mb`:'';
+        // Current conditions (wind / class / pressure / movement) are resolved
+        // below from the SAME fresh-advisory override as the position, so a frozen
+        // /storms/active can never pair a fresh position with stale wind/pressure/
+        // class in one self-contradicting chip.
         // Prefer the freshest advisory tau=0 position for THIS storm's chip when
         // it is available (the /storms/active feed can be hours stale \u2014 a
         // fail-open cache freeze; the advisory analysis center is fresher).
@@ -3684,8 +3682,20 @@ function renderActiveStorms(storms){
         if(_ov && _ov.id && String(_ov.id).toUpperCase()===_sid && _sid===_loadedId
             && _ov.lat!=null && _ov.lon!=null){ _cLat=_ov.lat; _cLon=_ov.lon; }
         const loc=(_cLat!=null&&_cLon!=null)?`${Math.abs(_cLat).toFixed(1)}\u00b0${_cLat>=0?'N':'S'} ${Math.abs(_cLon).toFixed(1)}\u00b0${_cLon>=0?'E':'W'}`:'';
-        // Quick stall hint from current movement speed
-        const mvSpd = s.movement_speed_knots;
+        // Resolve current conditions from the override (loaded storm) or /active.
+        // Each field falls back independently if the advisory didn't carry it.
+        const _useOv = !!(_ov && _ov.id && String(_ov.id).toUpperCase()===_sid && _sid===_loadedId
+            && _ov.lat!=null && _ov.lon!=null);
+        const kt = (_useOv && _ov.max_wind_kt!=null) ? _ov.max_wind_kt : (s.intensity_knots||0);
+        const _presMb = (_useOv && _ov.min_pressure_mb!=null) ? _ov.min_pressure_mb : s.pressure_mb;
+        const _clsRaw = (_useOv && _ov.classification) ? _ov.classification : s.classification;
+        const color=intensityColor(kt);
+        const label=intensityLabel(kt);
+        const cls=classificationShort(_clsRaw);
+        const wind=kt?`${kt} kt`:'--';
+        const pres=_presMb?`${_presMb} mb`:'';
+        // Quick stall hint from current movement speed (override, else /active)
+        const mvSpd = (_useOv && _ov.movement_speed_kt!=null) ? _ov.movement_speed_kt : s.movement_speed_knots;
         let stallHint = '';
         if(mvSpd != null && mvSpd < 5) {
             stallHint = '<span class="stall-risk-badge stall-risk-extreme" style="margin-left:4px">STALL</span>';
@@ -5973,7 +5983,13 @@ function freshestCurrentPos(fc){
         const tail = sd.length ? sd[sd.length-1] : null;
         const tValid = tail ? _parseUtcMs(tail.timestamp) : NaN;
         if(!isNaN(tValid) && fValid < tValid) return null;   // advisory older than track → keep tail
-        return { lat: p0.lat, lon: p0.lon, valid_time_utc: fc.valid_time_utc, max_wind_kt: p0.max_wind_kt };
+        // Carry the full current-conditions snapshot from this same fresh advisory
+        // so the chip shows a self-consistent position + wind + pressure + class +
+        // movement, instead of a fresh position beside staleable /active values.
+        return { lat: p0.lat, lon: p0.lon, valid_time_utc: fc.valid_time_utc,
+                 max_wind_kt: p0.max_wind_kt, min_pressure_mb: p0.min_pressure_mb,
+                 movement_dir_deg: p0.movement_dir_deg, movement_speed_kt: p0.movement_speed_kt,
+                 classification: p0.classification };
     }catch(e){ return null; }
 }
 // Draw (or move) the dedicated current-position marker — a ringed dot distinct

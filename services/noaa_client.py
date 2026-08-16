@@ -116,6 +116,35 @@ _TCM_FCST_RE = re.compile(
     r"(\d{1,2}\.\d)\s*([NS])\s+(\d{1,3}\.\d)\s*([EW])")
 _TCM_FCST_WIND_RE = re.compile(
     r"MAX WIND\s+(\d+)\s+KT\.\.\.GUSTS\s+(\d+)\s+KT")
+# Current-conditions fields from the advisory header (tau=0 only), so the UI can
+# show a self-consistent CURRENT snapshot (position + intensity + pressure +
+# movement + class) all from the same fresh advisory, instead of pairing the
+# fresh position with staleable /storms/active wind/pressure/movement.
+_TCM_MOVE_RE = re.compile(
+    r"PRESENT MOVEMENT TOWARD[^\n]*?(\d{1,3})\s+DEGREES\s+AT\s+(\d{1,3})\s+KT")
+_TCM_PRES_RE = re.compile(r"MINIMUM CENTRAL PRESSURE\s+(\d{3,4})\s+MB")
+
+
+def _tcm_storm_class(text: str) -> Optional[str]:
+    """Short storm-type code from the TCM header line (HURRICANE HERNAN
+    FORECAST/ADVISORY ...). Matches the short codes NHC's CurrentStorms feed
+    uses (TD/TS/HU), so it drops into the chip badge unchanged. More specific
+    phrases are checked first (SUBTROPICAL STORM before TROPICAL STORM)."""
+    head = text[:600].upper()
+    for needle, short in (
+        ("POTENTIAL TROPICAL CYCLONE", "PTC"),
+        ("SUBTROPICAL DEPRESSION", "STD"),
+        ("SUBTROPICAL STORM", "STS"),
+        ("TROPICAL DEPRESSION", "TD"),
+        ("TROPICAL STORM", "TS"),
+        ("POST-TROPICAL CYCLONE", "PT"),
+        ("REMNANTS OF", "REM"),
+        ("HURRICANE", "HU"),
+        ("TYPHOON", "TY"),
+    ):
+        if needle in head:
+            return short
+    return None
 
 
 def _tcm_datetime(day: int, hhmm: str, ref: datetime) -> Optional[datetime]:
@@ -165,6 +194,8 @@ def _parse_tcm_forecast(text: str) -> list[dict]:
 
         points = []
         init_wind = _TCM_INIT_WIND_RE.search(text)
+        move = _TCM_MOVE_RE.search(text)
+        pres = _TCM_PRES_RE.search(text)
         points.append({
             "lat": _signed(center.group(1), center.group(2)),
             "lon": _signed(center.group(3), center.group(4)),
@@ -178,6 +209,13 @@ def _parse_tcm_forecast(text: str) -> list[dict]:
             # read it as browser-local. Lets consumers pick the freshest current
             # position by comparing this against the best-track tail timestamp.
             "valid_time_utc": base.replace(tzinfo=timezone.utc).isoformat(),
+            # Current-conditions fields (tau=0 only) so the sidebar chip can show a
+            # self-consistent snapshot from this same fresh advisory rather than
+            # pairing the fresh position with staleable /storms/active values.
+            "min_pressure_mb": int(pres.group(1)) if pres else None,
+            "movement_dir_deg": int(move.group(1)) if move else None,
+            "movement_speed_kt": int(move.group(2)) if move else None,
+            "classification": _tcm_storm_class(text),
         })
 
         matches = list(_TCM_FCST_RE.finditer(text))

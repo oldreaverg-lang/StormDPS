@@ -18,8 +18,11 @@ _SAMPLE_TCM = """
 WTPZ34 KNHC 150300
 TCMEP8
 
-HERNAN FORECAST/ADVISORY NUMBER  12
+TROPICAL DEPRESSION HERNAN FORECAST/ADVISORY NUMBER  12
+NWS NATIONAL HURRICANE CENTER MIAMI FL       EP082026
 CENTER LOCATED NEAR 16.2N 132.9W AT 15/0300Z
+PRESENT MOVEMENT TOWARD THE WEST OR 275 DEGREES AT  14 KT
+ESTIMATED MINIMUM CENTRAL PRESSURE 1005 MB
 MAX SUSTAINED WINDS  30 KT WITH GUSTS  40 KT.
 
 FORECAST VALID 15/1200Z 16.3N 134.5W
@@ -65,3 +68,39 @@ def test_valid_times_are_monotonic():
 
 def test_malformed_tcm_fails_open():
     assert _parse_tcm_forecast("no center line here") == []
+
+
+def test_tau0_carries_current_conditions_from_advisory():
+    # The sidebar chip sources wind/pressure/class/movement from tau=0 so a frozen
+    # /storms/active can't pair a fresh position with stale conditions. If these
+    # stop parsing, the chip silently reverts to the staleable /active values.
+    tau0 = _parse_tcm_forecast(_SAMPLE_TCM)[0]
+    assert tau0["max_wind_kt"] == 30
+    assert tau0["min_pressure_mb"] == 1005
+    assert tau0["movement_dir_deg"] == 275
+    assert tau0["movement_speed_kt"] == 14
+    assert tau0["classification"] == "TD"
+
+
+def test_storm_class_from_header_variants():
+    from services.noaa_client import _tcm_storm_class
+    cases = {
+        "HURRICANE HERNAN FORECAST/ADVISORY": "HU",
+        "TROPICAL STORM LALA FORECAST/ADVISORY": "TS",
+        "TROPICAL DEPRESSION FIVE-E FORECAST/ADVISORY": "TD",
+        "SUBTROPICAL STORM NICOLE FORECAST/ADVISORY": "STS",
+        "POTENTIAL TROPICAL CYCLONE NINE FORECAST/ADVISORY": "PTC",
+        "POST-TROPICAL CYCLONE FIONA FORECAST/ADVISORY": "PT",
+        "no type here": None,
+    }
+    for header, expected in cases.items():
+        assert _tcm_storm_class(header) == expected, header
+
+
+def test_stationary_movement_is_none():
+    tcm = _SAMPLE_TCM.replace(
+        "PRESENT MOVEMENT TOWARD THE WEST OR 275 DEGREES AT  14 KT",
+        "PRESENT MOVEMENT...STATIONARY")
+    tau0 = _parse_tcm_forecast(tcm)[0]
+    assert tau0["movement_dir_deg"] is None
+    assert tau0["movement_speed_kt"] is None
