@@ -166,5 +166,21 @@
   "US Virgin Islands": {
     "exposure": 0.3,
     "vuln": 1.35
+  },
+  "Honolulu / Oahu (HI)": {
+    "exposure": 0.6,
+    "vuln": 0.86
+  },
+  "Maui County (HI)": {
+    "exposure": 0.3,
+    "vuln": 0.93
+  },
+  "Hawaii / Big Island (HI)": {
+    "exposure": 0.25,
+    "vuln": 1.0
+  },
+  "Kauai / Niihau (HI)": {
+    "exposure": 0.25,
+    "vuln": 0.85
   }
 }

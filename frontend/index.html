@@ -1970,19 +1970,24 @@ function getIASContext(score) {
     if (score >= 20) return 'Some geographic amplification. Surge and rainfall add to wind threat.';
     return 'Geography provides limited amplification at this level.';
 }
-function getERSContext(score) {
+function getERSContext(score, covered) {
+    // Coverage sentinel: when no modeled economic zone was near the storm, say so
+    // rather than asserting "limited economic infrastructure" — the peak may be
+    // genuine open ocean OR a coverage gap, and we must not present a data hole
+    // as a measured low-risk finding.
+    if (covered === false) return 'Outside the modeled economic-exposure zones — economic risk is not scored for this position.';
     if (score >= 70) return 'Enormous economic exposure. Billions in potential damages.';
     if (score >= 40) return 'Major economic centers in the threat zone. High damage potential.';
     if (score >= 20) return 'Moderate economic exposure along the storm path.';
     return 'Limited economic infrastructure in the current threat area.';
 }
-function updateScoreContexts(dps, ias, ers) {
+function updateScoreContexts(dps, ias, ers, ersCovered) {
     const dpsCtx = document.getElementById('dpsContext');
     const iasCtx = document.getElementById('iasContext');
     const ersCtx = document.getElementById('ersContext');
     if (dpsCtx) dpsCtx.textContent = getDPSContext(dps);
     if (iasCtx) iasCtx.textContent = getIASContext(ias);
-    if (ersCtx) ersCtx.textContent = getERSContext(ers);
+    if (ersCtx) ersCtx.textContent = getERSContext(ers, ersCovered);
 }
 
 // ---- Notable Historic Storms (US Atlantic) ----
@@ -2471,15 +2476,16 @@ function getEconomicExposure(lat, lon, useNRI = false, r34nm = 0) {
     // A storm center is a point but the damaging wind field is 100+ nm wide;
     // pure containment scored Bavi 2026 "Open Ocean" while its eyewall
     // brushed Guam from just outside the box.
-    if(lat == null || lon == null) return { exposure: 0.10, vuln: 1.0, name: 'Unknown', depth_nm: 15 };
+    if(lat == null || lon == null) return { exposure: 0.10, vuln: 1.0, name: 'Unknown', depth_nm: 15, nriApplied: false, covered: false };
     const pick = (z) => {
-        let exposure = z.exposure, vuln = z.vuln;
+        let exposure = z.exposure, vuln = z.vuln, nriApplied = false;
         // For active storms, override with NRI-derived values (current resilience)
         if(useNRI && NRI_ZONES && NRI_ZONES[z.name]) {
             exposure = NRI_ZONES[z.name].exposure;
             vuln = NRI_ZONES[z.name].vuln;
+            nriApplied = true;   // a real FEMA-NRI zone was applied (not just NRI mode on)
         }
-        return { exposure, vuln, name: z.name, depth_nm: z.depth_nm };
+        return { exposure, vuln, name: z.name, depth_nm: z.depth_nm, nriApplied, covered: true };
     };
     for(const z of ECON_ZONES) {
         if(lat>=z.lat_min && lat<=z.lat_max && lon>=z.lon_min && lon<=z.lon_max) return pick(z);
@@ -2502,8 +2508,10 @@ function getEconomicExposure(lat, lon, useNRI = false, r34nm = 0) {
         if(bestReach > 0) res.exposure = res.exposure * (1 - 0.5 * bestDist / bestReach);
         return res;
     }
-    // No matching zone — open ocean or non-US coast
-    return { exposure: 0.05, vuln: 1.0, name: 'Open Ocean / Uncharted', depth_nm: 10 };
+    // No matching zone — open ocean, or outside the modeled economic-exposure
+    // zones. covered:false lets the UI say "not scored here" rather than assert
+    // an affirmative low-risk finding over a possible coverage gap.
+    return { exposure: 0.05, vuln: 1.0, name: 'Open Ocean / Uncharted', depth_nm: 10, nriApplied: false, covered: false };
 }
 
 function ersBand(score) {
@@ -2517,7 +2525,7 @@ function ersBand(score) {
 
 function calculateERS(dataPoint, useNRI = false) {
     if(!dataPoint.max_wind_ms || dataPoint.max_wind_ms <= 0) {
-        return { score: 0, label: "Minimal", color: "var(--text-muted)", exposure: 0, vuln: 1.0, reach: 0, zone: '', nriActive: false };
+        return { score: 0, label: "Minimal", color: "var(--text-muted)", exposure: 0, vuln: 1.0, reach: 0, zone: '', nriActive: false, covered: true };
     }
 
     // ── Economic Exposure & Vulnerability ──
@@ -2576,7 +2584,10 @@ function calculateERS(dataPoint, useNRI = false) {
 
     const band = ersBand(scoreObj);
 
-    return { score: scoreObj, label: band.label, color: band.color, exposure: econ.exposure, vuln: econ.vuln, reach: threatReach, zone: econ.name, nriActive: useNRI && NRI_ZONES != null };
+    // nriActive reflects whether a real FEMA-NRI zone was actually applied to
+    // THIS point (not merely that NRI mode is on) — so the "(NRI)" badge never
+    // appears over the open-ocean floor or an uncovered position.
+    return { score: scoreObj, label: band.label, color: band.color, exposure: econ.exposure, vuln: econ.vuln, reach: threatReach, zone: econ.name, nriActive: !!econ.nriApplied, covered: econ.covered !== false };
 }
 
 // ── Forecast-driven ERS ──────────────────────────────────────────────────
@@ -4836,7 +4847,7 @@ function renderAll(stormId,data){
             _dhEl.title = 'Dominant hazard (Analyst): the standout threat type for this storm — surge (shelf + storm size), inland rainfall (storm-total level), and peak wind, each shown 0–100. Storm-level, not location-specific.';
         }
     } catch (e) { /* analyst-only; must never break the public render */ }
-    updateScoreContexts(heroDPSExact, peakIasObj.score, peakErsObj.score);
+    updateScoreContexts(heroDPSExact, peakIasObj.score, peakErsObj.score, peakErsObj.covered);
 
     // Storm title bar
     const stormYear = data[0] ? new Date(data[0].timestamp).getFullYear() : null;

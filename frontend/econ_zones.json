@@ -578,5 +578,45 @@
   "lat_max": 8.4,
   "lon_min": 121.5,
   "lon_max": 126.6
+ },
+ {
+  "name": "Honolulu / Oahu (HI)",
+  "exposure": 0.6,
+  "vuln": 1.2,
+  "depth_nm": 40,
+  "lat_min": 21.2,
+  "lat_max": 21.75,
+  "lon_min": -158.35,
+  "lon_max": -157.6
+ },
+ {
+  "name": "Maui County (HI)",
+  "exposure": 0.3,
+  "vuln": 1.2,
+  "depth_nm": 35,
+  "lat_min": 20.5,
+  "lat_max": 21.25,
+  "lon_min": -157.35,
+  "lon_max": -155.95
+ },
+ {
+  "name": "Hawaii / Big Island (HI)",
+  "exposure": 0.25,
+  "vuln": 1.25,
+  "depth_nm": 40,
+  "lat_min": 18.85,
+  "lat_max": 20.3,
+  "lon_min": -156.1,
+  "lon_max": -154.75
+ },
+ {
+  "name": "Kauai / Niihau (HI)",
+  "exposure": 0.25,
+  "vuln": 1.25,
+  "depth_nm": 30,
+  "lat_min": 21.75,
+  "lat_max": 22.35,
+  "lon_min": -160.3,
+  "lon_max": -159.28
  }
 ]

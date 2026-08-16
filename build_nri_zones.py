@@ -99,6 +99,13 @@ ZONES = [
     ("US Virgin Islands",           17.5, 18.5, -65.5, -64.5, 0.30, 1.35),
     ("Cancun / Riviera Maya",       20.0, 21.5, -87.5, -86.5, 0.50, 1.10),  # foreign
     ("Nassau / Bahamas",            24.5, 25.5, -78.0, -77.0, 0.35, 1.30),  # foreign
+    # Central Pacific / Hawaii — US, so FEMA NRI Counties covers Honolulu, Maui,
+    # Hawaii (Big Island), and Kauai. Exposure stays hand-tuned; vuln is pulled
+    # from FEMA SOVI + Historic Loss Ratio like the other US zones.
+    ("Honolulu / Oahu (HI)",        21.2,  21.75, -158.35, -157.6, 0.60, 1.20),
+    ("Maui County (HI)",            20.5,  21.25, -157.35, -155.95, 0.30, 1.20),
+    ("Hawaii / Big Island (HI)",    18.85, 20.3,  -156.1,  -154.75, 0.25, 1.25),
+    ("Kauai / Niihau (HI)",         21.75, 22.35, -160.3,  -159.28, 0.25, 1.25),
 ]
 
 
