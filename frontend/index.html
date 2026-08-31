@@ -1134,7 +1134,7 @@ async function ensureCompiledBundle(stormId, stormName, stormYear) {
 // Bundle cache version — bumped on every bake (by scripts/rebake.py) so the
 // versioned URL changes and the server can serve it immutably without ever
 // handing back a stale copy after a deploy. Keep in step with sw.js CACHE_NAME.
-const BUNDLE_VERSION = 15;
+const BUNDLE_VERSION = 16;
 async function loadPreloadBundle() {
     // Try multiple paths: Railway serves at /frontend/, GitHub Pages at relative path
     const pathDir = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1);
