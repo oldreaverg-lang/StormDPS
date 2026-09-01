@@ -942,7 +942,14 @@ async def not_found_handler(request: Request, exc):
     if not "." in path.split("/")[-1] or path.endswith((".html", ".htm")):
         frontend_file = FRONTEND_DIR / "index.html"
         if frontend_file.exists():
-            return FileResponse(frontend_file)
+            # SPA fallback serves the same shell as "/" — inject the CARTO
+            # basemap key here too, or deep-linked client routes would render
+            # watermarked tiles. Fail-open to the raw file on any surprise.
+            try:
+                return HTMLResponse(
+                    inject_carto_key(frontend_file.read_text(encoding="utf-8")))
+            except Exception:
+                return FileResponse(frontend_file)
     return JSONResponse(status_code=404, content={"detail": "Not found"})
 
 
@@ -954,6 +961,13 @@ async def internal_error_handler(request: Request, exc):
         content={"detail": "Internal server error"},
     )
 
+
+# CARTO raster basemaps now require an API key (keyless tiles render an
+# "API KEY REQUIRED" watermark). The key stays out of the public repo: every
+# HTML payload that carries a tile URL is passed through inject_carto_key,
+# which appends ?key= from the CARTO_BASEMAP_KEY env var (fail-open: no env
+# var -> unchanged keyless HTML, watermarked but working).
+from carto_key import inject_carto_key
 
 # mtime-keyed cache of the SPA shell so the hint injection below never
 # re-reads the ~350 KB file per request.
@@ -981,8 +995,12 @@ async def serve_frontend():
     try:
         mtime = path.stat().st_mtime
         if _INDEX_HTML_CACHE["mtime"] != mtime:
+            # Key injection happens at cache fill (not per request): the env
+            # var is fixed for the process lifetime, and Railway restarts on
+            # any env change, so the cached copy can never go stale.
             _INDEX_HTML_CACHE.update(
-                mtime=mtime, html=path.read_text(encoding="utf-8"))
+                mtime=mtime,
+                html=inject_carto_key(path.read_text(encoding="utf-8")))
         html = _INDEX_HTML_CACHE["html"]
 
         from storage import ACTIVE_STORMS_FILE, cache_read
@@ -1113,11 +1131,15 @@ async def serve_compare():
     fp = FRONTEND_DIR / "compare.html"
     if not fp.exists():
         raise HTTPException(status_code=404, detail="Not found")
-    return FileResponse(
-        fp,
-        media_type="text/html",
-        headers={"Cache-Control": "public, max-age=3600"},
-    )
+    headers = {"Cache-Control": "public, max-age=3600"}
+    # compare.html draws its own Leaflet map, so it needs the CARTO basemap
+    # key like the SPA shell does. Fail-open to the raw file on any surprise.
+    try:
+        return HTMLResponse(
+            inject_carto_key(fp.read_text(encoding="utf-8")), headers=headers)
+    except Exception:
+        logger.exception("[compare] carto-key injection failed — serving raw file")
+        return FileResponse(fp, media_type="text/html", headers=headers)
 
 
 @app.get("/data")

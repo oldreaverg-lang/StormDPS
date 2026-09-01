@@ -67,7 +67,11 @@ def _read_index_template() -> str:
     except OSError:
         return ""
     if _INDEX_CACHE is None or mtime > _INDEX_MTIME:
-        _INDEX_CACHE = _INDEX_PATH.read_text(encoding="utf-8")
+        # SSR storm pages embed the SPA shell, tile URLs included — inject
+        # the CARTO basemap key at cache fill exactly like serve_frontend
+        # does, or /storm/* pages would render watermarked tiles.
+        from carto_key import inject_carto_key
+        _INDEX_CACHE = inject_carto_key(_INDEX_PATH.read_text(encoding="utf-8"))
         _INDEX_MTIME = mtime
     return _INDEX_CACHE
 
