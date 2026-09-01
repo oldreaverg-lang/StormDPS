@@ -323,7 +323,25 @@
                 const trk = normLons(S.track);
                 const pts = trk.map(d => [d.lat, d.lon]);
                 all.push(...pts);
-                L.polyline(pts, { color: col, weight: 3, opacity: .8 }).addTo(map);
+                // Split the track at best-track DATA GAPS (>24h between fixes —
+                // agency stopped tracking, e.g. an overland remnant that later
+                // regenerated) so a hole in the record isn't drawn as a solid
+                // traverse. Solid segments per contiguous run; dashed connector
+                // across each gap. Keep in spirit with index.html's gap legs.
+                let seg = [];
+                for (let i = 0; i < trk.length; i++) {
+                    const gapH = i > 0
+                        ? Math.abs(Date.parse(trk[i].timestamp) - Date.parse(trk[i - 1].timestamp)) / 3600000
+                        : 0;
+                    if (i > 0 && (isNaN(gapH) ? false : gapH > 24)) {
+                        if (seg.length > 1) L.polyline(seg, { color: col, weight: 3, opacity: .8 }).addTo(map);
+                        L.polyline([pts[i - 1], pts[i]], { color: '#94a3b8', weight: 2, opacity: .55, dashArray: '5 9' })
+                            .bindTooltip(`No best-track data for ${Math.round(gapH)}h`, { sticky: true }).addTo(map);
+                        seg = [];
+                    }
+                    seg.push(pts[i]);
+                }
+                if (seg.length > 1) L.polyline(seg, { color: col, weight: 3, opacity: .8 }).addTo(map);
                 trk.forEach(d => {
                     const kt = Math.round((d.max_wind_ms || 0) / 0.514444);
                     L.circleMarker([d.lat, d.lon], {

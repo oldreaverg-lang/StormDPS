@@ -6027,6 +6027,22 @@ function drawCurrentPosMarker(cur){
 }
 
 
+// ── Best-track data-gap awareness ────────────────────────────────────────────
+// A leg between consecutive fixes longer than this is a hole in the record
+// (agency stopped tracking — e.g. an overland remnant that later regenerated),
+// not an observed traverse. Raw synoptic cadence is 6h and the live densifier
+// only bridges gaps ≤13.5h, so 24h cleanly separates "sparse but real" from
+// "not tracked". Gap legs draw dashed grey (renderMap) and the animation holds
+// at the last real fix instead of gliding across (syncVisualization).
+const GAP_LEG_HOURS = 24;
+function trackLegGapHours(a, b){
+    try{
+        const t1 = Date.parse(a && a.timestamp), t2 = Date.parse(b && b.timestamp);
+        if(isNaN(t1) || isNaN(t2)) return 0;      // unparseable → treat as normal leg
+        return Math.abs(t2 - t1) / 3600000;
+    }catch(e){ return 0; }
+}
+
 function renderMap(data){
 
     const mapDiv=document.getElementById('map'),parent=mapDiv.parentNode;
@@ -6045,11 +6061,24 @@ function renderMap(data){
         attribution:'&copy; OSM &copy; CARTO',subdomains:'abcd',maxZoom:19
     }).addTo(currentMap);
 
-    // Draw track lines colored by DPS
+    // Draw track lines colored by DPS. Legs spanning a best-track DATA GAP
+    // (Δt > GAP_LEG_HOURS — e.g. JTWC stops tracking an overland remnant that
+    // later regenerates, as Saudel 2026 did across mainland China) render as a
+    // dashed grey connector instead of a solid storm path, so a hole in the
+    // record never masquerades as an actual traverse.
     for(let i=0;i<data.length-1;i++){
-        L.polyline([[data[i].lat,data[i].lon],[data[i+1].lat,data[i+1].lon]],{
-            color:dpsColor(data[i].dps?data[i].dps.score:0),weight:3.5,opacity:.7
-        }).addTo(currentMap);
+        const pts=[[data[i].lat,data[i].lon],[data[i+1].lat,data[i+1].lon]];
+        const gapH=trackLegGapHours(data[i],data[i+1]);
+        if(gapH>GAP_LEG_HOURS){
+            L.polyline(pts,{color:'#94a3b8',weight:2,opacity:.55,dashArray:'5 9'})
+                .bindTooltip(`No best-track data for ${Math.round(gapH)}h — the storm was not tracked over this span`,
+                             {sticky:true,className:'forecast-label'})
+                .addTo(currentMap);
+        } else {
+            L.polyline(pts,{
+                color:dpsColor(data[i].dps?data[i].dps.score:0),weight:3.5,opacity:.7
+            }).addTo(currentMap);
+        }
     }
 
     // Small dot markers at each observation
@@ -6389,8 +6418,13 @@ function syncVisualization(fi,snap){
     const data=window.stormData;if(!data||!data.length)return;
     const bi=Math.min(Math.floor(fi),data.length-1);
     const ni=Math.min(bi+1,data.length-1);
-    const fr=fi-bi;
+    let fr=fi-bi;
     const d1=data[bi],d2=data[ni];
+    // Across a best-track DATA GAP the storm was not observed, so gliding the
+    // marker (and morphing the wind field) between the endpoints would animate
+    // a traverse that never happened — hold at the last real fix instead, then
+    // jump when the index rolls over (mirrors the dashed gap leg on the map).
+    if(trackLegGapHours(d1,d2)>GAP_LEG_HOURS) fr=0;
     const lat=d1.lat+(d2.lat-d1.lat)*fr;
     const lon=d1.lon+(d2.lon-d1.lon)*fr;
 
