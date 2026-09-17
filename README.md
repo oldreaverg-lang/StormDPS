@@ -6,13 +6,17 @@
 
 **StormDPS** is a real-time tropical cyclone analysis tool that computes the **Destructive Power Score (DPS)** — a 0–100 composite hurricane rating that captures storm size, surge potential, duration of coastal exposure, and geographic reach, not just peak wind. A modern open-data alternative to the Saffir-Simpson Hurricane Wind Scale.
 
-It covers every ocean basin globally, features ~200 historical storms with full DPS profiles, and delivers live weather intelligence through both a web tracker and a public REST API.
+It covers every ocean basin globally, features 220+ historical storms with full DPS profiles, and delivers live weather intelligence through both a web tracker and a public REST API.
 
 🌐 **Live site:** https://stormdps.com
+🗺️ **Browse every scored storm:** https://stormdps.com/storms
 📊 **Methodology:** https://stormdps.com/methodology
-📈 **Historic storms (ranked):** https://stormdps.com/historic-storms
-💾 **Open dataset:** https://stormdps.com/data
-❓ **FAQ:** https://stormdps.com/faq
+📈 **Historic storms (ranked by DPS):** https://stormdps.com/historic-storms
+💾 **Open dataset (CSV/JSON, CC BY 4.0):** https://stormdps.com/data
+🛰️ **Public REST API:** JSON under `https://stormdps.com/api/v1/` — e.g. [active storms](https://stormdps.com/api/v1/storms/active), no key required
+❓ **FAQ:** https://stormdps.com/faq  ·  ℹ️ **About:** https://stormdps.com/about
+
+Example storm page: **[Hurricane Katrina (2005) — DPS 94/100](https://stormdps.com/storm/AL122005)** · every named cyclone has its own page at `stormdps.com/storm/{ID}`.
 
 ## Cite this work
 
