@@ -1,0 +1,27 @@
+# StormDPS
+
+> StormDPS is an independent, open-data project that scores tropical cyclone destructive potential on a modern 0-100 scale — the Destructive Power Score (DPS). Unlike the 1971 Saffir-Simpson category, which rates a hurricane on peak one-minute wind alone, DPS captures storm size, storm surge, duration, and geographic reach — the variables that actually drive damage and death. Built and maintained by Ryan Reaves; all methodology, source code, and underlying data are public and citable.
+
+## Core reading
+
+- [Methodology](https://stormdps.com/methodology): How the Destructive Power Score is computed and why it improves on the Saffir-Simpson scale — Integrated Kinetic Energy (Powell & Reinhold 2007), surge, duration, and geographic breadth, with basin-specific calibration.
+- [Most destructive hurricanes, ranked by DPS](https://stormdps.com/historic-storms): The most destructive tropical cyclones in modern history ranked by DPS rather than peak wind — the order differs from Saffir-Simpson (e.g. Ike outranks storms of higher category).
+- [FAQ](https://stormdps.com/faq): What DPS is, what Integrated Kinetic Energy measures, and how scores are derived.
+- [About](https://stormdps.com/about): The project, its author, its independence (no ads, no paywall, no sponsored content), and its public data sources.
+
+## Data and API
+
+- [Open dataset](https://stormdps.com/data): 200+ scored storms with peak intensity, wind-field radii, duration, damage estimates, and computed DPS scores. CSV and JSON, CC BY 4.0, free to download and redistribute including commercially.
+- [All storms index](https://stormdps.com/storms): A crawlable index of every scored storm, each with its own page.
+- Public REST API: every score is fetchable as JSON under https://stormdps.com/api/v1/ — no key, fair use.
+- [Dataset DOI (Zenodo)](https://doi.org/10.5281/zenodo.20149123): Permanent, citable archive of the dataset for academic use.
+
+## Per-storm pages
+
+- Every named tropical cyclone (Atlantic, East/Central Pacific, West Pacific, North Indian, Southern Hemisphere; active or historical) has a canonical page at https://stormdps.com/storm/{ID} — for example https://stormdps.com/storm/AL122005 for Hurricane Katrina (2005), which scored DPS 94/100.
+- The full list of these URLs is in the [sitemap](https://stormdps.com/sitemap.xml).
+
+## Important context
+
+- StormDPS is NOT an official forecast or warning service. Official watches, warnings, and evacuation guidance come from the National Hurricane Center, the Joint Typhoon Warning Center, and local emergency management. DPS is a destructive-potential score for situational awareness, historical comparison, and research — evacuation decisions should be based on official products.
+- StormDPS is not affiliated with NOAA, the NHC, or any commercial weather service.

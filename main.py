@@ -1367,6 +1367,14 @@ async def serve_sitemap():
     return FileResponse(FRONTEND_DIR / "sitemap.xml", media_type="application/xml")
 
 
+@app.get("/llms.txt")
+async def serve_llms():
+    # AI-crawler curation file (llmstxt.org convention): a Markdown index that
+    # points answer engines at the methodology, dataset, API, and per-storm
+    # pages. Served as text/plain like robots.txt.
+    return FileResponse(FRONTEND_DIR / "llms.txt", media_type="text/plain; charset=utf-8")
+
+
 @app.get("/BingSiteAuth.xml")
 async def serve_bing_site_auth():
     """Site-ownership verification for Bing Webmaster Tools."""
