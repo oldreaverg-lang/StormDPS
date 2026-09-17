@@ -2905,22 +2905,62 @@ def _analog_pool() -> dict:
         return {}
 
 
+def _rep_landfall(s: dict):
+    """A storm's representative landfall coordinate — its strongest landfall
+    (highest wind), or None for storms that never reached land (fish storms).
+    This is the salient 'path' signal: two storms that struck the same stretch
+    of coast are the most alike."""
+    best = None
+    best_w = -1.0
+    for e in (s.get("landfalls") or []):
+        la, lo = e.get("lat"), e.get("lon")
+        if la is None or lo is None:
+            continue
+        try:
+            w = float(e.get("wind_kt") or e.get("wind_ms") or 0)
+        except (TypeError, ValueError):
+            w = 0.0
+        if w >= best_w:
+            best_w, best = w, (float(la), float(lo))
+    return best
+
+
+def _path_distance(a: dict, b: dict) -> float:
+    """Track-region distance in [0, 1]. Compares where each storm made
+    landfall; storms with no landfall are alike to each other and far from
+    landfallers. (Basin equality is enforced separately by the caller.)"""
+    import math
+    pa, pb = _rep_landfall(a), _rep_landfall(b)
+    if pa is None and pb is None:
+        return 0.0          # both fish storms — same 'stayed at sea' path
+    if pa is None or pb is None:
+        return 0.85         # one hit land, the other never did — very different
+    lat1, lon1 = math.radians(pa[0]), math.radians(pa[1])
+    lat2, lon2 = math.radians(pb[0]), math.radians(pb[1])
+    dlat, dlon = lat2 - lat1, lon2 - lon1
+    h = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+    km = 2 * 6371.0 * math.asin(min(1.0, math.sqrt(h)))
+    return min(1.0, km / 4000.0)   # ~0 same coast, ~1 at 4000 km apart
+
+
 def _analog_distance(a: dict, b: dict) -> float:
-    """Weighted L1 distance in the bundle feature space (0 = identical)."""
+    """Distance in [0, 1] ranking same-basin analogs. Per the product ordering
+    (basin -> path -> score): basin is a hard filter in the caller, PATH is the
+    dominant term here, and intensity/score similarity is secondary."""
     def n(x, cap):
         try:
             return min(float(x or 0), cap) / cap
         except (TypeError, ValueError):
             return 0.0
-    d = 0.0
-    d += 0.30 * abs(n(a.get("dps"), 100) - n(b.get("dps"), 100))
-    d += 0.20 * abs(n(a.get("peak_wind_kt"), 160) - n(b.get("peak_wind_kt"), 160))
-    d += 0.20 * abs(n(a.get("peak_ike_tj"), 300) - n(b.get("peak_ike_tj"), 300))
-    d += 0.10 * abs(n(a.get("rainfall_warning"), 100) - n(b.get("rainfall_warning"), 100))
-    d += 0.05 * abs(n(a.get("track_hours"), 400) - n(b.get("track_hours"), 400))
-    if (a.get("basin") or "") != (b.get("basin") or ""):
-        d += 0.15
-    return d
+    # Secondary: intensity / score similarity
+    score = 0.0
+    score += 0.40 * abs(n(a.get("dps"), 100) - n(b.get("dps"), 100))
+    score += 0.25 * abs(n(a.get("peak_wind_kt"), 160) - n(b.get("peak_wind_kt"), 160))
+    score += 0.20 * abs(n(a.get("peak_ike_tj"), 300) - n(b.get("peak_ike_tj"), 300))
+    score += 0.10 * abs(n(a.get("rainfall_warning"), 100) - n(b.get("rainfall_warning"), 100))
+    score += 0.05 * abs(n(a.get("track_hours"), 400) - n(b.get("track_hours"), 400))
+    # Primary: track/path region (where the storm went / made landfall)
+    return 0.60 * _path_distance(a, b) + 0.40 * score
 
 
 @router.get("/storms/{storm_id}/analogs")
@@ -2955,9 +2995,15 @@ async def get_storm_analogs(
         raise HTTPException(status_code=404, detail="storm has no DPS bundle")
     q_name = str(query.get("name") or sid).lower()
     q_year = query.get("year")
+    q_basin = (query.get("basin") or "")
     ranked = []
     for aid, s in pool.items():
         if aid.upper() == sid or not s.get("dps"):
+            continue
+        # Basin first and foremost: an Atlantic storm is never "like" a Pacific
+        # one, however close the intensity. Hard same-basin filter (fail-open
+        # only when the query's basin is unknown, so the strip never blanks).
+        if q_basin and (s.get("basin") or "") != q_basin:
             continue
         # The identity seam: the same storm can appear under both its ATCF
         # id and IBTrACS SID — never offer a storm as its own analog.

@@ -194,7 +194,7 @@
            320px chart card. Keep the headline, drop the secondary extreme. */
         @media(max-width:600px){.exposure-leverage .lev-sub{display:none}}
         .scrubber-bar{display:none;align-items:center;gap:.4rem;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:.3rem .6rem;flex-shrink:0}.scrubber-bar.visible{display:flex;animation:fadeIn .3s}
-        .scrubber-bar input[type="range"]{flex:1;-webkit-appearance:none;background:transparent;border:none;padding:0;height:20px;cursor:pointer}.scrubber-bar input[type="range"]::-webkit-slider-track{height:6px;background:rgba(32,84,147,.22);border-radius:3px}.scrubber-bar input[type="range"]:hover::-webkit-slider-track{background:rgba(32,84,147,.35)}.scrubber-bar input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;background:var(--primary);border-radius:50%;margin-top:-7px;cursor:pointer;box-shadow:0 0 0 2px rgba(32,84,147,.25),0 0 10px rgba(32,84,147,.5);transition:box-shadow .15s}.scrubber-bar input[type="range"]:hover::-webkit-slider-thumb{box-shadow:0 0 0 3px rgba(32,84,147,.35),0 0 14px rgba(32,84,147,.6)}.scrubber-bar input[type="range"]::-moz-range-track{height:5px;background:rgba(32,84,147,.22);border-radius:3px;border:none}.scrubber-bar input[type="range"]::-moz-range-thumb{width:20px;height:20px;background:var(--primary);border-radius:50%;border:2px solid rgba(32,84,147,.4);cursor:pointer}
+        .scrubber-bar input[type="range"]{flex:1;-webkit-appearance:none;appearance:none;background:transparent;border:none;padding:0;height:20px;cursor:pointer;--scrub-pct:0%}.scrubber-bar input[type="range"]::-webkit-slider-runnable-track{height:6px;border-radius:3px;background:linear-gradient(to right,var(--primary) 0,var(--primary) var(--scrub-pct),rgba(32,84,147,.20) var(--scrub-pct),rgba(32,84,147,.20) 100%)}.scrubber-bar input[type="range"]:hover::-webkit-slider-runnable-track{background:linear-gradient(to right,var(--primary) 0,var(--primary) var(--scrub-pct),rgba(32,84,147,.30) var(--scrub-pct),rgba(32,84,147,.30) 100%)}.scrubber-bar input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;background:var(--primary);border:2px solid #fff;border-radius:50%;margin-top:-5px;cursor:pointer;box-shadow:0 0 0 1px rgba(32,84,147,.35),0 1px 4px rgba(0,0,0,.3);transition:box-shadow .15s}.scrubber-bar input[type="range"]:hover::-webkit-slider-thumb{box-shadow:0 0 0 2px rgba(32,84,147,.4),0 0 10px rgba(32,84,147,.55)}.scrubber-bar input[type="range"]::-moz-range-track{height:6px;background:rgba(32,84,147,.20);border-radius:3px;border:none}.scrubber-bar input[type="range"]::-moz-range-progress{height:6px;background:var(--primary);border-radius:3px}.scrubber-bar input[type="range"]::-moz-range-thumb{width:16px;height:16px;background:var(--primary);border:2px solid #fff;border-radius:50%;cursor:pointer;box-shadow:0 0 0 1px rgba(32,84,147,.35)}
         .scrubber-time{font-size:.82rem;font-weight:700;color:var(--text-main);min-width:100px;text-align:center;font-variant-numeric:tabular-nums;letter-spacing:-.01em}.scrubber-ike{font-size:.78rem;font-weight:700;color:var(--primary);min-width:60px;text-align:right;font-variant-numeric:tabular-nums}
         /* Compact map key: 3 chip rows (~60px) instead of 13 stacked items
            (~240px — half the map). Ranges live in the chip tooltips. Offset
@@ -4945,7 +4945,7 @@ function renderAll(stormId,data){
     const _legendBtn = document.getElementById('mapLegendToggle');
     _legendBtn.style.display='block';
     _legendBtn.innerHTML='Legend &#9650;';
-    const slider=document.getElementById('scrubSlider');slider.max=data.length-1;slider.value=0;
+    const slider=document.getElementById('scrubSlider');slider.max=data.length-1;slider.value=0;_updateScrubFill();
     document.getElementById('scrubberBar').classList.add('visible');
     updateScrubDisplay(0);
     document.getElementById('scrubPlay').disabled=false;
@@ -6271,8 +6271,19 @@ function renderMap(data){
                     // only. If the forecast track reaches exposed coastline
                     // (forecast ERS found a scored zone), restore the full
                     // red flood warning — approaching storms must warn.
-                    if (window._rainBannerMuted && _fcErs && _fcErs.score >= 10) {
-                        _renderRainBanner('warning', ' Forecast track approaches land.');
+                    // Rainfall VOLUME (the rw score) is not a flood warning on its
+                    // own — freshwater flooding needs the storm to STALL near land
+                    // or make LANDFALL. Only re-escalate the muted banner to the red
+                    // flood warning when the forecast actually projects one of those;
+                    // a storm merely brushing an exposed coast at speed stays
+                    // "rainfall potential" (Dujuan WP242026: rw 72, no stall/landfall).
+                    const _lfExpected = !!(fc.landfall && fc.landfall.expected);
+                    const _stallLvl = (fc.stall_risk && fc.stall_risk.risk_level) || 'none';
+                    const _stallProjected = (_stallLvl === 'moderate' || _stallLvl === 'high' || _stallLvl === 'extreme');
+                    if (window._rainBannerMuted && _fcErs && _fcErs.score >= 10 && (_lfExpected || _stallProjected)) {
+                        _renderRainBanner('warning', _lfExpected
+                            ? ' Forecast track makes landfall.'
+                            : ' Forecast shows the storm stalling near land.');
                     }
                 } catch(e) {}
 
@@ -6364,6 +6375,17 @@ function onScrub(v){
     syncVisualization(i,true);
 }
 
+// Paint the timeline "rail": fill the played portion up to the thumb so the
+// scrubber dot visibly rides a track. Driven by a --scrub-pct custom property
+// the webkit track gradient reads; Firefox uses native ::-moz-range-progress.
+function _updateScrubFill(){
+    const s=document.getElementById('scrubSlider');
+    if(!s) return;
+    const mn=parseFloat(s.min)||0, mx=parseFloat(s.max)||100, v=parseFloat(s.value)||0;
+    const pct=mx>mn?((v-mn)/(mx-mn))*100:0;
+    s.style.setProperty('--scrub-pct', pct.toFixed(2)+'%');
+}
+
 function updateScrubDisplay(i){
     const d=window.stormData;if(!d||!d[i])return;
     const ts=new Date(d[i].timestamp);
@@ -6417,6 +6439,7 @@ function animationLoop(ts){
 function syncVisualization(fi,snap){
     const data=window.stormData;if(!data||!data.length)return;
     const bi=Math.min(Math.floor(fi),data.length-1);
+    _updateScrubFill();
     const ni=Math.min(bi+1,data.length-1);
     let fr=fi-bi;
     const d1=data[bi],d2=data[ni];
