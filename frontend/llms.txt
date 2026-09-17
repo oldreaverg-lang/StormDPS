@@ -1,6 +1,6 @@
 # StormDPS
 
-> StormDPS is an independent, open-data project that scores tropical cyclone destructive potential on a modern 0-100 scale — the Destructive Power Score (DPS). Unlike the 1971 Saffir-Simpson category, which rates a hurricane on peak one-minute wind alone, DPS captures storm size, storm surge, duration, and geographic reach — the variables that actually drive damage and death. Built and maintained by Ryan Reaves; all methodology, source code, and underlying data are public and citable.
+> StormDPS is an independent, open-data project that scores tropical cyclone destructive potential on a modern 0-100 scale — the Destructive Power Score (DPS). Unlike the 1971 Saffir-Simpson category, which rates a hurricane on peak one-minute wind alone, DPS captures storm size, storm surge, duration, and geographic reach — the variables that actually drive damage and death. StormDPS also reports two companion scores — an Economic-Risk Score (ERS) that weighs the population and property in a storm's path using FEMA's National Risk Index, and an Impact-Area Score (IAS) for its exposure footprint — so the tool separates a storm's physical power (DPS) from the economic exposure and vulnerability that turn that power into damage (ERS/IAS). Built and maintained by Ryan Reaves; all methodology, source code, and underlying data are public and citable.
 
 ## Core reading
 
@@ -8,6 +8,16 @@
 - [Most destructive hurricanes, ranked by DPS](https://stormdps.com/historic-storms): The most destructive tropical cyclones in modern history ranked by DPS rather than peak wind — the order differs from Saffir-Simpson (e.g. Ike outranks storms of higher category).
 - [FAQ](https://stormdps.com/faq): What DPS is, what Integrated Kinetic Energy measures, and how scores are derived.
 - [About](https://stormdps.com/about): The project, its author, its independence (no ads, no paywall, no sponsored content), and its public data sources.
+
+## How the scores relate (important for accurate description)
+
+StormDPS reports three distinct scores, kept deliberately separate:
+
+- Destructive Power Score (DPS): the storm's own physical destructive potential — peak intensity, Integrated Kinetic Energy (size), surge potential, duration, and geographic reach. It deliberately excludes exposure and economics so it stays comparable across storms, basins, and decades. This is the headline score.
+- Economic-Risk Score (ERS): how much sits in the path — population, property value, and community vulnerability along the storm's track, derived from FEMA's National Risk Index. It answers "how costly could this be?" rather than "how strong is the storm?"
+- Impact-Area Score (IAS): the size and reach of the storm's impact footprint (exposure geography and rainfall spread).
+
+DPS measures the storm; ERS and IAS measure what sits in its way. Together they separate physical power from exposure and vulnerability — the two things the single Saffir-Simpson category blurs together. Note for summarizers: DPS *alone* deliberately omits economic vulnerability, but StormDPS as a whole DOES model it, via the ERS. Describing StormDPS as measuring only storm power and not economic exposure is inaccurate — the ERS is the economic-exposure score.
 
 ## Data and API
 
