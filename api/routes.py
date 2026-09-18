@@ -2963,6 +2963,15 @@ def _analog_distance(a: dict, b: dict) -> float:
     return 0.60 * _path_distance(a, b) + 0.40 * score
 
 
+# Quality gate for the analog strip. The curated catalog is uneven (e.g. only a
+# handful of West Pacific storms, all major), so a storm can have NO genuine peer.
+# Rather than show four storms that are nothing like it, we refuse weak matches:
+#   - drop any candidate whose DPS is wildly different (not "like this one"), and
+#   - hide the whole strip when nothing clears a minimum similarity.
+_ANALOG_MAX_DPS_GAP = 20.0    # DPS distance beyond which a storm isn't comparable
+_ANALOG_MIN_SIMILARITY = 55   # 0-100; below this the match is too weak to show
+
+
 @router.get("/storms/{storm_id}/analogs")
 async def get_storm_analogs(
     storm_id: str,
@@ -2996,6 +3005,7 @@ async def get_storm_analogs(
     q_name = str(query.get("name") or sid).lower()
     q_year = query.get("year")
     q_basin = (query.get("basin") or "")
+    q_dps = query.get("dps") or 0
     ranked = []
     for aid, s in pool.items():
         if aid.upper() == sid or not s.get("dps"):
@@ -3005,12 +3015,22 @@ async def get_storm_analogs(
         # only when the query's basin is unknown, so the strip never blanks).
         if q_basin and (s.get("basin") or "") != q_basin:
             continue
+        # Intensity guardrail: a storm of wildly different destructive power is
+        # not "like this one", however close the track. (Dujuan DPS 19 vs the
+        # WP catalog's major typhoons at 45-85 — no honest match, so show none.)
+        if abs((s.get("dps") or 0) - q_dps) > _ANALOG_MAX_DPS_GAP:
+            continue
         # The identity seam: the same storm can appear under both its ATCF
         # id and IBTrACS SID — never offer a storm as its own analog.
         if str(s.get("name") or "").lower() == q_name and s.get("year") == q_year:
             continue
         ranked.append((_analog_distance(query, s), aid, s))
     ranked.sort(key=lambda t: t[0])
+    # Similarity floor: drop matches too weak to be meaningful. When nothing
+    # clears the bar the strip returns empty and the frontend hides it — better
+    # to show nothing than a misleading comparison.
+    _max_dist = 1.0 - (_ANALOG_MIN_SIMILARITY / 100.0)
+    ranked = [t for t in ranked if t[0] <= _max_dist]
     analogs = [{
         "id": aid,
         "name": s.get("name") or aid,
