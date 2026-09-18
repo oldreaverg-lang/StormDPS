@@ -1902,26 +1902,28 @@ function _renderRainBanner(mode, suffix) {
     bar.classList.remove('rain-expanded');   // new storm/mode starts collapsed on mobile
     const scoreEl = document.getElementById('rainfallBarScore');
     const textEl = document.getElementById('rainfallBarText');
-    if (mode === 'warning') {
-        window._rainBannerMuted = false;
-        const reconcile = (d.heroDPS < 40 && d.rw >= 60) ? 'Wind threat is low, but flooding is the danger. ' : '';
-        scoreEl.textContent = 'Flood risk ' + d.rw + '/100 —';
-        textEl.textContent = deAuthorize(reconcile + d.level + ': ' + d.text + (suffix || ''));
-        bar.style.borderColor = 'rgba(239,68,68,.3)';
-        bar.style.background = 'rgba(239,68,68,.06)';
-        scoreEl.style.color = '#b3261e';
-        textEl.style.color = '#b3261e';
-        bar.classList.toggle('rain-extreme', d.rw >= 60);
-    } else {
+    // 'potential' = rainfall VOLUME without a projected stall or landfall. The
+    // score measures rain volume, not flood exposure, so with no storm slated to
+    // stall near land or make landfall there is no flood story to tell — hide the
+    // bar entirely (product rule: only surface it on a projected stall or landfall).
+    // _rainBannerMuted stays true so the forecast handler can still re-escalate to
+    // a red 'warning' the moment a stall/landfall is projected.
+    // (Dujuan WP242026: rw 72 offshore, no stall/landfall -> no bar shown.)
+    if (mode !== 'warning') {
         window._rainBannerMuted = true;
-        scoreEl.textContent = 'Rainfall potential ' + d.rw + '/100 —';
-        textEl.textContent = 'This storm carries ' + String(d.level || '').toLowerCase() + '-level rainfall, but its track is over open ocean with no observed land threat. The score reflects rainfall volume, not flood exposure.';
-        bar.style.borderColor = 'rgba(100,116,139,.35)';
-        bar.style.background = 'rgba(100,116,139,.07)';
-        scoreEl.style.color = '#475569';
-        textEl.style.color = '#475569';
         bar.classList.remove('rain-extreme');
+        bar.style.display = 'none';
+        return;
     }
+    window._rainBannerMuted = false;
+    const reconcile = (d.heroDPS < 40 && d.rw >= 60) ? 'Wind threat is low, but flooding is the danger. ' : '';
+    scoreEl.textContent = 'Flood risk ' + d.rw + '/100 —';
+    textEl.textContent = deAuthorize(reconcile + d.level + ': ' + d.text + (suffix || ''));
+    bar.style.borderColor = 'rgba(239,68,68,.3)';
+    bar.style.background = 'rgba(239,68,68,.06)';
+    scoreEl.style.color = '#b3261e';
+    textEl.style.color = '#b3261e';
+    bar.classList.toggle('rain-extreme', d.rw >= 60);
     bar.style.display = 'flex';
 }
 
