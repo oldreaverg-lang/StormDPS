@@ -2925,22 +2925,48 @@ def _rep_landfall(s: dict):
     return best
 
 
-def _path_distance(a: dict, b: dict) -> float:
-    """Track-region distance in [0, 1]. Compares where each storm made
-    landfall; storms with no landfall are alike to each other and far from
-    landfallers. (Basin equality is enforced separately by the caller.)"""
+def _track_point(s: dict):
+    """Whole-track position for path matching: the track centroid (mean of all
+    fixes), falling back to genesis, then to the representative landfall. Present
+    for any storm with track geometry, so the metric discriminates even for storms
+    that never made landfall (an offshore active storm, a fish storm)."""
+    g = s.get("track_geo") or {}
+    if g.get("mean_lat") is not None and g.get("mean_lon") is not None:
+        return (float(g["mean_lat"]), float(g["mean_lon"]))
+    if g.get("genesis_lat") is not None and g.get("genesis_lon") is not None:
+        return (float(g["genesis_lat"]), float(g["genesis_lon"]))
+    return _rep_landfall(s)
+
+
+def _haversine_km(p, q) -> float:
     import math
-    pa, pb = _rep_landfall(a), _rep_landfall(b)
-    if pa is None and pb is None:
-        return 0.0          # both fish storms — same 'stayed at sea' path
-    if pa is None or pb is None:
-        return 0.85         # one hit land, the other never did — very different
-    lat1, lon1 = math.radians(pa[0]), math.radians(pa[1])
-    lat2, lon2 = math.radians(pb[0]), math.radians(pb[1])
+    lat1, lon1 = math.radians(p[0]), math.radians(p[1])
+    lat2, lon2 = math.radians(q[0]), math.radians(q[1])
     dlat, dlon = lat2 - lat1, lon2 - lon1
     h = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
-    km = 2 * 6371.0 * math.asin(min(1.0, math.sqrt(h)))
-    return min(1.0, km / 4000.0)   # ~0 same coast, ~1 at 4000 km apart
+    return 2 * 6371.0 * math.asin(min(1.0, math.sqrt(h)))
+
+
+def _path_distance(a: dict, b: dict) -> float:
+    """Track-region distance in [0, 1]. Primary signal is the great-circle
+    distance between the two storms' track centroids — where each storm actually
+    travelled — so it discriminates even when neither made landfall. When BOTH
+    made landfall, that is refined with the distance between landfall points.
+    Falls back to landfall-only for legacy bundles that carry no track_geo."""
+    ta, tb = _track_point(a), _track_point(b)
+    la, lb = _rep_landfall(a), _rep_landfall(b)
+    if ta is not None and tb is not None:
+        d_centroid = min(1.0, _haversine_km(ta, tb) / 4000.0)
+        if la is not None and lb is not None:
+            d_landfall = min(1.0, _haversine_km(la, lb) / 4000.0)
+            return 0.6 * d_centroid + 0.4 * d_landfall
+        return d_centroid
+    # Legacy fallback (no track_geo on either side): landfall-only.
+    if la is None and lb is None:
+        return 0.5
+    if la is None or lb is None:
+        return 0.85
+    return min(1.0, _haversine_km(la, lb) / 4000.0)
 
 
 def _analog_distance(a: dict, b: dict) -> float:

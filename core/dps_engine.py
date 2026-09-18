@@ -289,6 +289,23 @@ def compute_storm_dps(
         if s["dpi"] > 0
     ]
 
+    # Track geography for analog path-matching (bundle metadata; DPS-neutral).
+    # A whole-track signature that exists even for storms with no landfall, so the
+    # analog metric can compare where two storms actually travelled — not just
+    # where (or whether) they made landfall. Longitude uses a circular mean so a
+    # track spanning the antimeridian averages correctly.
+    _t_lats = [s.get("lat") for s in snapshots if s.get("lat") is not None]
+    _t_lons = [s.get("lon") for s in snapshots if s.get("lon") is not None]
+    track_geo = {}
+    if _t_lats and _t_lons:
+        _mx = sum(math.cos(math.radians(l)) for l in _t_lons) / len(_t_lons)
+        _my = sum(math.sin(math.radians(l)) for l in _t_lons) / len(_t_lons)
+        track_geo = {
+            "genesis_lat": round(_t_lats[0], 2), "genesis_lon": round(_t_lons[0], 2),
+            "mean_lat": round(sum(_t_lats) / len(_t_lats), 2),
+            "mean_lon": round(math.degrees(math.atan2(_my, _mx)), 2),
+        }
+
     # 15. Build output dict matching compiled_bundle.json schema
     return {
         "name": storm_name,
@@ -348,6 +365,8 @@ def compute_storm_dps(
         # Per-snapshot DPS series — scaled to match adjusted peak so map markers
         # use the canonical cumulative values directly (no client-side rescaling).
         "dpi_timeseries": dpi_timeseries,
+        # Track geography (genesis + centroid) for analog path matching.
+        "track_geo": track_geo,
         # Ground-truth reference values (NHC TCR / NCEI / OpenFEMA). Present only
         # for storms we have curated observations for; frontend should treat as
         # optional enrichment for the hero card and accordion.
