@@ -22,6 +22,7 @@ markers are missing (so it can never double-insert or silently no-op).
 
 import json
 import os
+import random
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BUNDLE = os.path.join(ROOT, "frontend", "compiled_bundle.json")
@@ -39,6 +40,16 @@ METRICS = [
     ("Peak wind",    ("peak_wind_kt",), False),
     ("Min pressure", ("min_pressure_hpa",), True),
 ]
+
+
+# Bootstrap for the 95% ranges shown next to every figure. Seeded so a re-bake of
+# an unchanged bundle regenerates byte-identical HTML (the script is idempotent).
+BOOT_N, BOOT_SEED = 2000, 20260918
+
+# Storms used to choose the formula's structure (archive/tournament_formula.py).
+# Any of them in the test set make the result partly in-sample; the page says so.
+TUNING_STORMS = {"KATRINA", "HARVEY", "IRMA", "MARIA", "MICHAEL", "IAN", "HELENE",
+                 "MILTON", "FLORENCE", "DORIAN", "IDA", "SANDY"}
 
 
 def _num(storm, keys):
@@ -86,6 +97,42 @@ def _spearman(xs, ys):
     return cov / ((vx * vy) ** 0.5) if vx and vy else None
 
 
+def _ci(xs):
+    xs = sorted(xs)
+    return xs[int(0.025 * len(xs))], xs[min(len(xs) - 1, int(0.975 * len(xs)))]
+
+
+def _bootstrap(series, labels, counties):
+    """Percentile bootstrap over storms: 95% ranges for each metric's AUC and rho,
+    and the share of resamples in which DPS's AUC beats peak IKE's (ties count half)."""
+    rng = random.Random(BOOT_SEED)
+    n = len(labels)
+    aucs = {k: [] for k in series}
+    rhos = {k: [] for k in series}
+    wins = draws = 0
+    for _ in range(BOOT_N):
+        pick = [rng.randrange(n) for _ in range(n)]
+        lab = [labels[i] for i in pick]
+        if not 0 < sum(lab) < n:          # AUC needs both outcomes in the resample
+            continue
+        got = {}
+        for k, vp in series.items():
+            v = [vp[i] for i in pick]
+            got[k] = _auc(v, lab)
+            xs = [x for x in v if x is not None]
+            ys = [counties[i] for i, x in zip(pick, v) if x is not None]
+            r = _spearman(xs, ys)
+            if got[k] is not None:
+                aucs[k].append(got[k])
+            if r is not None:
+                rhos[k].append(r)
+        if got.get("DPS") is not None and got.get("Peak IKE") is not None:
+            draws += 1
+            wins += 1.0 if got["DPS"] > got["Peak IKE"] else 0.5 if got["DPS"] == got["Peak IKE"] else 0.0
+    return ({k: _ci(v) for k, v in aucs.items()}, {k: _ci(v) for k, v in rhos.items()},
+            (wins / draws) if draws else None)
+
+
 def _esc(s):
     return str(s).replace("&", "&amp;").replace("<", "&lt;")
 
@@ -97,11 +144,15 @@ def build_section(bundle):
 
     pts = []   # (dps, counties, major, name)
     rows = []  # (label, dps, ike, wind, pressure, counties)
+    years, names = [], []
     for s in items:
         ai = s.get("actual_impact")
         if not (isinstance(ai, dict) and isinstance(ai.get("counties_declared"), (int, float))):
             continue
         major = 1 if ai.get("major_disaster") else 0
+        if isinstance(s.get("year"), int):
+            years.append(s["year"])
+        names.append(str(s.get("name", "")))
         pts.append((_num(s, ("dps",)), ai["counties_declared"], major, s.get("name", "")))
         rows.append((major, _num(s, ("dps",)), _num(s, ("peak_ike_tj", "peak_ike")),
                      _num(s, ("peak_wind_kt",)), _num(s, ("min_pressure_hpa",)), ai["counties_declared"]))
@@ -114,13 +165,22 @@ def build_section(bundle):
 
     # Benchmark: AUC vs major_disaster, Spearman vs counties_declared.
     bench = []
+    series = {}
     for label, keys, flip in METRICS:
         idx = {"DPS": 1, "Peak IKE": 2, "Peak wind": 3, "Min pressure": 4}[label]
         vp = [((-r[idx]) if flip and r[idx] is not None else r[idx]) for r in rows]
+        series[label] = vp
         xs = [v for v in vp if v is not None]
         ys = [r[5] for r, v in zip(rows, vp) if v is not None]
         bench.append((label, _auc(vp, labels), _spearman(xs, ys)))
     dps_rho = bench[0][2]
+    auc_ci, rho_ci, dps_beats_ike = _bootstrap(series, labels, [r[5] for r in rows])
+    n_neg = n - n_major
+    swing = f"{1 / n_neg:.2f}" if n_neg else "&mdash;"
+    beat_pct = f"{dps_beats_ike * 100:.0f}%" if dps_beats_ike is not None else "an undetermined share"
+    span = f"{min(years)}&ndash;{max(years)}" if years else "recent years"
+    tuned = [nm for nm in names if nm.upper() in TUNING_STORMS]
+    tuned_eg = ", ".join(_esc(nm) for nm in tuned[:5])
 
     # ── Inline-SVG scatter (DPS x, FEMA counties y) ──
     L, R, T, B = 64, 20, 28, 52
@@ -151,30 +211,41 @@ def build_section(bundle):
     sv.append('</svg>')
     SVG = "\n".join(sv)
 
+    rng_css = 'style="opacity:0.65;font-weight:400;font-size:0.85em;white-space:nowrap"'
     trs = "\n".join(
         f'<tr{" style=\"font-weight:700\"" if nm == "DPS" else ""}><td>{nm}</td>'
-        f'<td>{a:.2f}</td><td>{r:.2f}</td></tr>'
+        f'<td>{a:.2f} <span {rng_css}>({auc_ci[nm][0]:.2f}&ndash;{auc_ci[nm][1]:.2f})</span></td>'
+        f'<td>{r:.2f} <span {rng_css}>({rho_ci[nm][0]:.2f}&ndash;{rho_ci[nm][1]:.2f})</span></td></tr>'
         for nm, a, r in bench
     )
 
     section = f'''        <h2 id="validation">How well does DPS predict real damage?</h2>
-        <p>A score is only as good as what it predicts. We test DPS against independent ground truth &mdash; the federal disaster response &mdash; across the {n} U.S. storms in our dataset that carry FEMA records, and compare it to the metrics a forecaster would otherwise reach for: peak wind, integrated kinetic energy, and minimum central pressure. Two measures: the <strong>AUC</strong> (how cleanly each metric separates the storms that drew a FEMA <em>major-disaster</em> declaration &mdash; {n_major} of {n}) and the <strong>rank correlation</strong> (how well each orders storms by counties declared). Higher is better on both.</p>
+        <p>A score is only as good as what it predicts. We test DPS against independent ground truth &mdash; the federal disaster response &mdash; across the {n} U.S. storms in our dataset that carry FEMA records, and compare it to the metrics a forecaster would otherwise reach for: peak wind, integrated kinetic energy, and minimum central pressure. Two measures: the <strong>AUC</strong> (how cleanly each metric separates the storms that drew a FEMA <em>major-disaster</em> declaration &mdash; {n_major} of {n}) and the <strong>rank correlation</strong> (how well each orders storms by counties declared). Higher is better on both. Each figure is followed by its 95% range from resampling the storms, because with a sample this small the range matters as much as the number.</p>
         <table>
-            <thead><tr><th>Metric</th><th>Major-disaster AUC</th><th>Footprint rank &rho;</th></tr></thead>
+            <thead><tr><th>Metric</th><th>Major-disaster AUC <span {rng_css}>(95% range)</span></th><th>Footprint rank &rho; <span {rng_css}>(95% range)</span></th></tr></thead>
             <tbody>
 {trs}
             </tbody>
         </table>
-        <p>DPS leads on both &mdash; because it weighs storm size, duration, and surge geography, not just peak intensity. The scatter plots every storm by its DPS against the breadth of its federal disaster footprint:</p>
+        <p>DPS scores highest on both measures. It weighs storm size, duration and surge geography, not just peak intensity. But read the ranges: only {n_neg} of the {n} storms drew no major-disaster declaration, so moving a single storm can shift an AUC by up to {swing}, and the ranges overlap widely. Across the resamples, DPS&rsquo;s AUC beat peak IKE&rsquo;s {beat_pct} of the time: a lead that is suggestive, not yet statistically established. The scatter plots every storm by its DPS against the breadth of its federal disaster footprint:</p>
         <figure style="margin:1.25rem 0">
 {SVG}
-            <figcaption style="font-size:0.85rem;opacity:0.7;margin-top:0.5rem">Each dot is a U.S. storm (2015&ndash;present) with FEMA records. Higher DPS tracks a wider federal disaster footprint (Spearman &rho; = {dps_rho:.2f}). Curated sample, n = {n} &mdash; small, but the ranking is consistent across both measures.</figcaption>
+            <figcaption style="font-size:0.85rem;opacity:0.7;margin-top:0.5rem">Each dot is a U.S. storm ({span}) with FEMA records. Higher DPS tracks a wider federal disaster footprint (Spearman &rho; = {dps_rho:.2f}, 95% range {rho_ci["DPS"][0]:.2f}&ndash;{rho_ci["DPS"][1]:.2f}). Hand-curated sample, n = {n}: small, and not a random draw.</figcaption>
         </figure>
         <p>The dots furthest from the line are the honest edge cases, and they reflect a property of the <em>outcome</em> metric, not a flaw in DPS. Above the line sit weak-but-wide systems &mdash; <a href="/storm/AL092020" class="inline">Isaias</a>, Debby &mdash; whose multi-state footprint (and the county-by-county federal response it triggered) far outran their modest intensity. Below it sit compact, ferocious storms &mdash; Harvey, Milton &mdash; that concentrated historic rainfall and wind on relatively few counties. "Counties declared" rewards geographic spread; DPS measures destructive power; the two diverge exactly where you would expect.</p>
-        <p>This is a deliberately honest test, not a victory lap: the sample is small and U.S.-only, the FEMA-declaration outcome is itself imperfect, and DPS still misses some exposure- and rainfall-driven damage. But on the question it is built to answer &mdash; <em>which storm carries more destructive power</em> &mdash; it out-predicts every conventional single-number metric.</p>'''
+        <p>This is a deliberately honest test, not a victory lap, and it has real limits:</p>
+        <ul>
+            <li><strong>Small and U.S.-only.</strong> The FEMA-declaration outcome is itself imperfect.</li>
+            <li><strong>Different scopes.</strong> DPS scores a storm&rsquo;s whole life, but this outcome counts only U.S. declarations, so storms that did their worst far from the U.S. (Eta in Nicaragua) or out at sea (Lee) count against it.</li>
+            <li><strong>Known blind spots.</strong> DPS still misses some exposure- and rainfall-driven damage.</li>
+            <li><strong>Partly in-sample.</strong> {len(tuned)} of these {n} storms ({tuned_eg} and others) were among the storms used to choose the formula&rsquo;s structure, which flatters the result.</li>
+        </ul>
+        <p>Planned next: a test on storms from before 2005 that the formula has never seen, a direct test of whether DPS adds information beyond the Saffir&ndash;Simpson category at landfall, and a scorecard of live scores logged before each 2026 landfall.</p>'''
 
-    summary = {"n": n, "n_major": n_major,
-               "bench": [(nm, round(a, 3), round(r, 3)) for nm, a, r in bench]}
+    summary = {"n": n, "n_major": n_major, "in_sample": len(tuned),
+               "dps_beats_ike": round(dps_beats_ike, 3) if dps_beats_ike is not None else None,
+               "bench": [(nm, round(a, 3), round(r, 3)) for nm, a, r in bench],
+               "auc_ci": {k: (round(v[0], 3), round(v[1], 3)) for k, v in auc_ci.items()}}
     return section, summary
 
 
