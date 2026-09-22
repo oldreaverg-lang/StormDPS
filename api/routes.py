@@ -3044,7 +3044,11 @@ async def get_storm_analogs(
         except Exception as e:
             logger.warning(f"[ANALOGS] dps lookup failed for {storm_id}: {e}")
             raise HTTPException(status_code=404, detail="storm not found")
-    if not isinstance(query, dict) or not query.get("dps"):
+    # A DPS of exactly 0 is a valid score (a nascent/minimal storm), not a
+    # missing bundle — `not query.get("dps")` used to 404 those (Fay AL062026,
+    # DPS 0), throwing a console error instead of letting the quality gate return
+    # a clean empty strip. Only 404 when the bundle is genuinely absent.
+    if not isinstance(query, dict) or query.get("dps") is None:
         raise HTTPException(status_code=404, detail="storm has no DPS bundle")
     q_name = str(query.get("name") or sid).lower()
     q_year = query.get("year")
