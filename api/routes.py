@@ -1535,6 +1535,24 @@ def _compute_stall_risk(forecast_track: list[dict]) -> dict:
     else:
         desc = f"No stall risk — storm maintaining forward speed ({mean_speed:.0f} kt avg). Standard rainfall expected."
 
+    # Land-awareness: a stall is a FLOOD threat only if it happens near/over
+    # land. A storm forecast to stall over the OPEN OCEAN (Fay AL062026:
+    # near-stall at ~30N/44W, mid-Atlantic) poses no inland flooding threat, so
+    # the "Harvey-like / catastrophic rainfall" framing is wrong. Suppress the
+    # banner (risk_level none + score 0 -> displayStallRisk hides it and the IAS
+    # stall-boost is skipped) when NO slow/stalling segment is near a coast. The
+    # per-segment speeds are kept so the map's forecast-track coloring still
+    # shows the slow stretch factually.
+    from core.cumulative_dpi import _is_near_coast
+    slow_segs = [s for s in segments if s.get("speed_kt", 99) < 8]
+    stall_near_land = any(_is_near_coast(s.get("lat", 0), s.get("lon", 0)) for s in slow_segs)
+    if risk_level != "none" and not stall_near_land:
+        desc = (f"Storm is forecast to slow to {min_speed:.0f} kt, but over the open "
+                f"ocean — no inland flooding threat. A stall like this near land "
+                f"would be a serious rainfall-flood risk.")
+        risk_level = "none"
+        risk_score = 0
+
     result.update({
         "risk_level": risk_level,
         "risk_score": risk_score,
