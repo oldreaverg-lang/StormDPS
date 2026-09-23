@@ -1025,6 +1025,11 @@ window.BasinDPS={COEFFICIENTS:BASIN_COEFFICIENTS,detectBasin,applyBasinDPS,getBa
 // ============================================================
 // CONFIG
 // ============================================================
+// Progress logging is opt-in — add ?debug=1 to the URL, or run
+// localStorage.setItem('stormdpsDebug','1') — so visitors' consoles stay clean.
+// Warnings and errors always print.
+const DEBUG_LOG=(()=>{try{return /[?&]debug=1\b/.test(location.search)||localStorage.getItem('stormdpsDebug')==='1';}catch(e){return false;}})();
+function dbg(...args){if(DEBUG_LOG)console.log(...args);}
 const API_BASE=(window.location.hostname==='localhost'||window.location.hostname==='127.0.0.1')?'http://127.0.0.1:8000/api/v1':window.location.origin+'/api/v1';
 let currentDPSChart=null,currentChart=null,currentSurgeChart=null,currentPressureChart=null,currentWindChart=null,currentSSTChart=null,currentRainChart=null,currentMap=null;
 const NM_TO_M=1852.0;
@@ -1087,7 +1092,10 @@ const _pendingChartPlugins = [];
 let _chartLoadPromise = null;
 function loadChart() {
     if (_chartLoadPromise) return _chartLoadPromise;
-    return _chartLoadPromise = _loadScript('https://cdn.jsdelivr.net/npm/chart.js').then(() => {
+    // Pinned: the unversioned URL is only cached 7 days (12 h at jsDelivr's edge)
+    // and would silently pick up a new major version. Keep in step with
+    // compare.html so the two pages share one cached copy.
+    return _chartLoadPromise = _loadScript('https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js').then(() => {
         // Defaults + plugins land after Chart is defined and before the
         // first new Chart(...) call (callers await loadChart() first).
         try {
@@ -1168,7 +1176,7 @@ async function ensureCompiledBundle(stormId, stormName, stormYear) {
         if (bundle.name && bundle.year) {
             COMPILED_BY_NAME_YEAR[bundle.name.toUpperCase() + '_' + bundle.year] = bundle;
         }
-        console.log(`[DPS] Fetched canonical bundle for ${stormId}: DPS ${Math.round(bundle.dps)}`);
+        dbg(`[DPS] Fetched canonical bundle for ${stormId}: DPS ${Math.round(bundle.dps)}`);
         return bundle;
     } catch (e) {
         console.warn(`[DPS] ensureCompiledBundle(${stormId}) error:`, e);
@@ -1228,7 +1236,7 @@ async function loadPreloadBundle() {
             });
             if (catalogFromBundle.length > 0) {
                 window.stormCatalog = catalogFromBundle;
-                console.log(`[PRELOAD] Built stormCatalog from compiled bundle: ${catalogFromBundle.length} storms`);
+                dbg(`[PRELOAD] Built stormCatalog from compiled bundle: ${catalogFromBundle.length} storms`);
             }
         }
         refreshPresetDPSFromCompiled();
@@ -1239,7 +1247,7 @@ async function loadPreloadBundle() {
         // slim-index path, pull the storm's detail FIRST — re-rendering with
         // a light entry would blank the flood-banner text and landfall tabs.
         if (window.stormData && window.stormData.length > 0 && window._currentStormId) {
-            console.log('[PRELOAD] Re-rendering current storm with compiled scores');
+            dbg('[PRELOAD] Re-rendering current storm with compiled scores');
             const _sid = window._currentStormId;
             Promise.resolve()
                 .then(() => (isLight ? ensureStormDetail(_sid) : true))
@@ -1263,7 +1271,7 @@ async function loadPreloadBundle() {
             (idx.detail_ids || []).forEach(sid => BUNDLE_DETAIL_IDS.add(sid));
             applyCompiledStorms(idx.storms, true);
             preloadReady = true;
-            console.log(`[PRELOAD] Slim bundle index loaded from ${base} — ${idx.storm_count || 0} storms, ${BUNDLE_DETAIL_IDS.size} with on-demand detail`);
+            dbg(`[PRELOAD] Slim bundle index loaded from ${base} — ${idx.storm_count || 0} storms, ${BUNDLE_DETAIL_IDS.size} with on-demand detail`);
             return;
         } catch (e) {
             console.warn(`[PRELOAD] bundle_index.json unavailable from ${base}: ${e.message}`);
@@ -1275,7 +1283,7 @@ async function loadPreloadBundle() {
     for (const base of paths) {
         try {
             bundle = await tryFetchJson(base, 'compiled_bundle.json', 30000);
-            console.log(`[PRELOAD] Compiled bundle fetched from ${base}compiled_bundle.json`);
+            dbg(`[PRELOAD] Compiled bundle fetched from ${base}compiled_bundle.json`);
             break;
         } catch (e) {
             console.warn(`[PRELOAD] Failed to fetch from ${base}: ${e.message}`);
@@ -1295,7 +1303,7 @@ async function loadPreloadBundle() {
             applyCompiledStorms(bundle.storms, false);
         }
         preloadReady = true;
-        console.log(`[PRELOAD] Compiled bundle loaded: ${bundle.storm_count || 0} storms with pre-computed DPS (${Object.keys(PRELOAD_CACHE).length} in cache)`);
+        dbg(`[PRELOAD] Compiled bundle loaded: ${bundle.storm_count || 0} storms with pre-computed DPS (${Object.keys(PRELOAD_CACHE).length} in cache)`);
     } catch (e) {
         // Fallback: raw preload_bundle.json (requires client-side DPS computation)
         console.warn('[PRELOAD] Compiled bundle unavailable, falling back to raw:', e.message);
@@ -1309,7 +1317,7 @@ async function loadPreloadBundle() {
                     PRELOAD_CACHE[sid] = bundle.storms[sid];
                 });
             }
-            console.log(`[PRELOAD] Raw bundle loaded: ${Object.keys(PRELOAD_CACHE).length} storms (will compute DPS client-side)`);
+            dbg(`[PRELOAD] Raw bundle loaded: ${Object.keys(PRELOAD_CACHE).length} storms (will compute DPS client-side)`);
             refreshPresetDPSFromPreload();
         } catch (e2) {
             console.warn('[PRELOAD] All preload methods failed (will fetch per-storm):', e2.message);
@@ -1345,7 +1353,7 @@ async function ensureStormDetail(sid) {
                 }
                 if (d.snapshots && d.snapshots.length) {
                     PRELOAD_CACHE[sid] = d.snapshots;
-                    console.log(`[PRELOAD] Detail loaded for ${sid} — ${d.snapshots.length} snapshots`);
+                    dbg(`[PRELOAD] Detail loaded for ${sid} — ${d.snapshots.length} snapshots`);
                 }
                 return !!(d.snapshots && d.snapshots.length);
             } catch (e) {
@@ -1403,7 +1411,7 @@ function refreshAccordionChipsDPS() {
             updated++;
         }
     });
-    if (updated > 0) console.log(`[PRELOAD] Updated ${updated} accordion chips with compiled DPS`);
+    if (updated > 0) dbg(`[PRELOAD] Updated ${updated} accordion chips with compiled DPS`);
 }
 
 // ============================================================
@@ -2156,7 +2164,7 @@ function rerenderPresetChips(){
             return `<div class="preset-chip" data-storm-id="${p.id}" onclick="loadPreset('${p.id}')"><div class="cat-dot" style="background:${dotColor}"></div><span class="chip-name">${p.name}${rainBadge}</span><span class="chip-meta">${metaText}</span></div>`;
         }).join('');
     }
-    console.log('Preset scores refreshed:', PRESETS.map(p=>`${p.name}: DPS=${p.dps}, IAS=${p.ias||'?'}, ERS=${p.ers||'?'}`).join(', '));
+    dbg('Preset scores refreshed:', PRESETS.map(p=>`${p.name}: DPS=${p.dps}, IAS=${p.ias||'?'}, ERS=${p.ers||'?'}`).join(', '));
 }
 
 // ============================================================
@@ -2490,7 +2498,7 @@ function loadNRIZones() {
     const nriBase = (nriPathDir.includes('/frontend')) ? nriPathDir : '/frontend/';
     fetch(nriBase + 'nri_zones.json')
         .then(r => r.ok ? r.json() : Promise.reject('NRI zones not found'))
-        .then(data => { NRI_ZONES = data; console.log('NRI zones loaded:', Object.keys(data).length, 'zones'); })
+        .then(data => { NRI_ZONES = data; dbg('NRI zones loaded:', Object.keys(data).length, 'zones'); })
         .catch(e => console.warn('NRI zones not available:', e));
 }
 loadNRIZones();
@@ -2504,7 +2512,7 @@ function loadEconZones() {
         .then(r => r.ok ? r.json() : Promise.reject('econ zones not found'))
         .then(data => {
             ECON_ZONES = data;
-            console.log('Econ zones loaded:', data.length, 'zones');
+            dbg('Econ zones loaded:', data.length, 'zones');
             // If a storm is already rendered (fetch lost a race), recompute its scores.
             if (window.stormData && window.stormData.length && window._currentStormId) {
                 try { renderAll(window._currentStormId, window.stormData); } catch (e) {}
@@ -2523,7 +2531,7 @@ function loadShelfRegions() {
         .then(r => r.ok ? r.json() : Promise.reject('shelf regions not found'))
         .then(data => {
             SHELF_REGIONS = data;
-            console.log('Shelf regions loaded:', data.length, 'regions');
+            dbg('Shelf regions loaded:', data.length, 'regions');
             if (window.stormData && window.stormData.length && window._currentStormId) {
                 try { renderAll(window._currentStormId, window.stormData); } catch (e) {}
             }
@@ -4081,7 +4089,7 @@ function basinName(b){return BASIN_NAMES[b]||b}
         // Refresh preset chips with live catalog DPS values
         refreshPresetDPS(allStorms);
 
-        console.log(`Loaded ${allStorms.length} total storms (${hurdat.length} HURDAT2, ${ibtracs.length} IBTrACS+Custom)`);
+        dbg(`Loaded ${allStorms.length} total storms (${hurdat.length} HURDAT2, ${ibtracs.length} IBTrACS+Custom)`);
         
         if(allStorms.length === 0) {
             console.warn('No storms loaded from catalogs');
@@ -4099,7 +4107,7 @@ function basinName(b){return BASIN_NAMES[b]||b}
         // filter — see _populateYearAccordionBody and filterAccordionByBasin.
         window.stormsByYear = byYear;
 
-        console.log('Storm distribution by year:', years);
+        dbg('Storm distribution by year:', years);
 
         years.forEach(yr=>{
             const storms=byYear[yr];
@@ -4129,7 +4137,7 @@ function basinName(b){return BASIN_NAMES[b]||b}
             container.appendChild(section);
         });
 
-        console.log(`Created year accordion sections for ${years.length} years (${years.join(', ')})`);
+        dbg(`Created year accordion sections for ${years.length} years (${years.join(', ')})`);
         // Famous-storms section is eager-rendered (15 chips, always-popular),
         // so refresh it now. Year sections refresh themselves on first open.
         refreshAccordionChipsDPS();
@@ -4552,7 +4560,7 @@ async function fetchHistory(){
         if (PRELOAD_CACHE[rawId] && PRELOAD_CACHE[rawId].length > 0) {
             data = PRELOAD_CACHE[rawId];
             cacheHit = true;
-            console.log(`[PRELOAD] Cache hit for ${rawId} — ${data.length} snapshots loaded instantly`);
+            dbg(`[PRELOAD] Cache hit for ${rawId} — ${data.length} snapshots loaded instantly`);
             // Skip loading skeleton for cache hits — render immediately
             hideLoadingSkeleton();
         }
@@ -4568,7 +4576,7 @@ async function fetchHistory(){
                 // Store in preload cache for future use this session
                 if (data && data.length > 0) {
                     PRELOAD_CACHE[rawId] = data;
-                    console.log(`[PRELOAD] Cached ${rawId} from API response (${data.length} snapshots)`);
+                    dbg(`[PRELOAD] Cached ${rawId} from API response (${data.length} snapshots)`);
                 }
             }
         }
@@ -4585,13 +4593,13 @@ async function fetchHistory(){
                     .sort((a,b) => b.year - a.year);  // most recent first
                 if(matches.length > 0){
                     const best = matches[0];
-                    console.log(`[NAME-RESOLVE] "${rawId}" auto-resolved to ${best.name} ${best.year} (${best.id}) — ${matches.length} match(es)`);
+                    dbg(`[NAME-RESOLVE] "${rawId}" auto-resolved to ${best.name} ${best.year} (${best.id}) — ${matches.length} match(es)`);
                     // Try loading by the catalog ID directly (faster, uses cache/preload)
                     const resolvedId = best.id;
                     try { await ensureStormDetail(resolvedId); } catch (e) { /* API fallback below */ }
                     if(PRELOAD_CACHE[resolvedId] && PRELOAD_CACHE[resolvedId].length > 0){
                         data = PRELOAD_CACHE[resolvedId];
-                        console.log(`[NAME-RESOLVE] Cache hit for ${resolvedId}`);
+                        dbg(`[NAME-RESOLVE] Cache hit for ${resolvedId}`);
                     } else {
                         const r3 = await fetchWithTimeout(`${API_BASE}/storms/${resolvedId}/track?grid_resolution_km=15&skip_points=0`, {}, 90000, _markArchiveSearch);
                         if(r3.ok){
@@ -4617,7 +4625,7 @@ async function fetchHistory(){
                 const searchBody = yr
                     ? {name:rawId, year:parseInt(yr)}
                     : {name:rawId};  // name-only: backend finds most recent match
-                console.log(`[NAME-RESOLVE] Trying IBTrACS search:`, searchBody);
+                dbg(`[NAME-RESOLVE] Trying IBTrACS search:`, searchBody);
                 const r2=await fetchWithTimeout(`${API_BASE}/ibtracs/search`,{
                     method:'POST',
                     headers:{'Content-Type':'application/json'},
@@ -5464,7 +5472,7 @@ async function fetchAndRenderSST(data, stormId){
     const _q=stormId?`?storm_id=${encodeURIComponent(stormId)}`:'';
 
     try{
-        console.log(`SST: Requesting SST for ${points.length} track points...`);
+        dbg(`SST: Requesting SST for ${points.length} track points...`);
         const r=await fetch(`${API_BASE}/sst/track${_q}`,{
             method:'POST',
             headers:{'Content-Type':'application/json'},
@@ -5477,7 +5485,7 @@ async function fetchAndRenderSST(data, stormId){
         }
         const sstData=await r.json();
         if(stormId && window._currentStormId!==stormId) return;  // user switched storms mid-fetch
-        console.log(`SST: Received ${sstData.length} points, ${sstData.filter(s=>s.sst_c!==null).length} with valid data`);
+        dbg(`SST: Received ${sstData.length} points, ${sstData.filter(s=>s.sst_c!==null).length} with valid data`);
 
         const validSST=sstData.filter(s=>s.sst_c!==null);
         const _ph=document.getElementById('sstPlaceholder');
@@ -6862,9 +6870,9 @@ function toggleMapLegend() {
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
         navigator.serviceWorker.register('/frontend/sw.js').then(reg => {
-            console.log('[SW] Registered, scope:', reg.scope);
+            dbg('[SW] Registered, scope:', reg.scope);
         }).catch(err => {
-            console.log('[SW] Registration failed (non-fatal):', err.message);
+            dbg('[SW] Registration failed (non-fatal):', err.message);
         });
     });
 }
