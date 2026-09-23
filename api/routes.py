@@ -1403,6 +1403,75 @@ def _log_rain_forecast(storm_id: str, name: str, rain_fc: dict,
         logger.debug("[rain_forecast] log append failed", exc_info=True)
 
 
+# Stall-banner geography. A forecast stall only threatens inland flooding when
+# its heavy inner rain reaches the coast — roughly within 100 km.
+_STALL_NEAR_LAND_KM = 100.0
+# If no coastline point is within this distance there is no data to judge by
+# (not "confirmed open ocean"), so fall back to the legacy coastal-box test.
+_STALL_COAST_DATA_KM = 500.0
+# A stall this long earns the "Harvey-like" label (Harvey sat ~4 days).
+_HARVEY_STALL_HOURS = 48.0
+
+# Coastline points for the Pacific coasts the shared waypoint DB lacks — it has
+# only two Baja points on the Pacific side of the Americas and none in Hawaii.
+# Used ONLY by the stall banner: that DB also feeds DPS scoring and must not be
+# extended casually (see core/landfall_forecast.py). ~100-150 km spacing.
+_STALL_PACIFIC_COAST = (
+    # Mainland Pacific Mexico, Chiapas -> Sonora
+    (14.70, -92.40, "Puerto Chiapas"), (15.94, -93.81, "Puerto Arista"),
+    (16.17, -95.20, "Salina Cruz"), (15.75, -96.13, "Huatulco"),
+    (15.86, -97.07, "Puerto Escondido"), (16.33, -98.57, "Punta Maldonado"),
+    (16.85, -99.88, "Acapulco"), (17.27, -101.05, "Papanoa"),
+    (17.64, -101.55, "Zihuatanejo"), (17.96, -102.20, "Lazaro Cardenas"),
+    (18.27, -103.35, "Maruata"), (19.05, -104.32, "Manzanillo"),
+    (19.21, -104.68, "Barra de Navidad"), (19.55, -105.10, "Chamela"),
+    (20.40, -105.70, "Cabo Corrientes"), (20.62, -105.23, "Puerto Vallarta"),
+    (21.54, -105.29, "San Blas"), (22.54, -105.75, "Teacapan"),
+    (23.22, -106.42, "Mazatlan"), (24.63, -107.93, "Altata"),
+    (25.60, -109.05, "Topolobampo"), (27.92, -110.90, "Guaymas"),
+    # Baja California
+    (22.89, -109.91, "Cabo San Lucas"), (23.06, -109.70, "San Jose del Cabo"),
+    (23.45, -110.22, "Todos Santos"), (24.14, -110.31, "La Paz"),
+    (24.79, -112.11, "Puerto San Carlos"), (26.01, -111.35, "Loreto"),
+    (27.34, -112.27, "Santa Rosalia"), (27.97, -114.05, "Guerrero Negro"),
+    (31.86, -116.62, "Ensenada"),
+    # Central America, Pacific side
+    (14.29, -91.91, "Champerico"), (13.92, -90.82, "Puerto San Jose"),
+    (13.59, -89.83, "Acajutla"), (13.49, -89.32, "La Libertad"),
+    (13.33, -87.84, "La Union"), (13.42, -87.45, "San Lorenzo"),
+    (12.48, -87.17, "Corinto"), (11.25, -85.87, "San Juan del Sur"),
+    (10.30, -85.84, "Tamarindo"), (9.98, -84.83, "Puntarenas"),
+    (9.43, -84.16, "Quepos"), (8.64, -83.18, "Golfito"),
+    (8.37, -82.43, "Pedregal"), (8.95, -79.53, "Panama City"),
+    # Hawaii
+    (21.31, -157.86, "Honolulu"), (21.09, -157.02, "Kaunakakai"),
+    (20.89, -156.47, "Kahului"), (19.64, -155.99, "Kailua-Kona"),
+    (19.72, -155.08, "Hilo"), (21.98, -159.37, "Lihue"),
+)
+
+
+def _stall_near_land(lat: float, lon: float) -> bool:
+    """True if a forecast point is within _STALL_NEAR_LAND_KM of a coastline.
+
+    Distance is to the nearest real coastline point — the shared waypoint DB
+    (Atlantic, Gulf, Caribbean, WP, NI, SH) plus _STALL_PACIFIC_COAST. When no
+    point is within _STALL_COAST_DATA_KM the region has no coastline data, so
+    defer to the legacy coastal-box test rather than silently calling it ocean.
+    """
+    try:
+        from core.land_proximity import _get_coastline_db
+        points = [(w.lat, w.lon) for w in _get_coastline_db().waypoints
+                  if w.region_key != "open_ocean"]
+    except Exception:
+        points = []
+    points.extend((la, lo) for la, lo, _ in _STALL_PACIFIC_COAST)
+    nearest = min((_haversine_km((lat, lon), p) for p in points), default=float("inf"))
+    if nearest <= _STALL_COAST_DATA_KM:
+        return nearest <= _STALL_NEAR_LAND_KM
+    from core.cumulative_dpi import _is_near_coast
+    return _is_near_coast(lat, lon)
+
+
 def _compute_stall_risk(forecast_track: list[dict]) -> dict:
     """
     Analyze forecast positions for stall risk.
@@ -1525,7 +1594,18 @@ def _compute_stall_risk(forecast_track: list[dict]) -> dict:
 
     # Human-readable description
     if risk_level == "extreme":
-        desc = f"EXTREME stall risk — forecast shows near-stall ({min_speed:.0f} kt) for {stall_hours:.0f}+ hours. Catastrophic rainfall potential (Harvey-like scenario)."
+        # "Harvey-like" means a multi-day stall (Harvey sat over Texas ~4 days);
+        # a half-day crawl is serious but not that — Polo EP172026 drew the
+        # Harvey label from a 9-hour slowdown.
+        spd = "under 1 kt" if min_speed < 1 else f"{min_speed:.0f} kt"
+        if stall_hours >= _HARVEY_STALL_HOURS:
+            desc = (f"EXTREME stall risk — forecast shows a near-stall ({spd}) for "
+                    f"{stall_hours:.0f}+ hours near land. Catastrophic multi-day rainfall "
+                    f"potential (Harvey-like scenario).")
+        else:
+            desc = (f"EXTREME stall risk — forecast shows the storm crawling ({spd}) "
+                    f"near land, with {slow_hours:.0f}h below 8 kt. Heavy rainfall and flooding "
+                    f"are likely where it lingers.")
     elif risk_level == "high":
         desc = f"HIGH stall risk — forecast shows slow motion ({min_speed:.0f} kt min) with {slow_hours:.0f}h below 8 kt. Significant rainfall flooding threat."
     elif risk_level == "moderate":
@@ -1535,21 +1615,21 @@ def _compute_stall_risk(forecast_track: list[dict]) -> dict:
     else:
         desc = f"No stall risk — storm maintaining forward speed ({mean_speed:.0f} kt avg). Standard rainfall expected."
 
-    # Land-awareness: a stall is a FLOOD threat only if it happens near/over
-    # land. A storm forecast to stall over the OPEN OCEAN (Fay AL062026:
-    # near-stall at ~30N/44W, mid-Atlantic) poses no inland flooding threat, so
-    # the "Harvey-like / catastrophic rainfall" framing is wrong. Suppress the
-    # banner (risk_level none + score 0 -> displayStallRisk hides it and the IAS
-    # stall-boost is skipped) when NO slow/stalling segment is near a coast. The
+    # Land-awareness: a stall is a FLOOD threat only if its heavy rain reaches
+    # land. Suppress the banner (risk_level none + score 0 -> displayStallRisk
+    # hides it and the IAS stall-boost is skipped) unless some slow/stalling
+    # segment is within _STALL_NEAR_LAND_KM of a coastline. The coarse coastal
+    # boxes this used before counted Polo EP172026 ~250 km off Guerrero as
+    # "near coast"; Fay AL062026 (mid-Atlantic) was the open-ocean case. The
     # per-segment speeds are kept so the map's forecast-track coloring still
     # shows the slow stretch factually.
-    from core.cumulative_dpi import _is_near_coast
     slow_segs = [s for s in segments if s.get("speed_kt", 99) < 8]
-    stall_near_land = any(_is_near_coast(s.get("lat", 0), s.get("lon", 0)) for s in slow_segs)
+    stall_near_land = any(_stall_near_land(s.get("lat", 0), s.get("lon", 0)) for s in slow_segs)
     if risk_level != "none" and not stall_near_land:
-        desc = (f"Storm is forecast to slow to {min_speed:.0f} kt, but over the open "
-                f"ocean — no inland flooding threat. A stall like this near land "
-                f"would be a serious rainfall-flood risk.")
+        desc = (f"Storm is forecast to slow to {min_speed:.0f} kt, but more than "
+                f"{_STALL_NEAR_LAND_KM:.0f} km from any coast — the stall itself poses no "
+                f"inland flooding threat. A stall like this near land would be a "
+                f"serious rainfall-flood risk.")
         risk_level = "none"
         risk_score = 0
 

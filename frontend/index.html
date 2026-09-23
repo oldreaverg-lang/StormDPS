@@ -485,6 +485,7 @@
         .analog-strip{display:flex;align-items:center;gap:.45rem;flex-wrap:wrap;padding:.3rem .6rem;margin-top:.15rem;font-size:.75rem;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-card);flex-shrink:0}
         .analog-strip-label{font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em;font-size:.65rem;white-space:nowrap}
         .analog-chip{display:inline-flex;align-items:center;gap:.35rem;padding:.18rem .55rem;border:1px solid var(--border);border-radius:12px;background:var(--bg-input);color:var(--text-main);text-decoration:none;font-weight:600;white-space:nowrap;transition:border-color .15s,background .15s}
+        .analog-empty{color:var(--text-dim)}
         .analog-chip:hover{border-color:var(--primary);background:rgba(32,84,147,.06)}
         .analog-chip .ac-dps{font-weight:800;font-variant-numeric:tabular-nums}
         .analog-chip .ac-cmp{color:var(--text-dim);font-weight:400;font-size:.68rem}
@@ -615,6 +616,47 @@
         .footer-details summary::-webkit-details-marker{display:none}
         .footer-details summary:hover{color:var(--primary)}
         .footer-details>span{display:block;margin:.4rem auto 0;max-width:780px}
+        /* Touch screens: 44px tap targets (Apple HIG / WCAG 2.5.5). Before this the
+           title-bar icons were 26px, map zoom 30, play/speed 28, the timeline
+           slider's hit area 20 and footer links 25. Kept last so it wins the cascade. */
+        @media(pointer:coarse){
+            .btn-help,.mobile-menu-btn{min-width:44px;min-height:44px}
+            .surge-nav-link{display:inline-flex;align-items:center;min-height:44px}
+            .storm-title-bar{gap:.3rem}
+            .storm-title-analyst{height:44px;border-radius:22px}
+            .storm-title-share{height:44px;min-width:44px;border-radius:22px}
+            .storm-title-reset{width:44px;height:44px}
+            #scrubPlay,#speedSelect{min-height:44px}
+            .scrubber-bar input[type="range"]{height:44px}
+            .leaflet-touch .leaflet-bar a{width:44px;height:44px;line-height:44px}
+            .map-legend-toggle{min-height:44px}
+            .chart-tab,.chart-expand-btn,.stall-bar{min-height:44px}
+            .analog-chip{min-height:44px}
+            .site-footer a{display:inline-flex;align-items:center;justify-content:center;min-height:44px;min-width:44px;padding:0 .4rem}
+            .logo-link{min-height:44px}
+            /* hit area grows, the visible header row doesn't (negative margins) */
+            #stormCardCollapse{min-width:44px;min-height:44px;margin:-.75rem -.65rem -.75rem 0}
+            /* The "?" sat on top of the ERS tab; on touch it anchors to the sync-hint
+               row below the tabs instead: 44px hit area around the same 24px dot. */
+            #scoreChartTabbed .chart-sync-hint{position:relative;display:flex!important;align-items:center;justify-content:flex-end;min-height:44px;padding:0 52px 0 .5rem!important}
+            .dps-context-toggle{top:0;right:4px;width:44px;height:44px;line-height:44px;background:radial-gradient(circle,rgba(32,84,147,.35) 0 12px,transparent 12.5px)}
+            .dps-context-toggle:hover{background:radial-gradient(circle,rgba(32,84,147,.6) 0 12px,transparent 12.5px)}
+        }
+        /* Phones: nothing meant to be read under 12px. Before: card heading 8px,
+           card sub-label 9.6, Analyst 10.4, chart-tab captions 10.9, timeline
+           label 11.2, legend / chart hints 11.5. !important where the old value
+           was !important or an inline style. */
+        @media(max-width:900px){
+            .stat-label{font-size:.75rem!important}
+            .stat-sub{font-size:.75rem}
+            .storm-title-meta,.storm-title-analyst{font-size:.75rem}
+            .chart-tab span:not(.tip){font-size:.75rem!important}
+            .scrubber-bar>span:first-child,.chart-sync-hint{font-size:.75rem!important}
+            .map-legend-toggle,.chart-expand-btn,.analog-strip-label{font-size:.75rem}
+            /* map storm card is built with inline 9-11px sizes */
+            #stormCard,#stormCard div,#stormCard span,#stormCard b{font-size:.75rem!important}
+            #stormCard #stormCardName{font-size:.82rem!important}
+        }
     </style>
 </head>
 <body>
@@ -768,7 +810,7 @@
             <!-- Peak Snapshot card removed — redundant with DPS hero card -->
             <div id="snapshotCard" style="display:none"><span id="snapshotLabel"></span><span id="snapshotTip"></span><div id="snapshotTabs"></div><div id="statPeakDPS"></div><div id="statDPSLabel"></div><div id="breakdownSnap"></div><div id="panelSnap"></div></div>
             <div class="stat-card" id="iasCard"><div class="stat-label">Impact Area<span class="tip" data-tip="IAS: A 0-100 score measuring how geography and rainfall amplify actual impact. Combines continental shelf surge amplification (55%) and rainfall/stall threat (45%).">?</span></div><div class="stat-value" id="statPeakIAS" style="color:var(--text-main);">-</div><div class="stat-sub" id="statIASLabel">-</div><div class="score-context" id="iasContext"></div><div class="breakdown-wrap" role="button" tabindex="0" aria-label="Toggle score breakdown" onclick="this.classList.toggle('open')"><div class="breakdown-bar" id="breakdownIAS"></div><div class="breakdown-panel" id="panelIAS"></div></div><div class="breakdown-hint">Score breakdown — tap or hover</div></div>
-            <div class="stat-card" id="ersCard"><div class="stat-label">Economic Risk<span class="tip" data-tip="ERS: A 0-100 score measuring economic exposure along the storm's path. Combines coastal economic value with threat reach (storm size x intensity).">?</span></div><div class="stat-value" id="statPeakERS" style="color:var(--text-main);">-</div><div class="stat-sub" id="statERSLabel">-</div><div class="ers-forecast" id="ersForecastLine" style="display:none;font-size:.72rem;font-weight:600;color:#b45309;line-height:1.35;margin-top:.1rem"></div><div class="score-context" id="ersContext"></div><div class="breakdown-wrap" role="button" tabindex="0" aria-label="Toggle score breakdown" onclick="this.classList.toggle('open')"><div class="breakdown-bar" id="breakdownERS"></div><div class="breakdown-panel" id="panelERS"></div></div><div class="breakdown-hint">Score breakdown — tap or hover</div></div>
+            <div class="stat-card" id="ersCard"><div class="stat-label"><span class="label-full">Economic Risk</span><span class="label-short">Econ. Risk</span><span class="tip" data-tip="ERS: A 0-100 score measuring economic exposure along the storm's path. Combines coastal economic value with threat reach (storm size x intensity).">?</span></div><div class="stat-value" id="statPeakERS" style="color:var(--text-main);">-</div><div class="stat-sub" id="statERSLabel">-</div><div class="ers-forecast" id="ersForecastLine" style="display:none;font-size:.72rem;font-weight:600;color:#b45309;line-height:1.35;margin-top:.1rem"></div><div class="score-context" id="ersContext"></div><div class="breakdown-wrap" role="button" tabindex="0" aria-label="Toggle score breakdown" onclick="this.classList.toggle('open')"><div class="breakdown-bar" id="breakdownERS"></div><div class="breakdown-panel" id="panelERS"></div></div><div class="breakdown-hint">Score breakdown — tap or hover</div></div>
             <div class="stat-card" id="actualImpactCard" style="display:none"><div class="stat-label">Actual Impact<span class="tip" data-tip="What the storm actually did, from independent records: total damage (StormDPS curated dataset) and the federal disaster response (FEMA OpenFEMA — counties declared, major-disaster status). This is observed ground truth, shown alongside the DPS prediction.">?</span></div><div class="stat-value" id="statActualImpact" style="color:var(--text-main);">-</div><div class="stat-sub" id="statActualImpactSub">-</div><div class="score-context" id="actualImpactContext"></div></div>
         </div>
         <div id="rainfallBar" class="stall-bar" style="display:none;border-color:rgba(239,68,68,.3);background:rgba(239,68,68,.06)" role="status" tabindex="0" onclick="this.classList.toggle('rain-expanded')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.classList.toggle('rain-expanded');}">
@@ -880,7 +922,7 @@
                         <button class="chart-tab" data-scoretab="ias" onclick="switchScoreTab('ias')">IAS <span style="font-size:.85em;font-weight:400;opacity:.6;letter-spacing:0;text-transform:none">· Impact Area</span> <span class="tip" data-tip="Impact Area Score: Measures geographic and rainfall amplification. Shows how local geography (continental shelf, terrain, river basins) and stalling storms can magnify actual damage beyond peak intensity alone.">?</span></button>
                         <button class="chart-tab" data-scoretab="ers" onclick="switchScoreTab('ers')">ERS <span style="font-size:.85em;font-weight:400;opacity:.6;letter-spacing:0;text-transform:none">· Economic Risk</span> <span class="tip" data-tip="Economic Risk Score: Combines coastal economic value with storm threat. Shows exposure—where the most valuable infrastructure lies along the projected path relative to storm intensity and size.">?</span></button>
                     </div>
-                    <div style="font-size:.72rem;color:var(--text-dim);text-align:right;padding:.1rem .5rem 0;">Click a point to sync the map ↑</div>
+                    <div class="chart-sync-hint" style="font-size:.72rem;color:var(--text-dim);text-align:right;padding:.1rem .5rem 0;">Click a point to sync the map ↑<!-- Absolutely positioned: anchors to the panel on desktop, to this row on touch (so it clears the tabs) --><button id="dpsContextToggle" class="dps-context-toggle" style="display:none;" onclick="toggleDpsContext()" title="Storm context">?</button></div>
                     <div class="chart-tab-body">
                         <div class="chart-tab-pane active" id="tabDPS"><canvas id="dpsCanvas"></canvas></div>
                         <div class="chart-tab-pane" id="tabIAS"><canvas id="iasCanvas"></canvas></div>
@@ -893,7 +935,6 @@
                     <div id="dpsContextBox" class="dps-context-box" style="display:none;">
                         <div class="dps-context-bullets" id="dpsContextBullets"></div>
                     </div>
-                    <button id="dpsContextToggle" class="dps-context-toggle" style="display:none;" onclick="toggleDpsContext()" title="Storm context">?</button>
                 </div>
                 <div class="chart-tabbed" id="chartTabbed">
                     <div class="chart-tabs">
@@ -1009,6 +1050,7 @@ const _detailInflight = {};
 const COMPILED_SCORES = {};  // Pre-computed DPS/rainfall from compile_cache.py
 const COMPILED_BY_NAME_YEAR = {};  // Reverse lookup: "NAME_YEAR" → compiled score (for IBTrACS SID mismatches)
 let preloadReady = false;
+let _pendingPresetCatalog = null; // catalog that arrived before the preload finished (see refreshPresetDPS)
 let preloadPromise = null;
 
 // ============================================================
@@ -1273,6 +1315,8 @@ async function loadPreloadBundle() {
             console.warn('[PRELOAD] All preload methods failed (will fetch per-storm):', e2.message);
         }
         preloadReady = true;
+        // Every compiled source failed — the parked catalog is now the best we have.
+        if (_pendingPresetCatalog) refreshPresetDPS(_pendingPresetCatalog);
     }
 }
 
@@ -1949,7 +1993,14 @@ async function loadAnalogs(stormId) {
         // strip of the storm the user has since navigated to.
         if (window._currentStormId && window._currentStormId !== myStorm) return;
         const list = (data && data.analogs) || [];
-        if (!list.length) return;
+        if (!list.length) {
+            // The quality gate found no genuinely comparable storm. Say so, so the
+            // strip's absence reads as deliberate rather than broken.
+            el.innerHTML = '<span class="analog-strip-label">Storms like this one</span>' +
+                           '<span class="analog-empty">No close match in our catalog yet</span>';
+            el.style.display = 'flex';
+            return;
+        }
         el.innerHTML = '<span class="analog-strip-label">Storms like this one</span>' +
             list.map(a => {
                 const col = dpsTextColor(a.dps || 0);
@@ -2001,21 +2052,25 @@ function updateScoreContexts(dps, ias, ers, ersCovered) {
 // DPS is computed server-side for catalog storms; these are approximate
 // reference values for the preset list, recalculated when a storm is loaded.
 const PRESETS=[
-    // DPS values match compiled_bundle.json (v6 sqrt compression formula)
-    {id:'AL122005',name:'Katrina',year:2005,cat:5,dps:93,ias:0,ers:0},
-    {id:'AL112017',name:'Irma',year:2017,cat:5,dps:88,ias:0,ers:0},
-    {id:'AL092008',name:'Ike',year:2008,cat:4,dps:87,ias:0,ers:0},
-    {id:'AL092022',name:'Ian',year:2022,cat:4,dps:88,ias:0,ers:0},
-    {id:'AL152017',name:'Maria',year:2017,cat:5,dps:86,ias:0,ers:0},
-    {id:'AL052019',name:'Dorian',year:2019,cat:5,dps:88,ias:0,ers:0},
-    {id:'AL182012',name:'Sandy',year:2012,cat:3,dps:83,ias:0,ers:0},
-    {id:'AL092017',name:'Harvey',year:2017,cat:4,dps:83,ias:0,ers:0},
+    // First-paint values. refreshPresetDPSFromCompiled() replaces them with the
+    // compiled_bundle.json scores a moment after load, so they must EQUAL those
+    // scores (rounded) and stay in descending order — otherwise every load shows
+    // the chips change and re-sort. tests/test_preset_defaults.py enforces this
+    // after each rebake.
+    {id:'AL122005',name:'Katrina',year:2005,cat:5,dps:94,ias:0,ers:0},
+    {id:'AL112017',name:'Irma',year:2017,cat:5,dps:91,ias:0,ers:0},
+    {id:'AL092022',name:'Ian',year:2022,cat:4,dps:91,ias:0,ers:0},
+    {id:'AL052019',name:'Dorian',year:2019,cat:5,dps:90,ias:0,ers:0},
+    {id:'AL092008',name:'Ike',year:2008,cat:4,dps:89,ias:0,ers:0},
+    {id:'AL182012',name:'Sandy',year:2012,cat:3,dps:87,ias:0,ers:0},
+    {id:'AL152017',name:'Maria',year:2017,cat:5,dps:85,ias:0,ers:0},
+    {id:'AL092017',name:'Harvey',year:2017,cat:4,dps:84,ias:0,ers:0},
     {id:'AL142018',name:'Michael',year:2018,cat:5,dps:82,ias:0,ers:0},
-    {id:'AL142024',name:'Milton',year:2024,cat:5,dps:83,ias:0,ers:0},
-    {id:'AL022024',name:'Beryl',year:2024,cat:5,dps:82,ias:0,ers:0},
-    {id:'AL092024',name:'Helene',year:2024,cat:4,dps:82,ias:0,ers:0},
+    {id:'AL142024',name:'Milton',year:2024,cat:5,dps:81,ias:0,ers:0},
+    {id:'AL022024',name:'Beryl',year:2024,cat:5,dps:80,ias:0,ers:0},
+    {id:'AL092024',name:'Helene',year:2024,cat:4,dps:80,ias:0,ers:0},
     {id:'AL062018',name:'Florence',year:2018,cat:4,dps:76,ias:0,ers:0},
-    {id:'AL102023',name:'Idalia',year:2023,cat:3,dps:71,ias:0,ers:0},
+    {id:'AL102023',name:'Idalia',year:2023,cat:3,dps:69,ias:0,ers:0},
 ];
 
 function catColor(c){return['var(--td)','var(--cat1)','var(--cat2)','var(--cat3)','var(--cat4)','var(--cat5)'][c]||'var(--td)'}
@@ -2072,11 +2127,13 @@ function refreshPresetDPSFromPreload(){
 
 // Legacy: update from catalog (only used as fallback when preload is unavailable)
 function refreshPresetDPS(catalog){
-    // Skip if preload already delivered accurate DPS values. On the slim-
-    // index path PRELOAD_CACHE stays empty (snapshots load per-storm), so
-    // the compiled-scores check is what actually protects the chips from a
-    // late catalog overwrite.
-    if(preloadReady && (Object.keys(PRELOAD_CACHE).length>0 || Object.keys(COMPILED_SCORES).length>0)) return;
+    // The catalog's peak_dps is DPS at the peak-wind fix, not the compiled
+    // cumulative score, and the catalog usually lands BEFORE the compiled index
+    // — writing it then made the chips change and re-sort a moment later. So
+    // park it while the preload is in flight; loadPreloadBundle applies it only
+    // if no compiled (or raw) scores arrived.
+    if(!preloadReady){ _pendingPresetCatalog = catalog; return; }
+    if(Object.keys(PRELOAD_CACHE).length>0 || Object.keys(COMPILED_SCORES).length>0) return;
     let changed=false;
     PRESETS.forEach(p=>{
         const entry=catalog.find(s=>s.id===p.id)||catalog.find(s=>s.name&&s.name.toUpperCase()===p.name.toUpperCase()&&s.year===p.year);
@@ -4782,7 +4839,7 @@ function renderAll(stormId,data){
     } else {
         document.getElementById('statPeakERS').textContent='—';
         document.getElementById('statPeakERS').style.color='var(--text-dim)';
-        document.getElementById('statERSLabel').textContent='Not scored · no modeled coast in reach';
+        document.getElementById('statERSLabel').textContent='Not scored · no coast in reach';
         const _ersCard = document.getElementById('ersCard');
         if (_ersCard) _ersCard.className = _ersCard.className.replace(/\bsev-\w+/g, '').trim();
     }
