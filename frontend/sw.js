@@ -24,7 +24,9 @@
 // v14: bundle diet — the SPA now eager-loads bundle_index.json and fetches
 // bundle_storm/<id>.json on storm open (?v=13). Bump evicts runtime-cached
 // monolith copies so returning visitors get the slim path immediately.
-const CACHE_NAME = 'stormdps-v17';
+// v18: econ_zones.json gained 8 Mexico Pacific-coast zones (Acapulco to La
+// Paz) — bump so cache-first statics refresh for returning visitors.
+const CACHE_NAME = 'stormdps-v18';
 const STATIC_ASSETS = [
   '/',
   '/frontend/index.html',

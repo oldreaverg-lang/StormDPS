@@ -618,5 +618,85 @@
   "lat_max": 22.35,
   "lon_min": -160.3,
   "lon_max": -159.28
+ },
+ {
+  "name": "Oaxaca Coast / Huatulco (MX)",
+  "exposure": 0.2,
+  "vuln": 1.3,
+  "depth_nm": 15,
+  "lat_min": 15.6,
+  "lat_max": 16.35,
+  "lon_min": -97.3,
+  "lon_max": -95.0
+ },
+ {
+  "name": "Acapulco (MX)",
+  "exposure": 0.55,
+  "vuln": 1.35,
+  "depth_nm": 20,
+  "lat_min": 16.65,
+  "lat_max": 17.1,
+  "lon_min": -100.15,
+  "lon_max": -99.55
+ },
+ {
+  "name": "Zihuatanejo / Lazaro Cardenas (MX)",
+  "exposure": 0.3,
+  "vuln": 1.25,
+  "depth_nm": 15,
+  "lat_min": 17.45,
+  "lat_max": 18.15,
+  "lon_min": -102.45,
+  "lon_max": -101.35
+ },
+ {
+  "name": "Manzanillo / Colima Coast (MX)",
+  "exposure": 0.35,
+  "vuln": 1.15,
+  "depth_nm": 15,
+  "lat_min": 18.75,
+  "lat_max": 19.35,
+  "lon_min": -104.75,
+  "lon_max": -103.85
+ },
+ {
+  "name": "Puerto Vallarta / Banderas Bay (MX)",
+  "exposure": 0.45,
+  "vuln": 1.1,
+  "depth_nm": 15,
+  "lat_min": 20.45,
+  "lat_max": 20.95,
+  "lon_min": -105.55,
+  "lon_max": -105.1
+ },
+ {
+  "name": "Mazatlan (MX)",
+  "exposure": 0.35,
+  "vuln": 1.1,
+  "depth_nm": 15,
+  "lat_min": 23.05,
+  "lat_max": 23.4,
+  "lon_min": -106.55,
+  "lon_max": -106.25
+ },
+ {
+  "name": "Los Cabos (MX)",
+  "exposure": 0.45,
+  "vuln": 1.15,
+  "depth_nm": 15,
+  "lat_min": 22.8,
+  "lat_max": 23.25,
+  "lon_min": -110.1,
+  "lon_max": -109.4
+ },
+ {
+  "name": "La Paz (MX)",
+  "exposure": 0.25,
+  "vuln": 1.1,
+  "depth_nm": 15,
+  "lat_min": 23.95,
+  "lat_max": 24.35,
+  "lon_min": -110.55,
+  "lon_max": -110.05
  }
 ]
