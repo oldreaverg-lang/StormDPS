@@ -45,6 +45,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from timeutil import utcnow
+import memtrace
 from pathlib import Path
 from typing import Optional
 import hmac
@@ -3516,6 +3517,7 @@ async def clear_all_dps_cache():
 # (re)computed — noop if everything is already warmed.
 # ------------------------------------------------------------------
 
+@memtrace.traced(lambda storm_id, **_: f"dps:{storm_id}")
 async def _warm_one_dps(storm_id: str, *, force: bool = False) -> str:
     """Compute + persist a single storm's DPS bundle. Returns status tag."""
     if not force:
@@ -3677,6 +3679,7 @@ def _current_season_warm_ids() -> list[str]:
         return []
 
 
+@memtrace.traced("current_season_dps")
 async def warm_current_season_dps(app_state=None, *, regenerate_view: bool = True) -> dict:
     """Warm the full-engine DPS bundle for every current-season catalog storm,
     then regenerate the harmonized default-view file so the sidebar serves the
@@ -3733,7 +3736,8 @@ async def refresh_active_dps_loop(app_state, interval_seconds: int = 3600):
                     async with sem:
                         await _warm_one_dps(sid, force=True)
 
-                await asyncio.gather(*[_one(sid) for sid in active_ids], return_exceptions=True)
+                with memtrace.span("hourly:active_dps"):
+                    await asyncio.gather(*[_one(sid) for sid in active_ids], return_exceptions=True)
                 logger.info(f"[DPS WARM] hourly active refresh: {len(active_ids)} storms")
 
             # Warm the REST of the current season (dissipated-but-unbaked
@@ -4278,6 +4282,7 @@ async def _build_global_catalog() -> list[dict]:
     return await _refresh_global_catalog_async()
 
 
+@memtrace.traced("ibtracs_refresh")
 async def _refresh_global_catalog_async() -> list[dict]:
     """Fetch catalog from NOAA under lock, merge custom storms, persist.
 
@@ -4395,6 +4400,7 @@ async def _refresh_global_catalog_async() -> list[dict]:
         return catalog
 
 
+@memtrace.traced("catalog_republish")
 def _republish_catalog_with_current_season() -> dict:
     """Splice the latest current-season file into the live in-memory catalog and
     regenerate the pre-baked default-view + metadata-index files that the

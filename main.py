@@ -64,6 +64,7 @@ from api.precip_routes import (
 )
 # surgedps_routes was removed — SurgeDPS runs as its own service now
 from services.weather_data_service import WeatherDataService
+import memtrace
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +129,8 @@ async def lifespan(app: FastAPI):
         # disk. Goes first because everything else benefits from having
         # the catalog in memory, and the disk read is light.
         try:
-            result = await warm_ibtracs_catalog()
+            with memtrace.span("startup:ibtracs_catalog"):
+                result = await warm_ibtracs_catalog()
             logger.info(f"[IBTRACS WARM] complete: {result}")
         except Exception as e:
             logger.warning(f"[IBTRACS WARM] startup warm failed (non-fatal): {e}")
@@ -139,7 +141,8 @@ async def lifespan(app: FastAPI):
         # /api/v1/storms/catalog requests get a clear lane.
         await asyncio.sleep(10)
         try:
-            result = await generate_preload_bundle(grid_resolution_km=15.0, skip_points=0)
+            with memtrace.span("startup:preload_bundle"):
+                result = await generate_preload_bundle(grid_resolution_km=15.0, skip_points=0)
             logger.info(
                 f"[PRELOAD] Warm-up complete: "
                 f"{result['already_cached']} cached, "
@@ -155,7 +158,8 @@ async def lifespan(app: FastAPI):
         # the loop, but still stagger so disk reads don't pile up.
         await asyncio.sleep(20)
         try:
-            await warm_dps_cache(app.state, include_active=True)
+            with memtrace.span("startup:dps_presets_active"):
+                await warm_dps_cache(app.state, include_active=True)
         except Exception as e:
             logger.warning(f"[DPS WARM] startup warm failed (non-fatal): {e}")
         # Then warm the rest of THIS season (dissipated-but-unbaked storms) so
@@ -174,10 +178,14 @@ async def lifespan(app: FastAPI):
         # connection pool.
         await asyncio.sleep(30)
         try:
-            result = await warm_track_cache()
+            with memtrace.span("startup:track_cache"):
+                result = await warm_track_cache()
             logger.info(f"[TRACK WARM] complete: {result}")
         except Exception as e:
             logger.warning(f"[TRACK WARM] startup warm failed (non-fatal): {e}")
+
+    # Memory attribution (diagnostics only; see memtrace.py).
+    app.state.memtrace_task = asyncio.create_task(memtrace.sampler(60))
 
     asyncio.create_task(warm_ibtracs())
     asyncio.create_task(warm_preload())
@@ -205,11 +213,12 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(300)
         while True:
             try:
-                w = evict_old_wind_frames(max_age_hours=overlay_max_age_h)
-                p = evict_old_precip_frames(max_age_hours=overlay_max_age_h)
-                pr = evict_old_pressure_frames(max_age_hours=overlay_max_age_h)
-                m = evict_old_metar_files(max_age_hours=overlay_max_age_h)
-                s = evict_old_satellite_frames(max_age_hours=overlay_max_age_h)
+                with memtrace.span("overlay_evict"):
+                    w = evict_old_wind_frames(max_age_hours=overlay_max_age_h)
+                    p = evict_old_precip_frames(max_age_hours=overlay_max_age_h)
+                    pr = evict_old_pressure_frames(max_age_hours=overlay_max_age_h)
+                    m = evict_old_metar_files(max_age_hours=overlay_max_age_h)
+                    s = evict_old_satellite_frames(max_age_hours=overlay_max_age_h)
                 logger.info(
                     f"[OVERLAY EVICT] swept (>{overlay_max_age_h}h): "
                     f"wind={w} precip={p} pressure={pr} metar={m} satellite={s}"
@@ -234,7 +243,8 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(45)
         while True:
             try:
-                result = await refresh_current_season(app.state.http_client)
+                with memtrace.span("season_ingest"):
+                    result = await refresh_current_season(app.state.http_client)
                 logger.info(f"[SEASON] current-season ingest: {result}")
                 app.state.health["season_ingest"] = {"last_ok": time.time(), "detail": str(result)[:200]}
             except Exception as e:
@@ -248,7 +258,7 @@ async def lifespan(app: FastAPI):
 
     yield
     # --- SHUTDOWN: cancel background loops ---
-    for attr in ("dps_refresh_task", "overlay_evict_task", "season_ingest_task"):
+    for attr in ("dps_refresh_task", "overlay_evict_task", "season_ingest_task", "memtrace_task"):
         task = getattr(app.state, attr, None)
         if task is not None:
             task.cancel()
@@ -369,6 +379,18 @@ app.add_middleware(
 # to block obvious injection vectors, permissive enough not to break the
 # inline scripts the SPA already ships.
 @app.middleware("http")
+async def memtrace_requests(request: Request, call_next):
+    # Diagnostics: note in-flight paths for the per-minute memory sample and
+    # record any request that moves resident memory >= 25 MB or runs >= 5 s.
+    path = request.url.path[:80]
+    token = memtrace.request_started(path)
+    try:
+        return await call_next(request)
+    finally:
+        memtrace.request_finished(path, token)
+
+
+@app.middleware("http")
 async def security_headers(request: Request, call_next):
     response = await call_next(request)
     headers = response.headers
@@ -442,7 +464,7 @@ async def storage_health():
 
 
 @app.get("/health/memory")
-async def memory_health(deep: bool = False):
+async def memory_health(deep: bool = False, trim: bool = False):
     """Resident-memory diagnostics for the Railway cost audit (2026-07:
     memory is ~93% of the bill). Names what is actually holding RAM.
 
@@ -489,6 +511,14 @@ async def memory_health(deep: bool = False):
             lambda: round(len(_seo._INDEX_CACHE) / 1024, 1) if _seo._INDEX_CACHE else 0),
         "og_card.cards": _safe(lambda: len(__import__("og_card")._cache)),
     }
+
+    out["malloc"] = memtrace.malloc_stats()
+    out["trace"] = memtrace.snapshot()
+    if trim:
+        # Diagnostic: hand freed heap pages back to the OS and report the
+        # drop (see memtrace.trim). Cheap; safe to call at any time.
+        out["trim"] = memtrace.trim()
+        out["malloc_after_trim"] = memtrace.malloc_stats()
 
     if deep:
         import collections
