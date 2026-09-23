@@ -1047,8 +1047,17 @@ async def _refresh_active_storms(request: Request):
             logger.warning(f"[ACTIVE_STORMS] Background refresh failed: {e}, keeping stale cache")
 
 
+def _num(x) -> Optional[float]:
+    """float(x), or None for anything missing / non-numeric."""
+    try:
+        return float(x) if x is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _jtwc_designation(storm_id: str, lon: Optional[float]) -> Optional[str]:
     """JTWC's own name for a numbered system: 25W, 01B/01A, 12S/12P."""
+    lon = _num(lon)
     m = re.match(r"^(WP|IO|SH)(\d{2})\d{4}$", (storm_id or "").upper())
     if not m:
         return None
@@ -1096,35 +1105,74 @@ def present_active_storms(storms: list) -> list:
       homepage auto-loads row 0, which was feed order — Odalys (Cat 1, DPS
       14, open ocean) opened instead of Polo (Cat 4, DPS 85, off Mexico).
     """
-    from services.current_season_ingest import _is_number_name
+    # Presentation only, so it must never take the endpoint down: every
+    # step fails open to the raw feed row (a new feed row 500'd the whole
+    # list 2026-09-23 — the sidebar went empty and the homepage lost its
+    # auto-load).
+    try:
+        from services.current_season_ingest import _is_number_name
+    except Exception:  # pragma: no cover
+        _is_number_name = lambda _n: False  # noqa: E731
     out = []
-    for s in storms or []:
-        s = dict(s)
-        sid = str(s.get("id") or "")
-        name = str(s.get("name") or "").strip()
-        if not sid.upper().startswith(("AL", "EP", "CP")):
-            desig = _jtwc_designation(sid, s.get("lon"))
-            if desig and (not name or _is_number_name(name)):
-                name = desig
-            elif name.isupper():
-                name = name.title()
-        s["name"] = name or sid
-        lat, lon = s.get("lat"), s.get("lon")
+    for raw in storms or []:
+        s = dict(raw)
         try:
-            s["near_land"] = (_stall_near_land(float(lat), float(lon))
-                              if lat is not None and lon is not None else None)
+            sid = str(s.get("id") or "")
+            name = str(s.get("name") or "").strip()
+            if not sid.upper().startswith(("AL", "EP", "CP")):
+                desig = _jtwc_designation(sid, s.get("lon"))
+                if desig and (not name or _is_number_name(name)):
+                    name = desig
+                elif name.isupper():
+                    name = name.title()
+            s["name"] = name or sid or s.get("name")
+            lat, lon = _num(s.get("lat")), _num(s.get("lon"))
+            try:
+                s["near_land"] = (bool(_stall_near_land(lat, lon))
+                                  if lat is not None and lon is not None else None)
+            except Exception:
+                s["near_land"] = None
+            try:
+                dps = _active_dps(sid) if sid else None
+            except Exception:
+                dps = None
+            s["dps"] = round(dps, 1) if dps is not None else None
         except Exception:
-            s["near_land"] = None
-        try:
-            dps = _active_dps(sid) if sid else None
-        except Exception:
-            dps = None
-        s["dps"] = round(dps, 1) if dps is not None else None
+            logger.exception(f"[ACTIVE_STORMS] presenter failed on row {raw!r}")
+            s = dict(raw)
+            s["dps"] = None
         out.append(s)
     # Scored storms first (a missing score is a cold cache, not "harmless"),
     # then by score, then by wind. Stable, so ties keep feed order.
-    out.sort(key=lambda r: (r["dps"] is not None, r["dps"] or 0.0,
-                            r.get("intensity_knots") or 0.0), reverse=True)
+    try:
+        out.sort(key=lambda r: (_num(r.get("dps")) is not None, _num(r.get("dps")) or 0.0,
+                                _num(r.get("intensity_knots")) or 0.0), reverse=True)
+    except Exception:
+        logger.exception("[ACTIVE_STORMS] presenter sort failed")
+    return out
+
+
+def _active_summaries(storms: list) -> list:
+    """StormSummary rows for /storms/active. A row the presenter can't make
+    valid is served raw; a raw row that is itself invalid is dropped (logged)
+    rather than 500ing every storm in the list."""
+    try:
+        rows = present_active_storms(storms)
+    except Exception:
+        logger.exception("[ACTIVE_STORMS] presenter failed — serving raw feed")
+        rows = [dict(s) for s in storms or []]
+    raw_by_id = {str(s.get("id")): s for s in storms or [] if isinstance(s, dict)}
+    out = []
+    for r in rows:
+        try:
+            out.append(StormSummary(**r))
+            continue
+        except Exception:
+            logger.exception(f"[ACTIVE_STORMS] summary invalid after presenter: {r!r}")
+        try:
+            out.append(StormSummary(**raw_by_id.get(str(r.get("id")), {})))
+        except Exception:
+            logger.exception(f"[ACTIVE_STORMS] raw row invalid too, dropped: {r!r}")
     return out
 
 
@@ -1154,7 +1202,7 @@ async def list_active_storms(request: Request, response: Response):
     if (_active_storms_cache is not None and _active_storms_cache_time
             and (now - _active_storms_cache_time) < _ACTIVE_STORMS_TTL):
         logger.debug(f"[ACTIVE_STORMS] Fresh cache hit — {len(_active_storms_cache)} storms")
-        return [StormSummary(**s) for s in present_active_storms(_active_storms_cache)]
+        return _active_summaries(_active_storms_cache)
 
     # Stale cache exists? Return it immediately, refresh in background (non-blocking)
     if _active_storms_cache is not None:
@@ -1162,12 +1210,12 @@ async def list_active_storms(request: Request, response: Response):
         # Only kick off background refresh if not already refreshing
         if not _active_storms_lock.locked():
             asyncio.create_task(_refresh_active_storms(request))
-        return [StormSummary(**s) for s in present_active_storms(_active_storms_cache)]
+        return _active_summaries(_active_storms_cache)
 
     # Cold start: must wait for first fetch
     logger.info("[ACTIVE_STORMS] Cold start, fetching from NOAA")
     await _refresh_active_storms(request)
-    return [StormSummary(**s) for s in present_active_storms(_active_storms_cache)] if _active_storms_cache else []
+    return _active_summaries(_active_storms_cache) if _active_storms_cache else []
 
 
 @router.get("/storms/search", response_model=list[StormSummary])

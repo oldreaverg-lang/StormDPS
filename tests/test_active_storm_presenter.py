@@ -98,3 +98,28 @@ def test_scale_anchor_ids_are_scored_storms():
     assert [i for i in ids if i not in storms] == []
     scores = [storms[i]["dps"] for i in ids]
     assert scores == sorted(scores), "keep the list in ascending score order for readability"
+
+
+def test_malformed_rows_never_500():
+    # 2026-09-23: a new feed row 500'd /storms/active for every storm. Odd
+    # types must degrade per row, and an invalid row is dropped, not fatal.
+    from api.routes import _active_summaries
+    rows = [
+        _row("SH012027", "TWO", "-14.2", "65.3", intensity_knots="35"),    # numeric strings
+        dict(id="IO022026", name=None, classification="TS", lat=None, lon=None),
+        dict(id="WP262026", name="KONG", classification=None, lat=10.0, lon=130.0),  # invalid raw
+        _row("EP172026", "Polo", 15.6, -102.1, intensity_knots=125),
+    ]
+    rows_out = present_active_storms(rows)
+    assert len(rows_out) == 4
+    out = _active_summaries(rows)
+    ids = [s.id for s in out]
+    assert "EP172026" in ids and "SH012027" in ids and "IO022026" in ids
+    assert "WP262026" not in ids   # classification=None can't be a StormSummary
+
+
+def test_presenter_exception_serves_raw(monkeypatch):
+    import api.routes as r
+    monkeypatch.setattr(r, "present_active_storms", lambda s: (_ for _ in ()).throw(RuntimeError("boom")))
+    out = r._active_summaries([_row("EP172026", "Polo", 15.6, -102.1)])
+    assert [s.name for s in out] == ["Polo"]
