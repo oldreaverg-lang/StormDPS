@@ -81,19 +81,56 @@ def test_open_ocean_reference_waypoints_are_not_coastline():
     assert lf["nearest_name"] is None or "reference" not in lf["nearest_name"].lower()
 
 
-def test_east_pacific_gap_reports_no_coverage_not_offshore():
-    # EP track toward Manzanillo: inside the bounding box (via the Baja
-    # waypoints) but mainland Pacific Mexico has no coastline waypoints —
-    # must report missing coverage, not a false "stays offshore".
+def test_east_pacific_mainland_landfall_detected():
+    # EP track toward Manzanillo. The waypoint DB has no mainland Pacific
+    # Mexico points (it once reported "no coverage" here, and a Mazatlan-bound
+    # track within 500 km of Baja read "stays offshore"); the core.pacific_coast
+    # supplement now gives a real forecast landfall.
     track = [
         _pt(0, 14.0, -100.0, 80),
         _pt(24, 16.5, -103.0, 90),
         _pt(48, 19.0, -104.5, 95),
     ]
     lf = compute_forecast_landfall(track)
+    assert lf["coverage"] is True
+    assert lf["expected"] is True
+    assert lf["nearest_name"].split(",")[0] in ("Manzanillo", "Barra de Navidad", "Maruata")
+
+
+def test_mazatlan_track_is_landfall_not_offshore():
+    track = [
+        _pt(0, 18.5, -107.0, 90),
+        _pt(24, 21.0, -106.8, 95),
+        _pt(48, 23.3, -106.3, 80),
+    ]
+    lf = compute_forecast_landfall(track)
+    assert lf["expected"] is True
+    assert lf["nearest_name"] in ("Mazatlan, Mexico", "Teacapan, Mexico")
+
+
+def test_east_pacific_far_offshore_is_still_no_coverage():
+    # Mid-EP fish storm >500 km from every coast: "no coastline data" framing
+    # (the zone-approach fallback), never a confident "stays offshore".
+    track = [
+        _pt(0, 15.0, -125.0, 80),
+        _pt(48, 17.0, -130.0, 70),
+    ]
+    lf = compute_forecast_landfall(track)
     assert lf["coverage"] is False
     assert lf["expected"] is False
     assert lf["description"] == ""
+
+
+def test_hawaii_close_approach_names_island_coast():
+    track = [
+        _pt(0, 15.0, -150.0, 70),
+        _pt(48, 17.8, -155.5, 70),
+        _pt(96, 18.5, -161.0, 60),
+    ]
+    lf = compute_forecast_landfall(track)
+    assert lf["coverage"] is True
+    assert lf["min_distance_km"] < 300
+    assert lf["nearest_name"].endswith(", HI")
 
 
 def test_offshore_closest_approach_names_real_coast():

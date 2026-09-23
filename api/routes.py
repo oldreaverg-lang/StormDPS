@@ -1062,6 +1062,28 @@ def _jtwc_designation(storm_id: str, lon: Optional[float]) -> Optional[str]:
     return f"{num}{suffix}"
 
 
+# (path, mtime) -> dps, so the hot /storms/active path parses each live DPS
+# bundle once per hourly recompute rather than once per request.
+_ACTIVE_DPS_MEMO: dict = {}
+
+
+def _active_dps(storm_id: str) -> Optional[float]:
+    """The live storm's hero DPS from the warm-loop cache (None if not cached)."""
+    for sid in dict.fromkeys((storm_id, storm_id.upper(), storm_id.lower())):
+        fp = _dps_cache_path(sid)
+        try:
+            key = (str(fp), fp.stat().st_mtime)
+        except OSError:
+            continue
+        if key not in _ACTIVE_DPS_MEMO:
+            bundle = _load_dps_cache(sid) or {}
+            dps = bundle.get("dps")
+            _ACTIVE_DPS_MEMO[key] = float(dps) if isinstance(dps, (int, float)) else None
+        if _ACTIVE_DPS_MEMO[key] is not None:
+            return _ACTIVE_DPS_MEMO[key]
+    return None
+
+
 def present_active_storms(storms: list) -> list:
     """Display-ready copies of the active-storm feed rows.
 
@@ -1070,6 +1092,9 @@ def present_active_storms(storms: list) -> list:
       JTWC's designation ("01B"). NHC names ("Fifteen-E") pass through.
     - near_land: same coastline test as the forecast stall banner, so the
       sidebar's STALL badge can't fire for a storm over open ocean.
+    - dps + ORDER: most destructive first (cached live DPS, then wind). The
+      homepage auto-loads row 0, which was feed order — Odalys (Cat 1, DPS
+      14, open ocean) opened instead of Polo (Cat 4, DPS 85, off Mexico).
     """
     from services.current_season_ingest import _is_number_name
     out = []
@@ -1090,7 +1115,16 @@ def present_active_storms(storms: list) -> list:
                               if lat is not None and lon is not None else None)
         except Exception:
             s["near_land"] = None
+        try:
+            dps = _active_dps(sid) if sid else None
+        except Exception:
+            dps = None
+        s["dps"] = round(dps, 1) if dps is not None else None
         out.append(s)
+    # Scored storms first (a missing score is a cold cache, not "harmless"),
+    # then by score, then by wind. Stable, so ties keep feed order.
+    out.sort(key=lambda r: (r["dps"] is not None, r["dps"] or 0.0,
+                            r.get("intensity_knots") or 0.0), reverse=True)
     return out
 
 
@@ -1459,42 +1493,10 @@ _STALL_COAST_DATA_KM = 500.0
 # A stall this long earns the "Harvey-like" label (Harvey sat ~4 days).
 _HARVEY_STALL_HOURS = 48.0
 
-# Coastline points for the Pacific coasts the shared waypoint DB lacks — it has
-# only two Baja points on the Pacific side of the Americas and none in Hawaii.
-# Used ONLY by the stall banner: that DB also feeds DPS scoring and must not be
-# extended casually (see core/landfall_forecast.py). ~100-150 km spacing.
-_STALL_PACIFIC_COAST = (
-    # Mainland Pacific Mexico, Chiapas -> Sonora
-    (14.70, -92.40, "Puerto Chiapas"), (15.94, -93.81, "Puerto Arista"),
-    (16.17, -95.20, "Salina Cruz"), (15.75, -96.13, "Huatulco"),
-    (15.86, -97.07, "Puerto Escondido"), (16.33, -98.57, "Punta Maldonado"),
-    (16.85, -99.88, "Acapulco"), (17.27, -101.05, "Papanoa"),
-    (17.64, -101.55, "Zihuatanejo"), (17.96, -102.20, "Lazaro Cardenas"),
-    (18.27, -103.35, "Maruata"), (19.05, -104.32, "Manzanillo"),
-    (19.21, -104.68, "Barra de Navidad"), (19.55, -105.10, "Chamela"),
-    (20.40, -105.70, "Cabo Corrientes"), (20.62, -105.23, "Puerto Vallarta"),
-    (21.54, -105.29, "San Blas"), (22.54, -105.75, "Teacapan"),
-    (23.22, -106.42, "Mazatlan"), (24.63, -107.93, "Altata"),
-    (25.60, -109.05, "Topolobampo"), (27.92, -110.90, "Guaymas"),
-    # Baja California
-    (22.89, -109.91, "Cabo San Lucas"), (23.06, -109.70, "San Jose del Cabo"),
-    (23.45, -110.22, "Todos Santos"), (24.14, -110.31, "La Paz"),
-    (24.79, -112.11, "Puerto San Carlos"), (26.01, -111.35, "Loreto"),
-    (27.34, -112.27, "Santa Rosalia"), (27.97, -114.05, "Guerrero Negro"),
-    (31.86, -116.62, "Ensenada"),
-    # Central America, Pacific side
-    (14.29, -91.91, "Champerico"), (13.92, -90.82, "Puerto San Jose"),
-    (13.59, -89.83, "Acajutla"), (13.49, -89.32, "La Libertad"),
-    (13.33, -87.84, "La Union"), (13.42, -87.45, "San Lorenzo"),
-    (12.48, -87.17, "Corinto"), (11.25, -85.87, "San Juan del Sur"),
-    (10.30, -85.84, "Tamarindo"), (9.98, -84.83, "Puntarenas"),
-    (9.43, -84.16, "Quepos"), (8.64, -83.18, "Golfito"),
-    (8.37, -82.43, "Pedregal"), (8.95, -79.53, "Panama City"),
-    # Hawaii
-    (21.31, -157.86, "Honolulu"), (21.09, -157.02, "Kaunakakai"),
-    (20.89, -156.47, "Kahului"), (19.64, -155.99, "Kailua-Kona"),
-    (19.72, -155.08, "Hilo"), (21.98, -159.37, "Lihue"),
-)
+# Coastline points for the Pacific coasts the shared waypoint DB lacks (it
+# feeds DPS scoring, so these live in core/pacific_coast.py and supplement it
+# only in presentation paths: this stall banner and the landfall estimate).
+from core.pacific_coast import PACIFIC_COAST_POINTS as _STALL_PACIFIC_COAST  # noqa: E402
 
 
 def _stall_near_land(lat: float, lon: float) -> bool:

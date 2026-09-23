@@ -69,3 +69,32 @@ def test_storms_index_uses_lifetime_category():
         if rows.get(sid) != want:
             wrong.append((sid, s.get("name"), rows.get(sid), want))
     assert not wrong, wrong[:10]
+
+
+def test_most_destructive_first(monkeypatch):
+    # Homepage auto-loads row 0: it opened Odalys (DPS 14) over Polo (DPS 85).
+    import api.routes as r
+    scores = {"EP162026": 14.4, "EP172026": 85.4, "EP152026": None}
+    monkeypatch.setattr(r, "_active_dps", lambda sid: scores.get(sid.upper()))
+    rows = present_active_storms([
+        _row("ep162026", "Odalys", 16.0, -127.9, intensity_knots=65),
+        _row("ep172026", "Polo", 15.6, -102.1, intensity_knots=125),
+        _row("ep152026", "Fifteen-E", 14.5, -154.4, intensity_knots=30),
+        _row("WP252026", "SURIGAE", 16.5, 137.6, intensity_knots=45),
+    ])
+    assert [x["name"] for x in rows] == ["Polo", "Odalys", "Surigae", "Fifteen-E"]
+    assert rows[0]["dps"] == 85.4 and rows[2]["dps"] is None
+
+
+def test_scale_anchor_ids_are_scored_storms():
+    # The "for scale" chips (frontend SCALE_ANCHORS) read scores from the
+    # compiled bundle; an id that drops out of a rebake would silently vanish.
+    import json
+    html = (ROOT / "frontend" / "index.html").read_text(encoding="utf-8")
+    block = re.search(r"const SCALE_ANCHORS = \[(.*?)\];", html, re.S).group(1)
+    ids = re.findall(r"'([A-Z]{2}\d{6})'", block)
+    storms = json.loads((ROOT / "frontend" / "compiled_bundle.json").read_text(encoding="utf-8"))["storms"]
+    assert len(ids) >= 15
+    assert [i for i in ids if i not in storms] == []
+    scores = [storms[i]["dps"] for i in ids]
+    assert scores == sorted(scores), "keep the list in ascending score order for readability"

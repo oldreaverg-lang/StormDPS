@@ -75,11 +75,12 @@ MIN_FWD_SPEED_KT = 4.0
 # "stays offshore".
 COVERAGE_MARGIN_DEG = 5.0
 
-# East-Pacific gap: the bounding box admits EP tracks (via the Baja
-# waypoints) but mainland Pacific Mexico / Central America have no coastline
-# waypoints, so "stays offshore" would be a misreport there. A closest
+# East-Pacific gap: the waypoint DB has only two Baja points on the Pacific
+# side of the Americas, so this estimator supplements it with
+# core.pacific_coast (mainland Pacific Mexico, Baja, Central America, Hawaii)
+# — the DB itself feeds DPS scoring and is not extended here. A closest
 # approach beyond COASTAL_GAP_KM on the Pacific side (west of
-# PACIFIC_GAP_LON) means "no coastline data", not "offshore".
+# PACIFIC_GAP_LON) is still reported as "no coastline data", not "offshore".
 COASTAL_GAP_KM = 500.0
 PACIFIC_GAP_LON = -85.0
 
@@ -211,7 +212,14 @@ def compute_forecast_landfall(forecast_track) -> dict:
     # box (± margin) is in a basin we have no coastline data for. Say so
     # instead of misreporting a WP/IO/SH storm as "offshore".
     db = _get_coastline_db()
-    wps = db.waypoints
+    wps = list(db.waypoints)
+    try:
+        from core.land_proximity import CoastlineWaypoint
+        from core.pacific_coast import PACIFIC_COAST_POINTS
+        wps += [CoastlineWaypoint(la, lo, "pacific_coast", 0.0, nm)
+                for la, lo, nm in PACIFIC_COAST_POINTS]
+    except Exception as e:  # pragma: no cover — supplement is best-effort
+        logger.warning(f"[landfall] Pacific coast supplement unavailable: {e}")
     coastal = [w for w in wps if w.region_key != "open_ocean"]
     if not wps or not coastal:
         return base
