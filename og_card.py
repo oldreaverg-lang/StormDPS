@@ -44,20 +44,10 @@ def _band(dps: float):
 
 
 def _storm_type(category, basin_name: str) -> str:
-    b = (basin_name or "").lower()
-    try:
-        cat = int(category)
-    except (TypeError, ValueError):
-        cat = 0
-    if cat < 1:
-        return "Tropical Storm"
-    if "atlantic" in b or "pacific" in b and "west" not in b:
-        return "Hurricane"
-    if "west" in b:  # Western Pacific
-        return "Typhoon"
-    if "indian" in b or "south" in b:
-        return "Cyclone"
-    return "Hurricane"
+    # Same word the page title uses (the old local copy called South
+    # Pacific storms "Hurricane" via an and/or precedence slip).
+    from seo import storm_type_word
+    return storm_type_word(category, basin_name)
 
 
 def _truncate(draw, text, font, max_w):
@@ -118,7 +108,7 @@ def render_storm_card_png(storm_id: str, storm: dict) -> Optional[bytes]:
         d.text((pad, 132), _truncate(d, title, font(True, 78), W - 2 * pad), font=font(True, 78), fill=_FG)
 
         # Subline: type · basin · category
-        cat = storm.get("category")
+        cat = storm.get("category_lifetime") or storm.get("category")  # as the page title
         basin = storm.get("basin_name") or ""
         parts = [_storm_type(cat, basin)]
         if basin:

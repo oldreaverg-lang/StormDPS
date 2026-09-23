@@ -425,10 +425,8 @@ def _build_storm_summary_html(storm_id: str, storm: dict, canonical: str) -> str
     year_str = f" ({year})" if year else ""
     dps_str = f"{dps:.0f}" if isinstance(dps, (int, float)) else "—"
 
-    # Headline: "Hurricane Katrina (2005)"
-    head_word = "Hurricane" if (isinstance(cat, int) and cat >= 1) else "Storm"
-    if basin_name and "Pacific" in basin_name and isinstance(cat, int) and cat >= 1:
-        head_word = "Typhoon" if "West" in basin_name else "Hurricane"
+    # Headline: "Hurricane Katrina (2005)" / "Typhoon Yagi (2024)"
+    head_word = storm_type_word(cat, basin_name)
     headline = f"{head_word} {name_e}{html.escape(year_str)}"
 
     # Subhead: category + basin
@@ -556,6 +554,26 @@ def _build_storm_summary_html(storm_id: str, storm: dict, canonical: str) -> str
     )
 
 
+def storm_type_word(cat, basin_name: str) -> str:
+    """What the storm is called where it formed: Typhoon (West Pacific),
+    Cyclone (Indian Ocean and South Pacific — every named storm there is a
+    tropical cyclone), Hurricane elsewhere; Tropical Storm below Cat 1
+    outside the cyclone basins. Handles both basin spellings ("Western
+    Pacific" from the bundle, "West Pacific" from the catalog fallback)."""
+    b = (basin_name or "").lower()
+    try:
+        cat = int(cat)
+    except (TypeError, ValueError):
+        cat = 0
+    if "indian" in b or "south pacific" in b:
+        return "Cyclone"
+    if cat < 1:
+        return "Tropical Storm"
+    if "west" in b and "pacific" in b:
+        return "Typhoon"
+    return "Hurricane"
+
+
 def _category_word(cat: Optional[int]) -> str:
     if not isinstance(cat, int) or cat < 1:
         return "Tropical Storm"
@@ -607,8 +625,9 @@ def _storm_article_jsonld(storm_id: str, storm: dict, canonical: str) -> str:
         pieces.append(f"minimum pressure {round(min_pressure)} hPa")
     if basin_name:
         pieces.append(f"in the {basin_name}")
+    head = storm_type_word(cat, basin_name)
     headline = (
-        f"Hurricane {name} ({year}) — DPS {dps_str}/100"
+        f"{head} {name} ({year}) — DPS {dps_str}/100"
         if year and dps_str != "—"
         else f"Storm {name} — StormDPS profile"
     )
@@ -630,7 +649,7 @@ def _storm_article_jsonld(storm_id: str, storm: dict, canonical: str) -> str:
         },
         "about": {
             "@type": "Event",
-            "name": f"Hurricane {name}" if year is None else f"Hurricane {name} ({year})",
+            "name": f"{head} {name}" if year is None else f"{head} {name} ({year})",
         },
         "mainEntityOfPage": canonical,
         "image": f"{_BASE_URL}/frontend/logo-512.png",
@@ -663,26 +682,24 @@ def render_storm_page(storm_id: str) -> str:
         dps_str = f"{dps:.0f}" if isinstance(dps, (int, float)) else "—"
         year_str = f" ({year})" if year else ""
         cat_str = _category_word(cat) if cat else ""
+        basin_name = storm.get("basin_name") or ""
+        head = storm_type_word(cat, basin_name)
         if isinstance(dps, (int, float)):
             title = (
-                f"Hurricane {name}{year_str} — DPS {dps_str}/100 "
-                f"{('· ' + cat_str) if cat_str else ''}| StormDPS"
+                f"{head} {name}{year_str} — DPS {dps_str}/100 "
+                f"{('· ' + cat_str + ' ') if cat_str else ''}| StormDPS"
             ).strip()
             description = (
-                f"Hurricane {name}{year_str} scored {dps_str}/100 on the "
+                f"{head} {name}{year_str} scored {dps_str}/100 on the "
                 f"Destructive Power Score scale"
                 + (f" ({label})" if label else "")
                 + ". A modern alternative to Saffir-Simpson that accounts for "
                 "storm size, surge potential, duration, and geographic reach."
             )
-            og_title = f"Hurricane {name}{year_str} — DPS {dps_str}/100"
+            og_title = f"{head} {name}{year_str} — DPS {dps_str}/100"
         else:
             # Catalog-fallback storm (e.g. current-season, no compiled score
             # yet): render an honest no-score title rather than "DPS —/100".
-            basin_name = storm.get("basin_name") or ""
-            head = "Hurricane" if (isinstance(cat, int) and cat >= 1) else "Tropical Storm"
-            if basin_name == "West Pacific" and isinstance(cat, int) and cat >= 1:
-                head = "Typhoon"
             title = f"{head} {name}{year_str} — Destructive Power Score & Track | StormDPS"
             description = (
                 f"Track, intensity, and Destructive Power Score analysis for "
