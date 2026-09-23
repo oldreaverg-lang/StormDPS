@@ -175,6 +175,15 @@ def _lookup_catalog_fallback(storm_id: str) -> Optional[dict]:
     return None
 
 
+def _is_bundle_key(storm_id: str) -> bool:
+    """True when the compiled bundle carries this id as a key (same
+    case-variants lookup_storm tries) — i.e. it's the storm's own record,
+    not a catalog-fallback alias."""
+    bundle = _read_compiled_bundle()
+    storms = bundle.get("storms", {}) if isinstance(bundle, dict) else {}
+    return any(k in storms for k in (storm_id, storm_id.upper(), storm_id.lower()))
+
+
 def lookup_storm(storm_id: str) -> Optional[dict]:
     """Look up a storm by ATCF ID (e.g. AL122005) or IBTrACS SID."""
     if not storm_id:
@@ -746,8 +755,12 @@ def render_storm_page(storm_id: str) -> str:
     # If this URL uses an IBTrACS SID rather than an ATCF ID, tell crawlers
     # not to index it. Both URLs serve the same content; the ATCF version
     # should be the indexed canonical one (it's what the sitemap lists).
+    # Exception: storms the bundle is keyed BY SID (non-NHC basins with no
+    # ATCF id in our data). There the SID page is the scored record and the
+    # sitemap lists it; the ATCF alias only resolves to the no-score
+    # catalog fallback — noindexing the SID would hide the storm entirely.
     robots_tag = ""
-    if _RE_IBTRACS_SID.match(safe_id):
+    if _RE_IBTRACS_SID.match(safe_id) and not _is_bundle_key(safe_id):
         robots_tag = '<meta name="robots" content="noindex,follow">'
 
     # When the storm is in the bundle we also have a visible SSR card to
