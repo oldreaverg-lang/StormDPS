@@ -793,7 +793,7 @@
         </div>
         <div id="statsRow" class="stats-row">
             <div class="stat-card dps-hero-card" id="dpsHeroCard" style="border-color:var(--primary)">
-                <div class="stat-label dps-label" style="font-size:.75rem;letter-spacing:.1em"><span class="label-full">DESTRUCTIVE POWER SCORE</span><span class="label-short">DPS</span><span class="tip" data-tip="DPS: A 0-100 hurricane threat score combining storm intensity, wind field size, surge potential, duration of coastal exposure, and geographic breadth. A modern alternative to the Saffir-Simpson scale — it captures what peak wind alone misses.">?</span></div>
+                <div class="stat-label dps-label" style="font-size:.75rem;letter-spacing:.1em"><span class="label-full">DESTRUCTIVE POWER SCORE</span><span class="label-short">DPS</span><span id="dpsSoFar"></span><span class="tip" data-tip="DPS: A 0-100 hurricane threat score combining storm intensity, wind field size, surge potential, duration of coastal exposure, and geographic breadth. A modern alternative to the Saffir-Simpson scale — it captures what peak wind alone misses.">?</span></div>
                 <div class="dps-trend-wrap"><div class="stat-value" id="statHeroDPS" style="color:var(--text-main)">-</div><div class="dps-trend" id="dpsTrendIndicator"></div></div>
                 <div class="stat-sub" id="statHeroDPSLabel" style="font-size:.78rem;opacity:.8">-</div>
                 <!-- Dominant-hazard headline — Analyst mode only (CSS-gated). Tells
@@ -1879,13 +1879,18 @@ function intensityErrorKt(hour, basin) {
     }
     return tbl[tbl.length - 1][1];
 }
-// Recompute the projected PEAK DPS at the forecast peak intensity ± the official
-// intensity error, holding storm size/motion at their latest observed values
-// (forecasts publish position + intensity, not wind radii). The low end is
-// floored at the DPS already realized — what's happened can't un-happen.
-function computeForecastDpsBand(forecastTrack) {
-    var obs = window.stormData;
-    if (!Array.isArray(forecastTrack) || !forecastTrack.length || !obs || !obs.length) return null;
+// DPS at a forecast fix, on the SAME scale as the displayed score.
+// calculateDPS is the client formula; a live storm's displayed series comes
+// from the server's unified engine (RI bonus, exposure terms, ...), and the two
+// can sit far apart for the same fix — Odalys 2026: server 15, client 28 at
+// 65 kt, so "Projected peak DPS 29–34" read as a doubling that was pure formula
+// mismatch. So evaluate the client formula at the CURRENT fix with the same
+// held inputs, and carry only the forecast-implied CHANGE onto the observed
+// score. Storm size/motion are held at their latest observed values (forecasts
+// publish position + intensity, not wind radii); the pressure deficit scales
+// with wind² to keep intensity self-consistent.
+function _forecastDpsModel(obs) {
+    if (!obs || !obs.length) return null;
     var tmpl = null, curR34 = 0, curR64 = 0, curFwd = 0;
     for (var i = obs.length - 1; i >= 0; i--) { if (obs[i] && obs[i].max_wind_ms) { tmpl = obs[i]; break; } }
     if (!tmpl) return null;
@@ -1894,6 +1899,28 @@ function computeForecastDpsBand(forecastTrack) {
     for (var i = obs.length - 1; i >= 0; i--) { if (obs[i] && obs[i].forward_speed_knots) { curFwd = obs[i].forward_speed_knots; break; } }
     var curWkt = tmpl.max_wind_ms / 0.514444;
     var curDp = Math.max(0, 1013 - (tmpl.min_pressure_hpa || 1013));
+    function raw(lat, lon, wkt) {
+        var dp = curWkt > 0 ? curDp * Math.pow(wkt / curWkt, 2) : curDp;
+        var r = calculateDPS({ lat: lat, lon: lon, max_wind_ms: wkt * 0.514444,
+            r34_nm: curR34, r64_nm: curR64, forward_speed_knots: curFwd,
+            min_pressure_hpa: 1013 - dp });
+        return (r && r.score) || 0;
+    }
+    var nowObs = tmpl.dps && typeof tmpl.dps.score === 'number' ? tmpl.dps.score : null;
+    var offset = (nowObs != null && tmpl.lat != null && tmpl.lon != null)
+        ? nowObs - raw(tmpl.lat, tmpl.lon, curWkt) : 0;
+    return {
+        at: function (lat, lon, wkt) { return Math.max(0, Math.min(100, raw(lat, lon, wkt) + offset)); }
+    };
+}
+// Projected PEAK DPS at the forecast peak intensity ± the official intensity
+// error (_forecastDpsModel: anchored to the observed score). The low end is
+// floored at the DPS already realized — what's happened can't un-happen.
+function computeForecastDpsBand(forecastTrack) {
+    var obs = window.stormData;
+    if (!Array.isArray(forecastTrack) || !forecastTrack.length || !obs || !obs.length) return null;
+    var model = _forecastDpsModel(obs);
+    if (!model) return null;
     var obsPeak = 0;
     obs.forEach(function (d) { var s = (d.dps && d.dps.score) || 0; if (s > obsPeak) obsPeak = s; });
     // Forecast peak fix (max wind, ≥ TS-force). Skip hour 0 — that's the current
@@ -1904,16 +1931,7 @@ function computeForecastDpsBand(forecastTrack) {
     var basin = 'ATLANTIC';
     try { if (window.BasinDPS) basin = window.BasinDPS.detectBasin(pk.lat, pk.lon); } catch (e) {}
     var err = intensityErrorKt(pk.hour, basin);
-    function dpsAt(wkt) {
-        // Scale the pressure deficit with wind² to keep intensity self-consistent.
-        var dp = curWkt > 0 ? curDp * Math.pow(wkt / curWkt, 2) : curDp;
-        var r = calculateDPS({
-            lat: pk.lat, lon: pk.lon, max_wind_ms: wkt * 0.514444,
-            r34_nm: curR34, r64_nm: curR64, forward_speed_knots: curFwd,
-            min_pressure_hpa: 1013 - dp
-        });
-        return (r && r.score) || 0;
-    }
+    function dpsAt(wkt) { return model.at(pk.lat, pk.lon, wkt); }
     return {
         central: Math.round(Math.max(obsPeak, dpsAt(pk.max_wind_kt))),
         low:     Math.round(Math.max(obsPeak, dpsAt(Math.max(34, pk.max_wind_kt - err)))),
@@ -1937,7 +1955,7 @@ function renderForecastDpsBand(band) {
         (ri ? '<br><span style="color:#c4281c;font-weight:800">▲▲ Rapid intensification in progress' +
               (window._latestTrend.riGain ? ' (+' + window._latestTrend.riGain + ' kt/24h)' : '') +
               '</span><span style="color:#c4281c"> — RI storms can strengthen faster than forecast</span>' : '');
-    el.title = 'Forecast-uncertainty range for this storm’s PEAK DPS: the model recomputed at the forecast peak intensity ± the official mean intensity-forecast error for the basin (' + band.err + ' kt at +' + band.hour + 'h), with storm size and motion held at current values. The low end is floored at the DPS already realized. Indicative, not a probabilistic interval.' +
+    el.title = 'Forecast-uncertainty range for this storm’s PEAK DPS: the change in DPS implied by the forecast peak intensity ± the official mean intensity-forecast error for the basin (' + band.err + ' kt at +' + band.hour + 'h), added to the current score, with storm size and motion held at current values. The low end is floored at the DPS already realized. Indicative, not a probabilistic interval.' +
         (ri ? ' Rapid intensification (≥30 kt gain in 24 h, NHC definition) is under way; RI events historically verify above the mean intensity forecast more often than below it. Defer to official NHC forecasts and local emergency management.' : '');
 }
 // Safety net: StormDPS is not an emergency authority and must never render a
@@ -2704,7 +2722,10 @@ function computeForecastERS(forecastTrack, useNRI) {
     if (pts.length === 0) return null;
     let best = null;
     const consider = (ers, weight, hour, time, lat, lon, wkt, inCone) => {
-        if (!ers) return;
+        // The open-ocean floor (covered:false, "Open Ocean / Uncharted") is
+        // not a zone the track reaches — counting it produced "Coastal
+        // approach in ~2 h" for Odalys 2026, 1,100 km from land.
+        if (!ers || ers.covered === false || !ers.zone) return;
         const w = Math.round(ers.score * weight);
         if (w > 0 && (!best || w > best.score)) {
             // Re-band from the WEIGHTED score — a halved cone-edge score can
@@ -2779,12 +2800,8 @@ function displayForecastERS(fcErs) {
 function computeLandfallDps(forecastTrack, etaHour) {
     var obs = window.stormData;
     if (!Array.isArray(forecastTrack) || !forecastTrack.length || !obs || !obs.length) return null;
-    var tmpl = null, curR34 = 0, curR64 = 0, curFwd = 0;
-    for (var i = obs.length - 1; i >= 0; i--) { if (obs[i] && obs[i].max_wind_ms) { tmpl = obs[i]; break; } }
-    if (!tmpl) return null;
-    for (var i = obs.length - 1; i >= 0; i--) { if (obs[i] && obs[i].r34_nm) { curR34 = obs[i].r34_nm; break; } }
-    for (var i = obs.length - 1; i >= 0; i--) { if (obs[i] && obs[i].r64_nm) { curR64 = obs[i].r64_nm; break; } }
-    for (var i = obs.length - 1; i >= 0; i--) { if (obs[i] && obs[i].forward_speed_knots) { curFwd = obs[i].forward_speed_knots; break; } }
+    var model = _forecastDpsModel(obs);
+    if (!model) return null;
     var pts = forecastTrack.filter(function (p) { return p && p.lat != null && p.lon != null; });
     if (pts.length < 2) return null;
     // Interpolate the forecast position + intensity at the landfall hour.
@@ -2801,18 +2818,10 @@ function computeLandfallDps(forecastTrack, etaHour) {
         break;
     }
     if (lat == null || !wkt) return null;
-    var curWkt = tmpl.max_wind_ms / 0.514444;
-    var curDp = Math.max(0, 1013 - (tmpl.min_pressure_hpa || 1013));
     var basin = 'ATLANTIC';
     try { if (window.BasinDPS) basin = window.BasinDPS.detectBasin(lat, lon); } catch (e) {}
     var err = intensityErrorKt(etaHour, basin);
-    function dpsAt(w) {
-        var dp = curWkt > 0 ? curDp * Math.pow(w / curWkt, 2) : curDp;
-        var r = calculateDPS({ lat: lat, lon: lon, max_wind_ms: w * 0.514444,
-            r34_nm: curR34, r64_nm: curR64, forward_speed_knots: curFwd,
-            min_pressure_hpa: 1013 - dp });
-        return (r && r.score) || 0;
-    }
+    function dpsAt(w) { return model.at(lat, lon, w); }
     return {
         central: Math.round(dpsAt(wkt)),
         low: Math.round(dpsAt(Math.max(20, wkt - err))),
@@ -2840,6 +2849,15 @@ function _nearestFixLabel(forecastTrack, hour) {
     } catch (e) { return ''; }
 }
 
+// Forecast hours count from the advisory's valid time (tau 0), which is often
+// several hours old when the page renders. Convert to hours from NOW so a
+// countdown never names a moment that has already passed.
+function _hoursFromNow(fc, hour) {
+    var t0 = Date.parse(fc && fc.valid_time_utc);
+    if (isNaN(t0)) return hour;
+    return Math.round((t0 + hour * 3600e3 - Date.now()) / 3600e3);
+}
+
 // Out-of-coverage fallback (WP/IO/SH): the server's coastline estimator has
 // no waypoints outside the Atlantic basin, so it reports coverage:false
 // rather than a fake "offshore". Here the GLOBAL economic-zone machinery
@@ -2862,9 +2880,11 @@ function renderZoneApproachPanel(fc) {
                      ' (intensity ±' + d.err + ' kt).';
         }
     } catch (e) {}
-    scoreEl.textContent = 'Coastal approach in ~' + ers.hour + ' h —';
-    var body = 'The forecast track reaches the ' + (ers.zone || 'coastal') + ' economic-risk zone around +' +
-        ers.hour + ' h' + _nearestFixLabel(fc.forecast_track, ers.hour) + '.' + dpsTxt +
+    var inH = _hoursFromNow(fc, ers.hour);
+    var when = inH > 0 ? 'in ~' + inH + ' h' : 'now';
+    scoreEl.textContent = 'Coastal approach ' + when + ' —';
+    var body = 'The forecast track reaches the ' + (ers.zone || 'coastal') + ' economic-risk zone ' +
+        (inH > 0 ? when : 'about now') + _nearestFixLabel(fc.forecast_track, ers.hour) + '.' + dpsTxt +
         ' Zone risk ' + ers.score + '/100' + (ers.label ? ' (' + ers.label + ')' : '') +
         (ers.in_cone_edge ? ', with the zone inside the forecast cone off the centerline' : '') +
         '. Timing reflects the risk-zone boundary, not the shoreline.' +
@@ -2889,14 +2909,18 @@ function renderLandfallPanel(fc, sid) {
     var textEl = document.getElementById('landfallBarText');
     if (!scoreEl || !textEl) return;
 
-    // When: relative hours from the latest advisory + the nearest forecast
-    // fix's advisory-sourced time label (present for both NHC and JTWC).
-    var whenRel = lf.eta_hour <= 0 ? 'now' : 'in ~' + lf.eta_hour + ' h';
+    // When: hours from NOW (the advisory's hours are counted from its valid
+    // time) + the nearest forecast fix's advisory-sourced time label (present
+    // for both NHC and JTWC).
+    var etaNow = _hoursFromNow(fc, lf.eta_hour);
+    var whenRel = etaNow <= 0 ? 'now' : 'in ~' + etaNow + ' h';
     var fixLabel = _nearestFixLabel(fc.forecast_track, lf.eta_hour);
 
     var where = lf.nearest_name ? ' near ' + lf.nearest_name : '';
-    var windowTxt = (lf.eta_hour > 0 && lf.window_start_hour != null && lf.window_end_hour > lf.window_start_hour)
-        ? ' Arrival window +' + lf.window_start_hour + ' to +' + lf.window_end_hour + ' h, from the official track-error cone.'
+    var winStart = lf.window_start_hour != null ? Math.max(0, _hoursFromNow(fc, lf.window_start_hour)) : null;
+    var winEnd = lf.window_end_hour != null ? _hoursFromNow(fc, lf.window_end_hour) : null;
+    var windowTxt = (etaNow > 0 && winStart != null && winEnd > winStart)
+        ? ' Arrival window ' + (winStart > 0 ? 'in ' + winStart : 'now') + ' to ' + winEnd + ' h, from the official track-error cone.'
         : '';
 
     // How hard: DPS evaluated at the landfall hour (band methodology).
@@ -2920,8 +2944,8 @@ function renderLandfallPanel(fc, sid) {
         if (ers && ers.score) ersTxt = ' Economic-risk zone: ' + (ers.zone || 'coastal') + ' — ' + (ers.label ? ers.label + ' ' : '') + '(' + ers.score + '/100).';
     } catch (e) {}
 
-    scoreEl.textContent = lf.eta_hour <= 0 ? 'Landfall —' : 'Landfall ' + whenRel + ' —';
-    var body = (lf.eta_hour <= 0
+    scoreEl.textContent = etaNow <= 0 ? 'Landfall —' : 'Landfall ' + whenRel + ' —';
+    var body = (etaNow <= 0
         ? 'The forecast center is at or near the coast' + where + ' now.'
         : 'The forecast track brings the center to the coast' + where + ' ' + whenRel + fixLabel + '.' + windowTxt)
         + dpsTxt + ersTxt + ' Timing and location shift with each advisory — see official NHC/JTWC forecasts.';
@@ -2935,9 +2959,9 @@ function renderLandfallPanel(fc, sid) {
     }
     // Storm-card ETA slot (short form) + refresh the card so it shows now,
     // not on the next timeline interaction.
-    window._activeLandfallEta = lf.eta_hour <= 0
+    window._activeLandfallEta = etaNow <= 0
         ? 'near coast now'
-        : '~' + lf.eta_hour + ' h' + (lf.nearest_name ? ' · ' + lf.nearest_name : '');
+        : '~' + etaNow + ' h' + (lf.nearest_name ? ' · ' + lf.nearest_name : '');
     try { if (window.updateStormCard && window._lastCardSnap) window.updateStormCard(window._lastCardSnap); } catch (e) {}
     bar.style.display = 'flex';
 }
@@ -3776,21 +3800,23 @@ function renderActiveStorms(storms){
         const cls=classificationShort(_clsRaw);
         const wind=kt?`${kt} kt`:'--';
         const pres=_presMb?`${_presMb} mb`:'';
-        // Quick stall hint from current movement speed (override, else /active)
+        // Movement as plain text ("WNW 5 kt"). The old SLOW badge fired below
+        // 12 kt — most tropical cyclones — so it tagged every chip and said
+        // nothing. STALL stays, but only near land (server near_land uses the
+        // same coastline test as the forecast stall banner): a stall over open
+        // ocean is not a flood threat.
         const mvSpd = (_useOv && _ov.movement_speed_kt!=null) ? _ov.movement_speed_kt : s.movement_speed_knots;
+        const mvDeg = (_useOv && _ov.movement_dir_deg!=null) ? _ov.movement_dir_deg : s.movement_direction_deg;
         let stallHint = '';
-        if(mvSpd != null && mvSpd < 5) {
+        if(mvSpd != null && mvSpd < 5 && s.near_land === true) {
             stallHint = '<span class="stall-risk-badge stall-risk-extreme" style="margin-left:4px">STALL</span>';
-        } else if(mvSpd != null && mvSpd < 8) {
-            stallHint = '<span class="stall-risk-badge stall-risk-high" style="margin-left:4px">SLOW</span>';
-        } else if(mvSpd != null && mvSpd < 12) {
-            stallHint = '<span class="stall-risk-badge stall-risk-moderate" style="margin-left:4px">SLOW</span>';
         }
+        const move = mvSpd != null ? `${mvDeg != null && mvSpd >= 1 ? _degToCardinal(mvDeg) + ' ' : ''}${Math.round(mvSpd)} kt` : '';
         return `<div class="active-chip" data-storm-id="${escapeHtml(s.id)}" role="button" tabindex="0">
             <div class="active-dot" style="background:${color}"></div>
             <div class="chip-detail">
                 <span class="chip-name">${escapeHtml(s.name||'Unnamed')}${stallHint}</span>
-                <span class="chip-stats">${wind}${pres?' &middot; '+pres:''}${loc?' &middot; '+loc:''}</span>
+                <span class="chip-stats">${wind}${pres?' &middot; '+pres:''}${move?' &middot; '+escapeHtml(move):''}${loc?' &middot; '+loc:''}</span>
             </div>
             <span class="chip-intensity" style="background:${color};color:${badgeTextColor(color)}">${kt>=64?label:escapeHtml(cls)}</span>
         </div>`;
@@ -4866,20 +4892,22 @@ function renderAll(stormId,data){
         // defect class as the old "40 · Moderate" paradox). The fallback
         // bands the unrounded value with the identical thresholds.
         heroDPSLabel = compiled.dps_label || getDPSBand(heroDPSExact);
-        // The "current vs Peak" split only makes sense for a LIVE storm that is
-        // still evolving. For a historical storm the event is over, so showing a
-        // lower "current" beside a higher "Peak" just reads oddly — show the
-        // single headline score. (Active storms keep the · Peak X annotation,
-        // and only when the peak snapshot ≥ the cumulative running total.)
-        if (window._isActiveStorm && Math.round(compiled.peak_dps) >= heroDPS) {
-            heroDPSLabel += ' · Peak ' + Math.round(compiled.peak_dps);
-        }
     } else {
         // Fallback: use peak single-snapshot DPS as hero (no cumulative data)
         heroDPS = peakDpsObj.score;
         heroDPSExact = peakDpsObj.score;
         heroDPSLabel = getDPSBand(heroDPSExact);
     }
+    // A LIVE storm's hero is its score so far, while the map chip shows the
+    // score at the selected fix — Polo 2026 read "85" beside "76" with nothing
+    // saying which was which. Label the hero, and name the current value when
+    // it is lower. (Historical storms are over: one headline score, no split.
+    // This replaces a "· Peak X" note built on compiled.peak_dps — the raw
+    // pre-adjustment peak, which never reaches the hero for a live storm.)
+    const _liveNow = window._isActiveStorm && data.length ? data[data.length - 1].dps.score : null;
+    if (_liveNow != null && Math.round(_liveNow) < heroDPS) heroDPSLabel += ' · now ' + Math.round(_liveNow);
+    const _soFarEl = document.getElementById('dpsSoFar');
+    if (_soFarEl) _soFarEl.textContent = window._isActiveStorm ? ' · so far' : '';
     // Color / severity / context all band the UNROUNDED score so they can
     // never disagree with the label; only the big displayed number rounds.
     const heroColor = dpsTextColor(heroDPSExact);
@@ -6815,8 +6843,13 @@ window.updateStormCard = function(snap) {
     // Movement: forward speed in mph + cardinal direction (if available)
     const moveEl = document.getElementById('stormCardMove');
     if (moveEl) {
-        const spd = snap.fwd_speed_kt != null ? `${(snap.fwd_speed_kt * 1.151).toFixed(0)} mph` : null;
-        const dir = snap.heading_deg != null ? _degToCardinal(snap.heading_deg) : null;
+        // Track points carry forward_speed_knots / forward_direction_deg; the
+        // fwd_speed_kt / heading_deg names never existed there, so Move read
+        // "—" on every storm.
+        const fwdKt = snap.forward_speed_knots ?? snap.fwd_speed_kt;
+        const hdg = snap.forward_direction_deg ?? snap.heading_deg;
+        const spd = fwdKt != null ? `${(fwdKt * 1.151).toFixed(0)} mph` : null;
+        const dir = hdg != null ? _degToCardinal(hdg) : null;
         moveEl.textContent = spd ? (dir ? `${spd} ${dir}` : spd) : '—';
     }
 

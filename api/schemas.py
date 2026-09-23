@@ -19,6 +19,7 @@ class StormSummary(BaseModel):
     movement: Optional[str] = None
     movement_speed_knots: Optional[float] = None
     movement_direction_deg: Optional[float] = None
+    near_land: Optional[bool] = None
 
 
 class QuadrantRadii(BaseModel):

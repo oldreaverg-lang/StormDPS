@@ -1047,6 +1047,53 @@ async def _refresh_active_storms(request: Request):
             logger.warning(f"[ACTIVE_STORMS] Background refresh failed: {e}, keeping stale cache")
 
 
+def _jtwc_designation(storm_id: str, lon: Optional[float]) -> Optional[str]:
+    """JTWC's own name for a numbered system: 25W, 01B/01A, 12S/12P."""
+    m = re.match(r"^(WP|IO|SH)(\d{2})\d{4}$", (storm_id or "").upper())
+    if not m:
+        return None
+    basin, num = m.groups()
+    if basin == "WP":
+        suffix = "W"
+    elif basin == "IO":
+        suffix = "A" if (lon is not None and lon < 77.0) else "B"  # Arabian Sea / Bay of Bengal
+    else:
+        suffix = "S" if (lon is None or 0 <= lon < 135.0) else "P"
+    return f"{num}{suffix}"
+
+
+def present_active_storms(storms: list) -> list:
+    """Display-ready copies of the active-storm feed rows.
+
+    - JTWC sends names upper-case ("SURIGAE") and unnamed systems as a
+      spelled number ("ONE"); title-case the former, and give the latter
+      JTWC's designation ("01B"). NHC names ("Fifteen-E") pass through.
+    - near_land: same coastline test as the forecast stall banner, so the
+      sidebar's STALL badge can't fire for a storm over open ocean.
+    """
+    from services.current_season_ingest import _is_number_name
+    out = []
+    for s in storms or []:
+        s = dict(s)
+        sid = str(s.get("id") or "")
+        name = str(s.get("name") or "").strip()
+        if not sid.upper().startswith(("AL", "EP", "CP")):
+            desig = _jtwc_designation(sid, s.get("lon"))
+            if desig and (not name or _is_number_name(name)):
+                name = desig
+            elif name.isupper():
+                name = name.title()
+        s["name"] = name or sid
+        lat, lon = s.get("lat"), s.get("lon")
+        try:
+            s["near_land"] = (_stall_near_land(float(lat), float(lon))
+                              if lat is not None and lon is not None else None)
+        except Exception:
+            s["near_land"] = None
+        out.append(s)
+    return out
+
+
 @router.get("/storms/active", response_model=list[StormSummary])
 async def list_active_storms(request: Request, response: Response):
     """
@@ -1073,7 +1120,7 @@ async def list_active_storms(request: Request, response: Response):
     if (_active_storms_cache is not None and _active_storms_cache_time
             and (now - _active_storms_cache_time) < _ACTIVE_STORMS_TTL):
         logger.debug(f"[ACTIVE_STORMS] Fresh cache hit — {len(_active_storms_cache)} storms")
-        return [StormSummary(**s) for s in _active_storms_cache]
+        return [StormSummary(**s) for s in present_active_storms(_active_storms_cache)]
 
     # Stale cache exists? Return it immediately, refresh in background (non-blocking)
     if _active_storms_cache is not None:
@@ -1081,12 +1128,12 @@ async def list_active_storms(request: Request, response: Response):
         # Only kick off background refresh if not already refreshing
         if not _active_storms_lock.locked():
             asyncio.create_task(_refresh_active_storms(request))
-        return [StormSummary(**s) for s in _active_storms_cache]
+        return [StormSummary(**s) for s in present_active_storms(_active_storms_cache)]
 
     # Cold start: must wait for first fetch
     logger.info("[ACTIVE_STORMS] Cold start, fetching from NOAA")
     await _refresh_active_storms(request)
-    return [StormSummary(**s) for s in _active_storms_cache] if _active_storms_cache else []
+    return [StormSummary(**s) for s in present_active_storms(_active_storms_cache)] if _active_storms_cache else []
 
 
 @router.get("/storms/search", response_model=list[StormSummary])

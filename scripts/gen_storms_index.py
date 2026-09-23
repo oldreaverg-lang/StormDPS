@@ -228,7 +228,10 @@ def main() -> int:
             dps = round(e.get("dps") or 0)
             name = html.escape(str(e.get("name") or sid))
             basin = BASIN_LABEL.get(e.get("basin"), str(e.get("basin") or "").title() or "—")
-            cat = e.get("category")
+            # Lifetime peak, as the storm page title shows. The bundle's plain
+            # "category" is the LANDFALL category — Fiona (Cat 4) and Franklin
+            # (Cat 4) listed as "TS/TD", Milton and Yagi (Cat 5) as "Cat 3".
+            cat = e.get("category_lifetime") or e.get("category")
             cat_txt = f"Cat {cat}" if isinstance(cat, int) and cat > 0 else "TS/TD"
             parts.append(
                 f'            <div class="sitem"><a href="/storm/{html.escape(sid)}">{name}</a>'

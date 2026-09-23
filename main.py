@@ -1007,6 +1007,8 @@ async def serve_frontend():
         storms = (cache_read(ACTIVE_STORMS_FILE) or {}).get("storms") or []
         if storms:
             import json as _json
+            from api.routes import present_active_storms
+            storms = present_active_storms(storms)
             # A storm WILL auto-load, so the map is coming: open the tile-CDN
             # connection and start Leaflet downloading during HTML parse.
             # These are injected (not static in index.html) because on a
