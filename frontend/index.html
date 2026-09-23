@@ -973,24 +973,24 @@
         <p>Pick any storm from the sidebar, or type a name (like "Katrina") and its year. Click <b>Visualize</b> to see its full analysis. Use the timeline slider to step through the storm's life and watch the wind field change on the map.</p>
 
         <h3>What the Scores Mean</h3>
-        <p>Every storm gets three scores from 0 to 100. Here's how to read them:</p>
+        <p>Each storm is rated on three scores from 0 to 100. Here's how to read them:</p>
 
         <p style="font-weight:600;color:var(--text-main);margin-top:.8rem;margin-bottom:.3rem">Destructive Power Score (DPS)</p>
         <div class="score-scale">
-            <div class="score-scale-row"><span class="scale-badge" style="background:#7e22ce">90-100</span><span style="color:#6b21a8"><b>Historic</b> &mdash; generation-defining; follow local evacuation orders</span></div>
-            <div class="score-scale-row"><span class="scale-badge" style="background:#ef4444">80-89</span><span style="color:#b91c1c"><b>Devastating</b> &mdash; follow local evacuation orders</span></div>
+            <div class="score-scale-row"><span class="scale-badge" style="background:#7e22ce">90-100</span><span style="color:#6b21a8"><b>Historic</b> &mdash; generation-defining destruction; follow orders from local authorities</span></div>
+            <div class="score-scale-row"><span class="scale-badge" style="background:#ef4444">80-89</span><span style="color:#b91c1c"><b>Devastating</b> &mdash; catastrophic damage likely; follow orders from local authorities</span></div>
             <div class="score-scale-row"><span class="scale-badge" style="background:#f97316">60-79</span><span style="color:#c2410c"><b>Extreme</b> &mdash; Major damage likely</span></div>
             <div class="score-scale-row"><span class="scale-badge" style="background:#fbbf24">40-59</span><span style="color:#a16207"><b>Severe</b> &mdash; Significant threat</span></div>
-            <div class="score-scale-row"><span class="scale-badge" style="background:#34d399">20-39</span><span style="color:#047857"><b>Moderate</b> &mdash; Prepare if in forecast cone</span></div>
-            <div class="score-scale-row"><span class="scale-badge" style="background:#60a5fa">10-19</span><span style="color:#1d4ed8"><b>Low</b> &mdash; Stay informed</span></div>
-            <div class="score-scale-row"><span class="scale-badge" style="background:#94a3b8">0-9</span><span><b>Minimal</b> &mdash; Low concern</span></div>
+            <div class="score-scale-row"><span class="scale-badge" style="background:#34d399">20-39</span><span style="color:#047857"><b>Moderate</b> &mdash; Damaging wind, surge, or rain possible near the track</span></div>
+            <div class="score-scale-row"><span class="scale-badge" style="background:#60a5fa">10-19</span><span style="color:#1d4ed8"><b>Low</b> &mdash; Localized impacts possible</span></div>
+            <div class="score-scale-row"><span class="scale-badge" style="background:#94a3b8">0-9</span><span><b>Minimal</b> &mdash; Little damage expected</span></div>
         </div>
 
         <p style="font-weight:600;color:var(--text-main);margin-top:.8rem;margin-bottom:.2rem">Impact Area Score (IAS)</p>
         <p>Measures how geography and rainfall amplify actual damage beyond wind alone (coastal shelf shape, rainfall, stall risk).</p>
 
         <p style="font-weight:600;color:var(--text-main);margin-top:.6rem;margin-bottom:.2rem">Economic Risk Score (ERS)</p>
-        <p>Measures economic exposure along the storm path (property values, infrastructure density in the threat zone).</p>
+        <p>Measures economic exposure along the storm path (property values, infrastructure density in the threat zone). It needs a modeled coastline within the storm's reach, so storms far from land &mdash; or near coasts not modeled yet &mdash; show <i>Not scored</i>.</p>
 
         <details>
             <summary>Why not just use Categories?</summary>
@@ -1007,7 +1007,7 @@
                     <li><b>IKE (TJ)</b> &mdash; Integrated Kinetic Energy in Terajoules. Total wind energy accounting for both speed and storm size.</li>
                     <li><b>mph</b> &mdash; Miles per hour (wind speed).</li>
                     <li><b>mb / hPa</b> &mdash; Millibars, a pressure unit. Lower = stronger storm. Normal sea-level is ~1013 mb.</li>
-                    <li><b>kt</b> &mdash; Knots (1 kt = 1.15 mph). Used for storm movement speed.</li>
+                    <li><b>kt</b> &mdash; Knots (1 kt = 1.15 mph). Used for wind speed and storm movement speed.</li>
                 </ul>
             </div>
         </details>
@@ -1056,6 +1056,7 @@ let _bundleBase = '/frontend/';
 const _detailInflight = {};
 const COMPILED_SCORES = {};  // Pre-computed DPS/rainfall from compile_cache.py
 const COMPILED_BY_NAME_YEAR = {};  // Reverse lookup: "NAME_YEAR" → compiled score (for IBTrACS SID mismatches)
+const BUNDLE_STORM_IDS = new Set();  // the scored catalog (compiled_bundle) — not live/ad-hoc computes
 let preloadReady = false;
 let _pendingPresetCatalog = null; // catalog that arrived before the preload finished (see refreshPresetDPS)
 let preloadPromise = null;
@@ -1215,6 +1216,7 @@ async function loadPreloadBundle() {
             const sc = stormsDict[sid];
             if (isLight) sc._light = 1;
             COMPILED_SCORES[sid] = sc;
+            BUNDLE_STORM_IDS.add(sid);
             // Build reverse name+year lookup for IBTrACS SID → AL ID mismatches
             if (sc.name && sc.year) {
                 COMPILED_BY_NAME_YEAR[sc.name.toUpperCase() + '_' + sc.year] = sc;
@@ -1783,13 +1785,25 @@ function animateCountUp(el, target, color) {
 }
 
 // ---- Score Context Helpers (plain-language guidance for new users) ----
-function getDPSContext(score) {
+// Live storms: present tense, and the two top bands defer the action to local
+// authorities. Past storms: past tense, no action line (Katrina 2005 read
+// "Follow evacuation orders…"). Descriptive only — never a directive of ours.
+function getDPSContext(score, past) {
+    if (past) {
+        if (score >= 90) return 'A generation-defining storm — among the most destructive on record.';
+        if (score >= 80) return 'A worst-case hurricane — catastrophic damage across a wide area.';
+        if (score >= 60) return 'Extremely dangerous — major damage across a wide area.';
+        if (score >= 40) return 'A significant storm, comparable to a large Cat 2-3 hurricane.';
+        if (score >= 20) return 'Moderate — damaging wind, surge, or rain near its track.';
+        if (score >= 10) return 'Low — localized wind, rain, or surge impacts.';
+        return 'Minimal — little damage.';
+    }
     if (score >= 90) return 'A generation-defining storm — among the most destructive on record. Follow evacuation orders and guidance from your local authorities.';
     if (score >= 80) return 'Equivalent to a worst-case hurricane. Follow evacuation orders and guidance from your local authorities.';
     if (score >= 60) return 'Extremely dangerous. Major damage likely across a wide area.';
     if (score >= 40) return 'Significant threat. Comparable to a large Cat 2-3 hurricane.';
-    if (score >= 20) return 'Moderate concern. Prepare if within the forecast cone.';
-    if (score >= 10) return 'Low but real threat. Stay informed and monitor updates.';
+    if (score >= 20) return 'Moderate threat. Damaging wind, surge, or rain possible near the track.';
+    if (score >= 10) return 'Low but real threat. Localized wind, rain, or surge impacts possible.';
     return 'Minimal impact expected at this time.';
 }
 // Band word for the hero DPS card. Uses the SAME thresholds as getDPSContext so
@@ -1970,6 +1984,15 @@ function renderForecastDpsBand(band) {
 // flood warning (Douglas EP042026: 67/100 as a mid-Pacific fish storm).
 // Standalone so the forecast handler can re-escalate to 'warning' when the
 // OFCL track approaches exposed coastline.
+// Past-tense rewrites of core/rainfall_warning.classify_warning, per level.
+// "Capable of": the level is a modeled rainfall rating, not a flood record.
+const _RAIN_TEXT_PAST = {
+    NORMAL: 'Typical hurricane rainfall.',
+    ELEVATED: 'Above-average rainfall — enough for flash flooding in low-lying and urban areas.',
+    HIGH: 'Rainfall capable of significant inland flooding — river flooding typically peaks 1-3 days after landfall, with flash floods in terrain-amplified zones.',
+    EXTREME: 'A catastrophic rainfall event — major river flooding and widespread freshwater inundation; its rainfall threat exceeded its wind and surge threat.',
+    HISTORIC: 'A generational rainfall disaster — multi-day flooding with catastrophic river crests.',
+};
 function _renderRainBanner(mode, suffix) {
     const d = window._rainBannerData;
     const bar = document.getElementById('rainfallBar');
@@ -1991,9 +2014,15 @@ function _renderRainBanner(mode, suffix) {
         return;
     }
     window._rainBannerMuted = false;
-    const reconcile = (d.heroDPS < 40 && d.rw >= 60) ? 'Wind threat is low, but flooding is the danger. ' : '';
+    // Past storms read in past tense: the server's rainfall_text is written as
+    // a live warning ("Expect dangerous river flooding…" on Katrina 2005).
+    const past = !window._isActiveStorm;
+    const text = (past && _RAIN_TEXT_PAST[String(d.level || '').toUpperCase()]) || d.text;
+    const reconcile = (d.heroDPS < 40 && d.rw >= 60)
+        ? (past ? 'Its wind threat was low; flooding was the danger. ' : 'Wind threat is low, but flooding is the danger. ')
+        : '';
     scoreEl.textContent = 'Flood risk ' + d.rw + '/100 —';
-    textEl.textContent = deAuthorize(reconcile + d.level + ': ' + d.text + (suffix || ''));
+    textEl.textContent = deAuthorize(reconcile + d.level + ': ' + text + (suffix || ''));
     bar.style.borderColor = 'rgba(239,68,68,.3)';
     bar.style.background = 'rgba(239,68,68,.06)';
     scoreEl.style.color = '#b3261e';
@@ -2104,7 +2133,7 @@ function updateScoreContexts(dps, ias, ers, ersCovered) {
     const dpsCtx = document.getElementById('dpsContext');
     const iasCtx = document.getElementById('iasContext');
     const ersCtx = document.getElementById('ersContext');
-    if (dpsCtx) dpsCtx.textContent = getDPSContext(dps);
+    if (dpsCtx) dpsCtx.textContent = getDPSContext(dps, !window._isActiveStorm);
     if (iasCtx) iasCtx.textContent = getIASContext(ias);
     if (ersCtx) ersCtx.textContent = getERSContext(ers, ersCovered);
 }
@@ -6756,6 +6785,26 @@ function syncVisualization(fi,snap){
 }
 
 // ---- Storm Title Bar ----
+const _BASIN_SHORT = {ATLANTIC:'Atlantic', EASTERN_PACIFIC:'E. Pacific', WESTERN_PACIFIC:'W. Pacific',
+    NORTH_INDIAN:'N. Indian', SOUTH_INDIAN:'S. Indian', SOUTH_PACIFIC:'S. Pacific'};
+// Competition rank (ties share a place) by DPS within the compiled catalog;
+// null for storms outside it (live / ad-hoc). The basin rank is only shown
+// for basins with enough storms to make it mean something.
+function _catalogRank(stormId) {
+    const me = COMPILED_SCORES[stormId];
+    if (!me || !BUNDLE_STORM_IDS.has(stormId) || typeof me.dps !== 'number') return null;
+    let all = 1, n = 0, basin = 1, basinN = 0;
+    BUNDLE_STORM_IDS.forEach(id => {
+        const s = COMPILED_SCORES[id];
+        if (!s || typeof s.dps !== 'number') return;
+        n++;
+        if (s.dps > me.dps) all++;
+        if (me.basin && s.basin === me.basin) { basinN++; if (s.dps > me.dps) basin++; }
+    });
+    const basinLabel = _BASIN_SHORT[me.basin];
+    const showBasin = basinLabel && basinN >= 5;
+    return { all, n, basin: showBasin ? basin : null, basinN, basinLabel };
+}
 function updateStormTitleBar(stormId, name, year, cat, heroDPS) {
     const bar = document.getElementById('stormTitleBar');
     document.getElementById('stormTitleName').textContent = name;
@@ -6768,12 +6817,14 @@ function updateStormTitleBar(stormId, name, year, cat, heroDPS) {
     } else {
         catEl.style.display = 'none';
     }
-    // Historical rank among PRESETS
+    // Rank across the whole scored catalog, plus within the basin. (It used
+    // to rank among the 14 sidebar presets only: "#1 of 14 historic".)
     const rankEl = document.getElementById('stormTitleRank');
-    const sorted = PRESETS.slice().sort((a,b) => b.dps - a.dps);
-    const idx = sorted.findIndex(p => p.id === stormId);
-    if (idx >= 0) {
-        rankEl.textContent = '#' + (idx+1) + ' of ' + sorted.length + ' historic';
+    const rank = _catalogRank(stormId);
+    if (rank) {
+        rankEl.textContent = '#' + rank.all + ' of ' + rank.n + (rank.basin ? ' · #' + rank.basin + ' ' + rank.basinLabel : '');
+        rankEl.title = 'Ranked by DPS among the ' + rank.n + ' storms StormDPS has scored' +
+            (rank.basin ? ', and among the ' + rank.basinN + ' ' + rank.basinLabel + ' storms' : '') + '.';
         rankEl.style.display = '';
     } else {
         rankEl.style.display = 'none';

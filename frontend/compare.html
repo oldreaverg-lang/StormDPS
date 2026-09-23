@@ -258,13 +258,51 @@
                 hours: (isNaN(t0) || isNaN(t1)) ? null : Math.round((t1 - t0) / 3600000),
                 rain: s.dps.rainfall_level || null,
                 damage: (s.dps.actual_impact && s.dps.actual_impact.damage_display) || null,
+                parts: breakdown(s.dps),
             };
+        }
+
+        // Where a storm's DPS comes from — the same four-way split as the
+        // storm page's "Score breakdown" (index.html updateBreakdownBars):
+        // cumulative DPS = peak × (1 + duration + breadth + regional), each
+        // share attributed proportionally so the parts sum to the score.
+        function breakdown(d) {
+            if (!d || typeof d.duration_factor !== 'number' || typeof d.dps !== 'number') return null;
+            const df = d.duration_factor || 0, bf = d.breadth_factor || 0;
+            const regional = (d.exposure_factor || 0) + (d.perp_factor || 0) + (d.stall_bonus || 0)
+                           + (d.rain_inland_factor || 0) + (d.inland_pen_factor || 0);
+            const tot = (1 + df + bf + regional) || 1;
+            return { intensity: d.dps / tot, size: d.dps * bf / tot,
+                     duration: d.dps * df / tot, regional: d.dps * regional / tot };
+        }
+        const PARTS = [
+            ['intensity', 'From peak intensity', 'peak intensity', 'Wind energy, peak wind and pressure at the storm’s strongest'],
+            ['size', 'From wind-field size', 'wind-field size', 'How far damaging winds reached from the center'],
+            ['duration', 'From time near coast', 'time near the coast', 'Hours the storm spent close to land'],
+            ['regional', 'From regional factors', 'regional factors', 'Coastal exposure, surge-prone shelf geometry, stalling, and rain / inland flooding'],
+        ];
+
+        // One sentence on WHERE the DPS gap comes from (parts that differ by
+        // at least a point, rounded), naming what narrowed it if anything did.
+        function gapWhy(hi, lo) {
+            if (!hi.parts || !lo.parts) return '';
+            const diffs = PARTS.map(([k, , phrase]) => ({ phrase, d: Math.round(hi.parts[k] - lo.parts[k]) }));
+            const up = diffs.filter(x => x.d >= 1).sort((a, b) => b.d - a.d);
+            const down = diffs.filter(x => x.d <= -1).sort((a, b) => a.d - b.d);
+            if (!up.length) return '';
+            const list = (xs) => xs.map(x => `${x.phrase} (+${Math.abs(x.d)})`)
+                .join(xs.length > 2 ? ', ' : ' and ').replace(/, ([^,]*)$/, ', and $1');
+            let out = ` The gap comes mostly from ${list(up.slice(0, 2))}`;
+            if (down.length) out += `; ${esc(lo.name)}’s ${list(down.slice(0, 2))} narrowed it`;
+            return out + '.';
         }
 
         // ── render ──────────────────────────────────────────────────────
         function renderScores(A, B) {
             const rows = [
                 ['DPS', a => `<span class="dps-big" style="color:${bandColor(a.dpsExact)}">${a.dps}</span><div class="dps-band" style="color:${bandColor(a.dpsExact)}">${esc(a.label)}</div>`, s => s.dpsExact],
+                ...((A.s.parts && B.s.parts) ? PARTS.map(([k, label, , tip]) =>
+                    [label, a => `${Math.round(a.parts[k])}<span class="sub">pts</span>`, s => Math.round(s.parts[k]), tip]) : []),
                 ['Peak wind', a => a.windKt ? `${a.windKt} kt<span class="sub">${Math.round(a.windKt * 1.15078)} mph</span>` : '—', s => s.windKt],
                 ['Min pressure', a => a.minP ? `${a.minP} mb` : '—', s => s.minP ? 1100 - s.minP : 0],
                 ['Peak IKE', a => a.ike ? `${a.ike.toFixed(0)} TJ` : '—', s => s.ike],
@@ -281,12 +319,12 @@
                 <div></div>
                 <div class="vs-head b"><a href="/storm/${esc(B.id)}">${esc(B.s.name)} (${esc(B.s.year)})</a></div>
                 <div class="vs-sub">${esc(A.id)}</div><div></div><div class="vs-sub b">${esc(B.id)}</div>`;
-            for (const [label, fmt, rank] of rows) {
+            for (const [label, fmt, rank, tip] of rows) {
                 const ra = rank(A.s), rb = rank(B.s);
                 const wa = ra > rb ? ' win' : '', wb = rb > ra ? ' win' : '';
                 html += `<div class="vs-row">
                     <div class="vs-val"><span class="${wa}">${fmt(A.s)}</span></div>
-                    <div class="vs-metric">${label}</div>
+                    <div class="vs-metric"${tip ? ` title="${esc(tip)}"` : ''}>${label}</div>
                     <div class="vs-val b"><span class="${wb}">${fmt(B.s)}</span></div></div>`;
             }
             $('vsGrid').innerHTML = html;
@@ -298,7 +336,7 @@
                 ? `<strong>Dead heat:</strong> both storms score DPS ${hi.dps}.`
                 : `<strong>${esc(hi.name)} (${esc(hi.year)})</strong> out-scores ${esc(lo.name)} by
                    <strong>${d} point${d === 1 ? '' : 's'}</strong> — DPS ${hi.dps}
-                   <em>${esc(hi.label)}</em> vs ${lo.dps} <em>${esc(lo.label)}</em>.
+                   <em>${esc(hi.label)}</em> vs ${lo.dps} <em>${esc(lo.label)}</em>.${gapWhy(hi, lo)}
                    DPS folds size, surge potential, duration, and reach in with peak wind —
                    see <a href="/methodology" style="color:var(--primary)">how it works</a>.`;
         }
@@ -403,6 +441,9 @@
                 // own — every deep-link load would show a world-zoom map.
                 $('results').style.display = 'block';
                 renderScores(A, B); renderMap(A, B); renderChart(A, B);
+                // Show names, not the raw IDs a deep link arrives with.
+                $('stormA').value = `${A.s.name} (${A.s.year}) — ${ia}`;
+                $('stormB').value = `${B.s.name} (${B.s.year}) — ${ib}`;
                 st.textContent = '';
                 document.title = `${A.s.name} (${A.s.year}) vs ${B.s.name} (${B.s.year}) — Storm Comparison | StormDPS`;
                 history.replaceState(null, '', `/compare?a=${encodeURIComponent(ia)}&b=${encodeURIComponent(ib)}`);
