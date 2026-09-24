@@ -64,3 +64,27 @@ def test_allocator_probes_never_raise():
     # None off-glibc (Windows/macOS dev); a dict of MB figures on Linux.
     for v in (memtrace.malloc_stats(), memtrace.trim()):
         assert v is None or isinstance(v, dict)
+
+
+_PLANTED = None
+
+
+def test_buffer_census_names_holders():
+    import numpy as np
+    global _PLANTED
+    _PLANTED = np.ones((1100, 1000))          # ~8.4 MB module global
+
+    class Box:
+        def __init__(self):
+            self.grid = np.zeros((900, 900))  # ~6.2 MB attribute
+
+    box = Box()  # noqa: F841 — must stay alive during the census
+    out = memtrace.buffer_census(min_kb=4096, force=True)
+    holders = {h["holder"]: h for h in out["by_holder"]}
+    assert "dict[_PLANTED]" in holders
+    assert holders["dict[_PLANTED]"]["owner"].endswith("test_memtrace")
+    assert any(k.endswith("Box.grid") for k in holders)
+    assert out["total_mb"] >= 14
+    # a repeat within the rate-limit window returns the cached result
+    assert memtrace.buffer_census(min_kb=4096).get("cached") is True
+    _PLANTED = None

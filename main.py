@@ -464,7 +464,7 @@ async def storage_health():
 
 
 @app.get("/health/memory")
-async def memory_health(deep: bool = False, trim: bool = False):
+async def memory_health(deep: bool = False, trim: bool = False, buffers: bool = False):
     """Resident-memory diagnostics for the Railway cost audit (2026-07:
     memory is ~93% of the bill). Names what is actually holding RAM.
 
@@ -514,6 +514,10 @@ async def memory_health(deep: bool = False, trim: bool = False):
 
     out["malloc"] = memtrace.malloc_stats()
     out["trace"] = memtrace.snapshot()
+    if buffers:
+        # Diagnostic: where the large numpy / bytes buffers live (see
+        # memtrace.buffer_census). Seconds of CPU — manual use only.
+        out["buffers"] = memtrace.buffer_census()
     if trim:
         # Diagnostic: hand freed heap pages back to the OS and report the
         # drop (see memtrace.trim). Cheap; safe to call at any time.

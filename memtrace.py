@@ -195,3 +195,181 @@ def trim() -> Optional[dict]:
         return {"rss_before": before, "rss_after": rss_mb(), "ms": round((time.time() - t0) * 1000)}
     except Exception:
         return None
+
+
+# ── large-buffer census ──────────────────────────────────────────────────
+# numpy arrays and bytes/str are not gc-tracked, so gc.get_objects() never
+# lists them and mallinfo only says "N MB in use". This walks every
+# gc-tracked object's referents (dicts, lists, instances, coroutine and
+# thread frames) and reports each large buffer once — by its OWNING buffer,
+# so views don't double-count — grouped by what holds it. The top holders are
+# then traced one step further (who owns that dict / list) so the answer
+# names a module global, an attribute, or a function's local variable.
+def _buffer_info(obj, np):
+    """(bytes, owner_id, description) for a large-buffer candidate, else None."""
+    try:
+        if np is not None and isinstance(obj, np.ndarray):
+            a = obj
+            while isinstance(a.base, np.ndarray):
+                a = a.base
+            if a.base is None:
+                return a.nbytes, id(a), f"ndarray {a.shape} {a.dtype}"
+            return (obj.nbytes, id(a.base),
+                    f"ndarray view {obj.shape} {obj.dtype} on {type(a.base).__name__}")
+        if isinstance(obj, (bytes, bytearray, str)):
+            import sys as _sys
+            return _sys.getsizeof(obj), id(obj), type(obj).__name__
+        if isinstance(obj, memoryview):
+            return obj.nbytes, id(obj.obj), "memoryview"
+    except Exception:
+        pass
+    return None
+
+
+def _holder_label(holder, target) -> str:
+    """Name the slot inside *holder* that points at *target*."""
+    import types
+    try:
+        if isinstance(holder, dict):
+            for k, v in holder.items():
+                if v is target:
+                    return f"dict[{str(k)[:40]}]"
+            return "dict"
+        if isinstance(holder, (list, tuple, set, frozenset)):
+            return f"{type(holder).__name__}(len={len(holder)})"
+        if isinstance(holder, types.FrameType):
+            co = holder.f_code
+            return f"frame {co.co_name} ({co.co_filename.rsplit('/', 1)[-1]}:{holder.f_lineno})"
+        if isinstance(holder, (types.CoroutineType, types.GeneratorType)):
+            fr = getattr(holder, "cr_frame", None) or getattr(holder, "gi_frame", None)
+            var = ""
+            if fr is not None:
+                var = next((k for k, v in fr.f_locals.items() if v is target), "")
+            return (f"{type(holder).__name__} {getattr(holder, '__qualname__', '?')}"
+                    + (f" local {var}" if var else ""))
+        attrs = getattr(holder, "__dict__", None)
+        if isinstance(attrs, dict):
+            for k, v in attrs.items():
+                if v is target:
+                    return f"{type(holder).__qualname__}.{k}"
+        return type(holder).__qualname__
+    except Exception:
+        return type(holder).__name__
+
+
+def _owner_of(container, skip_ids, _depth=0) -> str:
+    """Who holds this dict/list: a module global, class/instance attribute,
+    frame, or (one more level) the dict key it sits under."""
+    import gc
+    import types
+    try:
+        refs = [r for r in gc.get_referrers(container)
+                if id(r) not in skip_ids and not isinstance(r, tuple)]
+        for r in refs:
+            if isinstance(r, types.ModuleType):
+                return f"module {r.__name__}"
+            if isinstance(r, type):
+                return f"class {r.__qualname__}"
+            if isinstance(r, types.FrameType):
+                return f"frame {r.f_code.co_name}"
+            if isinstance(r, (types.CoroutineType, types.GeneratorType)):
+                return f"{type(r).__name__} {getattr(r, '__qualname__', '?')}"
+            if getattr(r, "__dict__", None) is container:
+                return f"instance of {type(r).__qualname__}"
+        for r in refs:
+            if isinstance(r, dict):
+                for k, v in r.items():
+                    if v is container:
+                        up = _owner_of(r, skip_ids | {id(refs)}, _depth + 1) if _depth < 1 else ""
+                        return f"{up} [{str(k)[:40]}]".strip()
+        if refs:
+            return type(refs[0]).__qualname__
+    except Exception:
+        pass
+    return "?"
+
+
+_LAST_CENSUS: dict = {"t": 0.0, "result": None}
+CENSUS_MIN_INTERVAL_S = 60.0
+
+
+def buffer_census(min_kb: int = 256, top: int = 15, *, force: bool = False) -> dict:
+    """Large buffers reachable from gc-tracked objects and thread stacks,
+    grouped by holder. Seconds of CPU on a big heap, and the endpoint is
+    public — so at most one real census per minute; repeats get the last one."""
+    now = time.time()
+    if (not force and _LAST_CENSUS["result"] is not None
+            and now - _LAST_CENSUS["t"] < CENSUS_MIN_INTERVAL_S):
+        return dict(_LAST_CENSUS["result"], cached=True)
+    result = _buffer_census(min_kb, top)
+    _LAST_CENSUS.update(t=now, result=result)
+    return result
+
+
+def _buffer_census(min_kb: int, top: int) -> dict:
+    import gc
+    import sys as _sys
+    t0 = time.time()
+    try:
+        import numpy as np
+    except Exception:
+        np = None
+    min_b = min_kb * 1024
+    seen, groups, largest, candidates = set(), {}, [], []
+    objs = gc.get_objects()
+    try:
+        for holder in objs:
+            try:
+                refs = gc.get_referents(holder)
+            except Exception:
+                continue
+            for r in refs:
+                info = _buffer_info(r, np)
+                if info and info[0] >= min_b and info[1] not in seen:
+                    seen.add(info[1])
+                    candidates.append((holder, r, info))
+        # Running threads' stacks are not always materialised as gc objects.
+        for frame in _sys._current_frames().values():
+            f = frame
+            while f is not None:
+                try:
+                    for v in list(f.f_locals.values()):
+                        info = _buffer_info(v, np)
+                        if info and info[0] >= min_b and info[1] not in seen:
+                            seen.add(info[1])
+                            candidates.append((f, v, info))
+                except Exception:
+                    pass
+                f = f.f_back
+
+        total = 0
+        for holder, r, (nbytes, _oid, what) in candidates:
+            total += nbytes
+            label = _holder_label(holder, r)
+            g = groups.setdefault((id(holder), label),
+                                  {"holder": label, "mb": 0.0, "count": 0, "_h": holder})
+            g["mb"] += nbytes / 1048576
+            g["count"] += 1
+            largest.append((nbytes, what, label))
+        ranked = sorted(groups.values(), key=lambda g: -g["mb"])[:top]
+        skip = {id(objs), id(candidates), id(groups), id(ranked)} | {id(g) for g in ranked}
+        by_holder = []
+        for g in ranked:
+            h = g.pop("_h")
+            owner = _owner_of(h, skip) if isinstance(h, (dict, list, tuple, set)) else ""
+            by_holder.append({"holder": g["holder"], "owner": owner,
+                              "mb": round(g["mb"], 1), "count": g["count"]})
+        largest.sort(key=lambda x: -x[0])
+        return {
+            "total_mb": round(total / 1048576, 1),
+            "buffers": len(candidates),
+            "by_holder": by_holder,
+            "largest": [{"mb": round(b / 1048576, 1), "what": w, "holder": h}
+                        for b, w, h in largest[:10]],
+            "secs": round(time.time() - t0, 1),
+        }
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}"}
+    finally:
+        del objs, candidates
+        groups.clear()
