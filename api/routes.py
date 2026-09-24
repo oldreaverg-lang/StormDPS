@@ -992,6 +992,55 @@ def load_active_storms_from_disk() -> bool:
     return False
 
 
+# Per-source budgets for the active-storm refresh. It runs in the background
+# (stale-while-revalidate), so it can afford more than the old single 3 s
+# budget — which covered NHC AND JTWC together, so one slow JTWC index fetch
+# timed the whole refresh out and froze NHC positions with it.
+_ACTIVE_NHC_TIMEOUT_S = 8.0
+_ACTIVE_JTWC_TIMEOUT_S = 12.0
+# source -> naive-UTC time of that source's last SUCCESSFUL fetch
+_active_source_time: dict = {}
+
+
+async def _fetch_active_merged(shared_client, prev_rows: list) -> tuple[list, bool]:
+    """Fetch NHC and JTWC independently. A source that errors or times out
+    keeps its PREVIOUS rows instead of (a) freezing the other source with it
+    or (b) vanishing from the list — the old merged call replaced the whole
+    cache with a JTWC-only list whenever NHC failed. Staleness of kept rows is
+    bounded by the selfcheck's per-row advisory-age and cache-age alarms.
+    Returns (rows, any_source_succeeded)."""
+    from services.jtwc_client import JTWCClient
+    async with NOAAClient(http_client=shared_client) as client:
+        results = await asyncio.gather(
+            asyncio.wait_for(client._fetch_nhc_active_storms(), _ACTIVE_NHC_TIMEOUT_S),
+            asyncio.wait_for(client._fetch_jtwc_active_storms(), _ACTIVE_JTWC_TIMEOUT_S),
+            return_exceptions=True)
+    now = utcnow()
+    by_source, any_ok = {}, False
+    for src, res in zip(("NHC", "JTWC"), results):
+        prev = [r for r in prev_rows or [] if (r.get("source") or "NHC") == src]
+        # JTWCClient reports "marked down" as an empty list, not an error.
+        failed = isinstance(res, BaseException) or (
+            src == "JTWC" and res == [] and JTWCClient.jtwc_is_down())
+        if failed:
+            logger.warning(f"[ACTIVE_STORMS] {src} refresh failed "
+                           f"({type(res).__name__ if isinstance(res, BaseException) else 'marked down'}); "
+                           f"keeping {len(prev)} previous {src} row(s)")
+            by_source[src] = prev
+        else:
+            by_source[src] = list(res)
+            _active_source_time[src] = now
+            any_ok = True
+    rows, seen = [], set()
+    for src in ("NHC", "JTWC"):            # NHC wins duplicates
+        for r in by_source[src]:
+            sid = str(r.get("id") or "").upper()
+            if sid and sid not in seen:
+                seen.add(sid)
+                rows.append(r)
+    return rows, any_ok
+
+
 async def _refresh_active_storms(request: Request):
     """
     Background task to refresh active storms cache.
@@ -1008,19 +1057,15 @@ async def _refresh_active_storms(request: Request):
 
         shared_client = getattr(request.app.state, "http_client", None)
         try:
-            async with NOAAClient(http_client=shared_client) as client:
-                storms = await asyncio.wait_for(
-                    client.get_active_storms(), timeout=3.0
-                )
+            storms, any_ok = await _fetch_active_merged(shared_client, _active_storms_cache or [])
+            if any_ok:
                 _active_storms_cache = storms
                 _active_storms_cache_time = utcnow()
                 # Persist to disk so restarts don't cold-start from zero.
                 _persist_active_storms(storms, _active_storms_cache_time)
                 logger.info(f"[ACTIVE_STORMS] Background refresh complete: {len(storms)} storms")
-        except asyncio.TimeoutError:
-            logger.warning("[ACTIVE_STORMS] Background refresh timed out, keeping stale cache")
-        except httpx.PoolTimeout:
-            logger.warning("[ACTIVE_STORMS] Connection pool exhausted, keeping stale cache")
+            else:
+                logger.warning("[ACTIVE_STORMS] Both sources failed, keeping stale cache")
         except Exception as e:
             logger.warning(f"[ACTIVE_STORMS] Background refresh failed: {e}, keeping stale cache")
 
@@ -3582,12 +3627,11 @@ async def _collect_active_storm_ids(app_state) -> list[str]:
     global _active_storms_cache, _active_storms_cache_time
     shared_client = getattr(app_state, "http_client", None)
     try:
-        async with NOAAClient(http_client=shared_client) as client:
-            storms = await asyncio.wait_for(client.get_active_storms(), timeout=5.0)
+        storms, any_ok = await _fetch_active_merged(shared_client, _active_storms_cache or [])
     except Exception as e:
         logger.warning(f"[DPS WARM] active-storms fetch failed: {e}")
         return []
-    if storms is not None:
+    if any_ok:
         _active_storms_cache = storms
         _active_storms_cache_time = utcnow()
         _persist_active_storms(storms, _active_storms_cache_time)

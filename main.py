@@ -763,20 +763,16 @@ async def health_selfcheck():
     #    not page (check 3 already pages on sustained nhc_active/nhc_forecast
     #    failure); this probe catches the subtler case where the forecast is
     #    fetchably-fresh but /active has frozen — exactly the Hernan scenario.
+    #    Time-aware since 2026-09-24 (live_position.py): /active rows carry
+    #    their advisory time, and an intermediate advisory AHEAD of tau=0 is
+    #    motion, not a freeze. Also pages when the active cache itself stops
+    #    refreshing.
     try:
-        import math
         from datetime import datetime as _dtc, timezone as _tzc
         import api.routes as _routes
+        import live_position as _lp
         from services.noaa_client import NOAAClient
 
-        def _hav_km(la1, lo1, la2, lo2):
-            p = math.pi / 180.0
-            h = (math.sin((la2 - la1) * p / 2) ** 2
-                 + math.cos(la1 * p) * math.cos(la2 * p) * math.sin((lo2 - lo1) * p / 2) ** 2)
-            return 2 * 6371.0 * math.asin(math.sqrt(h))
-
-        _POS_DIVERGE_KM = 50.0   # normal /active-vs-tau0 gap is ~0; one missed cycle is >100 km
-        _TAU0_STALE_H = 9.0      # one synoptic + advisory cycle
         now_utc = _dtc.now(_tzc.utc)
         active = _routes._active_storms_cache or []
         client = getattr(app.state, "http_client", None)
@@ -795,21 +791,7 @@ async def health_selfcheck():
             tau0 = ft[0] if (ft and ft[0].get("hour") == 0) else None
             if not tau0 or tau0.get("lat") is None or tau0.get("lon") is None:
                 return {"_unverified": {"id": sid, "reason": "no tau=0 center in forecast"}}
-            a_lat, a_lon = s.get("lat"), s.get("lon")
-            diverge_km = (round(_hav_km(a_lat, a_lon, tau0["lat"], tau0["lon"]), 1)
-                          if a_lat is not None and a_lon is not None else None)
-            tau0_age_h = None
-            vt = tau0.get("valid_time_utc")
-            if vt:
-                try:
-                    _dt = _dtc.fromisoformat(vt)
-                    if _dt.tzinfo is None:
-                        _dt = _dt.replace(tzinfo=_tzc.utc)
-                    tau0_age_h = round((now_utc - _dt).total_seconds() / 3600, 1)
-                except Exception:
-                    pass
-            return {"id": sid, "diverge_km": diverge_km, "tau0_age_h": tau0_age_h,
-                    "active_pos": [a_lat, a_lon], "tau0_pos": [tau0["lat"], tau0["lon"]]}
+            return _lp.compare_row(s, tau0, (fc or {}).get("valid_time_utc"), now_utc)
 
         # HARD latency bound: the probe fetches a live advisory per active storm,
         # so NHC egress slowness could otherwise slow (or gateway-503) the health
@@ -831,21 +813,16 @@ async def health_selfcheck():
                     unverified.append(r["_unverified"])
                     continue
                 per_storm.append(r)
-                if r["diverge_km"] is not None and r["diverge_km"] > _POS_DIVERGE_KM:
-                    probe_fail.append(
-                        f"live position for {r['id']}: displayed /active center is "
-                        f"{r['diverge_km']:.0f} km from the fresh advisory tau=0 (a position feed froze)")
-                if r["tau0_age_h"] is not None and r["tau0_age_h"] > _TAU0_STALE_H:
-                    probe_fail.append(
-                        f"forecast stalled for {r['id']}: advisory tau=0 is {r['tau0_age_h']:.0f} h old "
-                        f"(> {_TAU0_STALE_H:.0f} h)")
-        cache_age_min = None
-        try:
-            if _routes._active_storms_cache_time is not None:
-                cache_age_min = round(
-                    (now_utc - _routes._active_storms_cache_time).total_seconds() / 60, 1)
-        except Exception:
-            pass
+                probe_fail.extend(_lp.row_failures(r))
+        cache_age_min, stale_msg = _lp.cache_age_failure(
+            _routes._active_storms_cache_time, len(active), now_utc)
+        if stale_msg:
+            probe_fail.append(stale_msg)
+        source_age_min = {}
+        for _src, _t in (getattr(_routes, "_active_source_time", {}) or {}).items():
+            _st = _lp.to_utc(_t)
+            if _st is not None:
+                source_age_min[_src] = round((now_utc - _st).total_seconds() / 60, 1)
         checks["live_position"] = {
             "ok": not probe_fail,
             "active_storms": len(active),
@@ -855,8 +832,9 @@ async def health_selfcheck():
             "max_diverge_km": max(
                 [r["diverge_km"] for r in per_storm if r["diverge_km"] is not None], default=0),
             "active_cache_age_min": cache_age_min,
+            "source_age_min": source_age_min,
             "per_storm": per_storm,
-            "page_over_km": _POS_DIVERGE_KM,
+            "page_over_km": _lp.POS_DIVERGE_KM,
         }
         failures.extend(probe_fail)
     except Exception as e:

@@ -30,3 +30,15 @@ numpy==2.2.3
 #     /tmp/ci/bin/python -m pytest -q
 # A pass in your normal environment proves nothing about CI.
 httpx==0.28.1
+
+# fastapi (+ its starlette / pydantic, pinned to production): tests that reach
+# api.routes (active-storm presenter, stall-risk land gate, IMERG ingest churn,
+# active-feed freshness) import fastapi at module scope. CI sat red from
+# 2026-09-23 (2110018) to 09-24 with 3 collection errors because those tests
+# were only run locally — the rule above, broken a third time. Verified in a
+# clean venv with exactly this file. `main` itself (slowapi and the rest of
+# the app) is still NOT importable here — keep health-check logic that needs
+# tests in a stdlib module (see live_position.py), not in main.py.
+fastapi==0.115.6
+starlette==0.41.3
+pydantic==2.10.6

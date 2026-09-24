@@ -700,6 +700,9 @@ class NOAAClient:
                 "movement": feature.get("movement", ""),
                 "movement_speed_knots": feature.get("movementSpeed"),
                 "movement_direction_deg": feature.get("movementDir"),
+                # Advisory time of THIS position — intermediate advisories
+                # (3-hourly near land) move it ahead of the forecast's tau=0.
+                "last_update_utc": feature.get("lastUpdate"),
                 "basin": basin,
                 "source": "NHC",
             })

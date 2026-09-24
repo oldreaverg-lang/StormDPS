@@ -21,6 +21,7 @@ class StormSummary(BaseModel):
     movement_direction_deg: Optional[float] = None
     near_land: Optional[bool] = None
     dps: Optional[float] = None
+    last_update_utc: Optional[str] = None   # advisory time of this position
 
 
 class QuadrantRadii(BaseModel):

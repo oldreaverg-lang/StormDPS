@@ -406,6 +406,7 @@ class JTWCClient:
         movement_str = ""
         if mv_dir is not None and mv_spd is not None:
             movement_str = f"{_deg_to_compass(mv_dir)} at {int(round(mv_spd))} kt"
+        obs_time = _parse_warning_timestamp(text)
 
         return {
             "id": warning["id"],
@@ -418,6 +419,7 @@ class JTWCClient:
             "movement": movement_str,
             "movement_speed_knots": mv_spd,
             "movement_direction_deg": mv_dir,
+            "last_update_utc": obs_time.isoformat() if obs_time else None,
             "basin": warning["basin"],
             "source": "JTWC",
         }

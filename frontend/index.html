@@ -3971,6 +3971,7 @@ async function fetchActiveStorms(){
         const storms=await r.json();
         window._activeStorms=storms;  // expose so renderAll can resolve friendly names (e.g. JANGMI, not WP062026)
         renderActiveStorms(storms);
+        refreshCurrentPos();          // a newer advisory in /active moves the marker + chip
         // If there are active storms and nothing is currently visualized, auto-load the first one.
         // (_autoLoadedFromHint: the server-injected hint already started this load —
         // without the guard, this response landing mid-load would start it twice.)
@@ -6213,25 +6214,67 @@ function _parseUtcMs(s){
 // a held/stale advisory can never regress the displayed center behind the track.
 // Returns {lat,lon,valid_time_utc,max_wind_kt} or null (caller keeps track tail).
 function freshestCurrentPos(fc){
+    // The NEWEST of three positions, by their own advisory/observation times:
+    //   - the forecast's tau=0 analysis center (full advisories, 6-hourly),
+    //   - the /storms/active row (carries last_update_utc — NHC intermediate
+    //     advisories move it 3 h ahead of tau=0 near land: Polo 09-24 was
+    //     58 km past the 09Z tau=0 at 12Z),
+    //   - the best-track tail (never regress behind it).
+    // Each candidate carries its full current-conditions snapshot, so the chip
+    // never pairs one feed's position with another feed's wind/pressure.
     try{
+        const cands = [];
         const ft = fc && fc.forecast_track;
-        if(!ft || !ft.length) return null;
-        const p0 = ft[0];
-        if(!p0 || p0.hour !== 0 || p0.lat == null || p0.lon == null) return null;
-        const fValid = _parseUtcMs(fc.valid_time_utc);
-        if(isNaN(fValid)) return null;               // no trustworthy time → don't override
+        const p0 = ft && ft.length ? ft[0] : null;
+        const fValid = fc ? _parseUtcMs(fc.valid_time_utc) : NaN;
+        if(p0 && p0.hour === 0 && p0.lat != null && p0.lon != null && !isNaN(fValid)){
+            cands.push({ t: fValid, pos: { lat: p0.lat, lon: p0.lon, valid_time_utc: fc.valid_time_utc,
+                max_wind_kt: p0.max_wind_kt, min_pressure_mb: p0.min_pressure_mb,
+                movement_dir_deg: p0.movement_dir_deg, movement_speed_kt: p0.movement_speed_kt,
+                classification: p0.classification, source: 'advisory' } });
+        }
+        const cur = String(window._currentStormId || '').toUpperCase();
+        const row = (window._activeStorms || []).find(a => String(a && a.id || '').toUpperCase() === cur);
+        const aValid = row ? _parseUtcMs(row.last_update_utc) : NaN;
+        if(row && row.lat != null && row.lon != null && !isNaN(aValid)){
+            cands.push({ t: aValid, pos: { lat: row.lat, lon: row.lon, valid_time_utc: row.last_update_utc,
+                max_wind_kt: row.intensity_knots, min_pressure_mb: row.pressure_mb,
+                movement_dir_deg: row.movement_direction_deg, movement_speed_kt: row.movement_speed_knots,
+                classification: row.classification, source: 'active' } });
+        }
+        if(!cands.length) return null;               // no trustworthy time → don't override
+        cands.sort((a, b) => b.t - a.t);             // newest first; tie keeps the advisory
+        const best = cands[0];
         const sd = window.stormData || [];
         const tail = sd.length ? sd[sd.length-1] : null;
         const tValid = tail ? _parseUtcMs(tail.timestamp) : NaN;
-        if(!isNaN(tValid) && fValid < tValid) return null;   // advisory older than track → keep tail
-        // Carry the full current-conditions snapshot from this same fresh advisory
-        // so the chip shows a self-consistent position + wind + pressure + class +
-        // movement, instead of a fresh position beside staleable /active values.
-        return { lat: p0.lat, lon: p0.lon, valid_time_utc: fc.valid_time_utc,
-                 max_wind_kt: p0.max_wind_kt, min_pressure_mb: p0.min_pressure_mb,
-                 movement_dir_deg: p0.movement_dir_deg, movement_speed_kt: p0.movement_speed_kt,
-                 classification: p0.classification };
+        if(!isNaN(tValid) && best.t < tValid) return null;   // older than the track → keep tail
+        return best.pos;
     }catch(e){ return null; }
+}
+// Re-pick the current position for the LOADED live storm and repaint the
+// marker + chip. Runs when its forecast arrives AND after every /storms/active
+// poll, so an intermediate advisory shows up without waiting for the next
+// forecast fetch.
+function refreshCurrentPos(){
+    try{
+        const sid = window._currentStormId;
+        const fc = window._currentFc && window._currentFc.sid === sid ? window._currentFc.fc : null;
+        if(!sid || !window._isActiveStorm || !currentMap) return;
+        const cur = freshestCurrentPos(fc);
+        if(cur){
+            cur.id = sid;
+            const prev = window._currentPosOverride;
+            window._currentPosOverride = cur;
+            if(!prev || prev.lat !== cur.lat || prev.lon !== cur.lon || !window._currentPosMarker){
+                drawCurrentPosMarker(cur);
+            }
+        } else {
+            window._currentPosOverride = null;
+        }
+        // Refresh the sidebar chip so its text matches (memo key includes the override).
+        if(Array.isArray(window._activeStorms)) renderActiveStorms(window._activeStorms);
+    }catch(e){ console.warn('[CURRENT-POS] refresh failed:', e); }
 }
 // Draw (or move) the dedicated current-position marker — a ringed dot distinct
 // from the small track fixes and the animated scrubber marker, so it reads as
@@ -6483,18 +6526,8 @@ function renderMap(data){
                 // we set a display override + a dedicated marker and NEVER touch
                 // window.stormData, so no DPS score is affected. The sidebar
                 // chip reads this override (by id) via renderActiveStorms.
-                try{
-                    const _cur = freshestCurrentPos(fc);
-                    if(_cur){
-                        _cur.id = sid;
-                        window._currentPosOverride = _cur;
-                        drawCurrentPosMarker(_cur);
-                        // Refresh the sidebar chip so its lat/lon text matches.
-                        if(Array.isArray(window._activeStorms)) renderActiveStorms(window._activeStorms);
-                    } else {
-                        window._currentPosOverride = null;
-                    }
-                }catch(e){ console.warn('[CURRENT-POS] override failed:', e); }
+                window._currentFc = { sid: sid, fc: fc };
+                refreshCurrentPos();
 
                 // ── Forecast-uncertainty DPS band (public, live storms) ──
                 // Range the PEAK DPS could reach given the official intensity error,
