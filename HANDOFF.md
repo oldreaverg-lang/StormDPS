@@ -1,7 +1,115 @@
-# StormDPS — session handoff (updated 2026-08-10)
+# StormDPS — session handoff (updated 2026-09-24)
 
-**Deploy state:** local HEAD == origin/main == `ef4f580`. Site healthy,
-`/health/selfcheck` GREEN (first time in 8 days), CI green, 186 tests pass.
+**Deploy state:** local HEAD == origin/main (this handoff commit, on top of
+`19a5dc7`). Site healthy; 420 tests pass (8 skipped).
+
+---
+
+## 2026-09-23/24 — memory: the "unexplained 2.5 GB" found (two causes)
+
+Read this before touching memory, the season ingest, or IBTrACS lookups. It
+supersedes the "STILL UNEXPLAINED" block in the 08-10 section below.
+
+**Symptom.** The healthcheck cron failed ~70% of its 6-hourly runs from 09-08
+to 09-23 (`resident memory N MB over 1500 MB`). Failure rate was the same
+whether the process was 1 h or 3 days old, so it was not slow creep alone.
+
+**SurgeDPS is NOT involved — ruled out with evidence, do not re-chase.**
+`stormdps.com/surgedps/api/*` never reaches this app: those responses carry
+none of our security/rate-limit headers and return SurgeDPS's own
+`{"error": "Unknown API endpoint: …"}` shape (our route would 404
+`{"detail": "Not found"}`). This app only serves the SurgeDPS static page;
+20 full page loads (9 MB) moved RSS by −1 MB. SurgeDPS memory is a separate
+Railway service, visible only in Railway's per-service Metrics graph (it has
+no memory endpoint).
+
+### Cause 1 — hourly IMERG ingest churn (fixed `4e252ec`)
+
+`IMERG_LIVE_INGEST=1` is set on Railway, so every hourly season ingest ran
+`refresh_current_season_rainfall` over EVERY 2026 storm:
+- re-downloaded IMERG granules even for storms that ended months ago — one
+  pass took ~2 h, outlasting its own interval, so it was effectively always on;
+- earthaccess/fsspec/xarray kept the native buffers alive for the whole pass:
+  live large-block memory reached **2.1 GB** during one ingest (mallinfo);
+- `ground_truth._set_rainfall` reported every re-recorded value as a CHANGE,
+  so `_invalidate_dps_cache` dropped every storm's DPS bundle every hour and
+  the hourly loop recomputed them all (measured: eleven long-dead storms,
+  ~300–650 MB each; **4.5 GB peak**, then stuck at ~1.6 GB).
+
+Fix: same value (0.01 in) + same place + same tier is not a change; storms
+whose last fix is > 72 h old (`_IMERG_SETTLED_HOURS`) and already have a value
+are skipped; each IMERG fetch runs in a throwaway spawned process
+(`_run_isolated`, `max_tasks_per_child=1`, spawn — never fork a threaded
+asyncio worker). **Verified live:** ingest pass 25 min with the worker flat at
+177 MB (59 settled storms skipped, 4 recorded); hourly pass recomputed only
+the active storms + genuinely changed ones; a later restart showed NO
+recompute spike (peak 176 MB vs 4.2 GB on the restart before).
+
+### Cause 2 — per-storm IBTrACS lookups loaded the archive as text (fixed `19a5dc7`)
+
+The 08-10 section lists "`_search_ibtracs_by_atcf_id` full-archive load" as
+REFUTED. **That was wrong.** Its test used a storm present in the ~10 MB
+recent file, so the 315 MB archive was never read. For CURRENT-SEASON storms
+the recent file often misses (IBTrACS lags), so `get_storm_track` step 3 read
+`ibtracs_all.csv` into a 315 MB `str` and parsed it through `io.StringIO`
+(4 bytes/char → ~1.6 GB transient) ON THE EVENT LOOP — for every live storm,
+every hourly refresh. The buffer census caught it directly: after an hourly
+pass, **630 MB = two 314.7 MB `str` objects pinned by finished
+`get_storm_track` frames** (routes.py, at `return results`). This also
+explains the ~600–800 MB single-storm DPS peaks and the ~17 s page stalls
+seen during recomputes.
+
+Fix: every per-storm lookup (`get_ibtracs_track`, new
+`get_ibtracs_by_atcf_id`, `get_ibtracs_by_name[_year]`) streams rows off the
+cached file via `_ibtracs_path` in a worker thread and keeps only matching
+rows; ATCF lookups skip the full archive for ids inside the last-3-years
+window; `_fetch_track_with_cache` now passes the on-disk cache dir (it had
+none, so it downloaded the whole file into memory per call); the old text
+parsers are deleted. **Verified:** identical output to the old text path on
+the real `ibtracs_recent.csv` (6 SIDs, 3 ATCF ids, 4 name lookups); live, two
+uncached 1998/1999 storms resolved via a full-archive scan with RSS
+unchanged at 101.1 MB and no HWM rise (~8.7 s, off the event loop).
+**Pending:** the post-hourly census on the `19a5dc7` process (first hourly
+pass ~03:35Z 09-24) — expect no large `str` holders. NB the IBTrACS recent
+file DOES carry current-season storms a few days after they form, which is
+why the recent-file search was kept for current-season ids.
+
+### Diagnostics now in `/health/memory` (`memtrace.py`, read-only, fail-open)
+
+- default: `trace.spans` (every background job + any request moving RSS
+  ≥ 25 MB or running ≥ 5 s, with RSS before/after and HWM rise),
+  `trace.samples` (RSS once a minute + which jobs/requests were running),
+  `malloc` (glibc mallinfo2: `in_use_mb` live vs `free_retained_mb`).
+- `?buffers=true`: large-buffer census (numpy arrays, bytes/str — invisible
+  to `gc.get_objects()`) grouped by holder, traced to a module global,
+  `Class.attr`, coroutine local, or — for a frame kept alive after return —
+  the traceback → exception → holder chain. Rate-limited to 1 run/min.
+- `?trim=true`: `malloc_trim(0)` with RSS before/after.
+- `?deep=true`: gc object census (unchanged).
+
+How to read it: spikes with `free_retained_mb` ≈ 0 are LIVE data, not
+allocator retention (true of everything seen 09-23/24). Name the job from
+`trace.samples`, then the holder from `?buffers=true`.
+
+### Related fix the same day
+
+`/storms/active` 500'd for every request (~1 h after `9c876b7`) when a new
+feed row arrived — the new display presenter raised. Hotfix `92bed3e`: the
+presenter fails open per row and invalid rows are dropped, never 500 the
+list. Anything added to that path must fail open.
+
+### Still open
+
+- **Why the `get_storm_track` frames outlived their calls.** A finished
+  frame survives only via a kept traceback. The census now prints that chain
+  (`buffers.by_holder[].owner`) — check it after an hourly pass. Without the
+  text load the frames no longer pin 315 MB, but the holder should be found.
+- The hourly force-refresh of the six active storms still peaks around
+  1.4–1.5 GB transiently (before `19a5dc7`); re-measure after it.
+- The alarm still has no transient-vs-sustained split (see 08-10 below).
+- Unrelated but also failing selfcheck on 09-24: `live position for
+  ep152026: displayed /active center is 55 km from the fresh advisory` — the
+  known active-cache freeze, not memory.
 
 ---
 
@@ -55,8 +163,11 @@ commas, blank numerics). In production the catalog is byte-identical:
   HOST's cores inside a container. 6 covers both submitters; the IKE batch is
   already capped at 4 by an `asyncio.Semaphore` at the call site.
 
-**⚠️ STILL UNEXPLAINED: ~2.5 GB.** A process that booted at 95 MB reached a
-2,629 MB peak. RULED OUT WITH EVIDENCE, do not re-chase:
+**⚠️ STILL UNEXPLAINED: ~2.5 GB.** *(RESOLVED 2026-09-24 — see the top
+section: the hourly IMERG ingest churn and the per-storm IBTrACS text loads.
+The `_search_ibtracs_by_atcf_id` "refutation" below was mistaken.)* A process
+that booted at 95 MB reached a 2,629 MB peak. RULED OUT WITH EVIDENCE, do not
+re-chase:
 - **NumPy** — production never executes a grid-based IKE computation. All
   track points route through `core/ike_coaps.py`, which imports no NumPy
   (census: 1,676 points across 23 storms, ZERO grid-path). 28,200 real
@@ -67,7 +178,9 @@ commas, blank numerics). In production the catalog is byte-identical:
 - **Thread leak**, **`--preload`**.
 - **`_search_ibtracs_by_atcf_id` full-archive load** (routes.py:2453-2456) —
   plausible on paper, REFUTED by measurement: an uncached track request swings
-  only 120 MB and releases it. NB my first test of this was INVALID (a
+  only 120 MB and releases it. **[WRONG — 2026-09-24: the test storm was in
+  the recent file; current-season storms fall through to the 315 MB archive.
+  The census found 2 × 314.7 MB copies pinned. Fixed `19a5dc7`.]** NB my first test of this was INVALID (a
   high-water mark cannot detect an allocation below it); the valid test samples
   RSS *during* the request.
 
@@ -586,9 +699,13 @@ carries its detail in git log + the docs listed in §4.
 - `docs/DATA_ARCHITECTURE.md` — canonical input→cache→consumer→surface map;
   alias-table design.
 - `docs/audits/WP_DPS_AUDIT_V2.md` — WP formula audit; Tranche B plan.
+- `memtrace.py` — memory attribution behind `/health/memory` (job spans,
+  per-minute samples, mallinfo, `?buffers=true` census, `?trim=true`); see
+  the 2026-09-24 section at the top for how to read it.
 - Memory files: stormdps-track-data-loading (loading/caching + layer
   restructure gotchas), dps-formula-gaps (scoring), stormdps-no-directives
-  (copy policy), stormdps-analyst-mode, surgedps-recovery.
+  (copy policy), stormdps-analyst-mode, surgedps-recovery,
+  stormdps-memory-imerg-churn (the 09-24 memory root causes).
 
 ## 5. Hard-won engineering gotchas from this session
 
