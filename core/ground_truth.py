@@ -436,6 +436,15 @@ def _set_rainfall(sid, name, year, peak_in, loc, source, tier) -> bool:
     )
     if tier < cur_tier:
         return False
+    # Same value (to the 0.01 in we persist), same place, same tier: NOT a
+    # change. Reporting it as one made the hourly IMERG ingest drop and
+    # recompute every current-season storm's DPS bundle every hour — the
+    # multi-GB memory spikes behind the 2026-09 healthcheck alarms.
+    if (existing is not None and existing.peak_rainfall_in is not None
+            and cur_tier == tier
+            and round(float(existing.peak_rainfall_in), 2) == round(float(peak_in), 2)
+            and existing.peak_rainfall_location == _loc_str(loc)):
+        return False
     if existing is None:
         _REGISTRY[sid] = GroundTruth(
             storm_id=sid, name=name or sid, year=int(year or 0),
@@ -468,6 +477,13 @@ def _merge_sidecar(path: Path) -> int:
                          rec.get("peak_rainfall_location"), src, _tier_of(src)):
             merged += 1
     return merged
+
+
+def has_live_rainfall(storm_id) -> bool:
+    """True when an IMERG (Late or better) peak is already recorded."""
+    row = _REGISTRY.get(storm_id)
+    return (row is not None and row.peak_rainfall_in is not None
+            and _RAIN_TIER.get(storm_id, 0) >= _TIER_LATE)
 
 
 def record_observed_rainfall(storm_id, name, year, peak_rainfall_in,

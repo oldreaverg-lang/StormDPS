@@ -43,7 +43,7 @@ import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from timeutil import utcnow
 import memtrace
 from pathlib import Path
@@ -4492,6 +4492,48 @@ async def refresh_current_season(http_client=None) -> dict:
         return {"fetched": 0, "error": True}
 
 
+# IMERG Late-run daily totals settle within about a day of the last rain; a
+# storm whose final fix is older than this, with a value already recorded, is
+# not re-fetched.
+_IMERG_SETTLED_HOURS = 72.0
+
+# The IMERG fetch (earthaccess + fsspec + xarray/h5netcdf) keeps native buffers
+# alive across calls: measured 2026-09-23, live large-block memory grew to
+# ~2.1 GB over one ingest pass and was only released when the pass ended —
+# with ~20 storms the pass outlasted its own hourly interval, so the web
+# worker sat above the 1.5 GB alarm for hours. Each call now runs in a fresh
+# spawned process (max_tasks_per_child=1): whatever the libraries hold is
+# returned to the OS when that child exits. spawn, not fork — forking a
+# threaded asyncio worker can deadlock.
+_ISOLATED_POOL = None
+
+
+def _isolated_pool():
+    global _ISOLATED_POOL
+    if _ISOLATED_POOL is None:
+        import multiprocessing
+        from concurrent.futures import ProcessPoolExecutor
+        _ISOLATED_POOL = ProcessPoolExecutor(
+            max_workers=1, mp_context=multiprocessing.get_context("spawn"),
+            max_tasks_per_child=1)
+    return _ISOLATED_POOL
+
+
+async def _run_isolated(fn, *args, **kwargs):
+    """Run a picklable module-level *fn* in a throwaway child process."""
+    global _ISOLATED_POOL
+    import functools
+    from concurrent.futures.process import BrokenProcessPool
+    loop = asyncio.get_running_loop()
+    try:
+        return await loop.run_in_executor(_isolated_pool(), functools.partial(fn, *args, **kwargs))
+    except BrokenProcessPool:
+        # A child died (e.g. OOM-killed). Drop the pool so the next call gets
+        # a fresh one, and let the caller treat this item as failed.
+        _ISOLATED_POOL = None
+        raise
+
+
 async def refresh_current_season_rainfall(http_client=None) -> dict:
     """Enrich current-season storms with observed GPM IMERG Late-Run rainfall and
     record it in the ground-truth registry, so the DPS rainfall override fires
@@ -4531,6 +4573,7 @@ async def refresh_current_season_rainfall(http_client=None) -> dict:
         follow_redirects=True, timeout=30.0,
     )
     recorded = 0
+    skipped_settled = 0
     try:
         async with ATCFBDeckClient(http_client=http) as bdeck:
             for s in storms:
@@ -4546,8 +4589,21 @@ async def refresh_current_season_rainfall(http_client=None) -> dict:
                     ]
                     if len(track) < 2:
                         continue
-                    # IMERG fetch is blocking (network + xarray) — run off-loop.
-                    res = await asyncio.to_thread(
+                    # A storm that ended days ago already has its final Late-run
+                    # total; re-downloading its IMERG granules every hour cost
+                    # ~an hour of network + memory per pass for no new data.
+                    try:
+                        _last = max(t["time"] for t in track)
+                        _last = _last if _last.tzinfo else _last.replace(tzinfo=timezone.utc)
+                        _ended_h = (datetime.now(timezone.utc) - _last).total_seconds() / 3600
+                    except Exception:
+                        _ended_h = 0.0
+                    if _ended_h > _IMERG_SETTLED_HOURS and ground_truth.has_live_rainfall(sid):
+                        skipped_settled += 1
+                        continue
+                    # IMERG fetch is blocking (network + xarray) and holds native
+                    # memory — run it in a throwaway process (see _run_isolated).
+                    res = await _run_isolated(
                         observed_rainfall_for_track, track, short_name=LATE_SHORT_NAME
                     )
                     if res and res.get("peak_cell_in") and ground_truth.record_observed_rainfall(
@@ -4565,8 +4621,10 @@ async def refresh_current_season_rainfall(http_client=None) -> dict:
     finally:
         if own_client:
             await http.aclose()
-    logger.info("[SEASON] recorded IMERG rainfall for %d current-season storm(s)", recorded)
-    return {"rainfall_recorded": recorded, "rainfall_status": "ok"}
+    logger.info("[SEASON] recorded IMERG rainfall for %d current-season storm(s) "
+                "(%d settled, skipped)", recorded, skipped_settled)
+    return {"rainfall_recorded": recorded, "rainfall_skipped_settled": skipped_settled,
+            "rainfall_status": "ok"}
 
 
 async def warm_ibtracs_catalog() -> dict:
