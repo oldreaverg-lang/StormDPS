@@ -69,8 +69,10 @@ parsers are deleted. **Verified:** identical output to the old text path on
 the real `ibtracs_recent.csv` (6 SIDs, 3 ATCF ids, 4 name lookups); live, two
 uncached 1998/1999 storms resolved via a full-archive scan with RSS
 unchanged at 101.1 MB and no HWM rise (~8.7 s, off the event loop).
-**Pending:** the post-hourly census on the `19a5dc7` process (first hourly
-pass ~03:35Z 09-24) — expect no large `str` holders. NB the IBTrACS recent
+**Post-hourly census (03:42Z 09-24):** the hourly active-storm refresh now
+takes **3 s** (was 55–64 s) and moved RSS 182 → 187 MB; the process's
+lifetime peak INCLUDING startup is **204.5 MB** (was 2.6–4.5 GB); large
+buffers held after the pass total **2 MB** (was 630 MB). NB the IBTrACS recent
 file DOES carry current-season storms a few days after they form, which is
 why the recent-file search was kept for current-season ids.
 
@@ -100,12 +102,12 @@ list. Anything added to that path must fail open.
 
 ### Still open
 
-- **Why the `get_storm_track` frames outlived their calls.** A finished
-  frame survives only via a kept traceback. The census now prints that chain
-  (`buffers.by_holder[].owner`) — check it after an hourly pass. Without the
-  text load the frames no longer pin 315 MB, but the holder should be found.
-- The hourly force-refresh of the six active storms still peaks around
-  1.4–1.5 GB transiently (before `19a5dc7`); re-measure after it.
+- **Why two `get_storm_track` frames outlived their calls** is not proven
+  (a finished frame survives only via a kept traceback). After `19a5dc7` the
+  census finds no frame holders at all, so nothing large is pinned; if one
+  reappears, `?buffers=true` prints the traceback → exception → holder chain.
+- Judge the fix by the FLOOR over the next days, per the 08-10 rule — the
+  09-24 numbers are one process's first hours.
 - The alarm still has no transient-vs-sustained split (see 08-10 below).
 - Unrelated but also failing selfcheck on 09-24: `live position for
   ep152026: displayed /active center is 55 km from the fresh advisory` — the
