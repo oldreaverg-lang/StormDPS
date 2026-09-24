@@ -691,29 +691,6 @@ def _dict_to_ike_response(d: dict) -> "IKEResponse":
     return IKEResponse(**d)
 
 
-def _search_ibtracs_by_atcf_id(
-    client: NOAAClient, csv_text: str, atcf_id: str
-) -> list:
-    """
-    Search IBTrACS CSV for a storm matching a given ATCF ID (e.g., AL142024).
-
-    IBTrACS includes a USA_ATCF_ID column that maps to NHC ATCF identifiers,
-    allowing us to find storms like Milton (AL142024) even if they're not
-    yet in the HURDAT2 file.
-    """
-    snapshots = []
-    reader = csv.DictReader(io.StringIO(csv_text))
-
-    for row in reader:
-        row_atcf = row.get("USA_ATCF_ID", "").strip()
-        if row_atcf == atcf_id:
-            snap = client._ibtracs_row_to_snapshot(row)
-            if snap is not None:
-                snapshots.append(snap)
-
-    return snapshots
-
-
 def _ike_to_response(result, snapshot=None) -> IKEResponse:
     """Helper to convert IKEResult to API response, including wind field params."""
     from api.schemas import QuadrantRadii
@@ -2672,11 +2649,12 @@ async def get_storm_track(
             if not snapshots and prefix in ("AL", "EP", "CP", "WP", "IO", "SH") and len(storm_id) == 8:
                 t0 = time.time()
                 try:
-                    csv_text = await client._fetch_ibtracs(use_recent=True)
-                    snapshots = _search_ibtracs_by_atcf_id(client, csv_text, storm_id)
-                    if not snapshots:
-                        csv_text = await client._fetch_ibtracs(use_recent=False)
-                        snapshots = _search_ibtracs_by_atcf_id(client, csv_text, storm_id)
+                    # Streamed off disk (never the 315 MB archive as a str);
+                    # a storm inside the last-3-years window can't be in the
+                    # full archive if the recent file lacks it.
+                    _yr = int(storm_id[4:8]) if storm_id[4:8].isdigit() else 0
+                    snapshots = await client.get_ibtracs_by_atcf_id(
+                        storm_id, full_archive=_yr < datetime.now().year - 2)
                     if snapshots:
                         source = "ibtracs"
                         _monitor.record_success("ibtracs", latency_ms=(time.time() - t0) * 1000)
@@ -4917,7 +4895,8 @@ async def _fetch_track_with_cache(sid: str, *, force: bool = False, http_client=
             return snaps
 
     try:
-        async with NOAAClient(http_client=http_client) as client:
+        async with NOAAClient(http_client=http_client,
+                              cache_dir=str(_PERSISTENT_DATA / "cache")) as client:
             # Dispatch on ID format:
             #   - IBTrACS SID (starts with digit, e.g. "2005236N23285") → SID lookup
             #   - ATCF ID    (starts with letter, e.g. "AL092017")      → USA_ATCF_ID lookup
@@ -4925,15 +4904,8 @@ async def _fetch_track_with_cache(sid: str, *, force: bool = False, http_client=
             if sid and sid[0].isdigit():
                 snaps = await client.get_ibtracs_track(sid)
             else:
-                # ATCF format — search IBTrACS CSV by USA_ATCF_ID column.
-                for use_recent in (True, False):
-                    csv_text = await client._fetch_ibtracs(use_recent=use_recent)
-                    loop = asyncio.get_event_loop()
-                    snaps = await loop.run_in_executor(
-                        None, _search_ibtracs_by_atcf_id, client, csv_text, sid
-                    )
-                    if snaps:
-                        break
+                # ATCF format — IBTrACS USA_ATCF_ID column, streamed.
+                snaps = await client.get_ibtracs_by_atcf_id(sid)
     except Exception as e:
         # NOAA failed — try the stale cache as a last resort.
         fallback = _load_track_cache(sid, max_age=None)

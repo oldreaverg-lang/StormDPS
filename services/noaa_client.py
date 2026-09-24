@@ -1628,16 +1628,34 @@ class NOAAClient:
         Returns:
             List of HurricaneSnapshot from IBTrACS data
         """
-        csv_text = await self._fetch_ibtracs(use_recent=use_recent)
-        loop = asyncio.get_event_loop()
-        snapshots = await loop.run_in_executor(None, self._parse_ibtracs_csv, csv_text, sid)
+        sid = sid.strip()
 
+        def _match(r):
+            return r.get("SID", "").strip() == sid
+
+        rows = await self._ibtracs_matching_rows(use_recent, _match)
         # If not found in recent, try the full archive
-        if not snapshots and use_recent:
-            csv_text = await self._fetch_ibtracs(use_recent=False)
-            snapshots = await loop.run_in_executor(None, self._parse_ibtracs_csv, csv_text, sid)
+        if not rows and use_recent:
+            rows = await self._ibtracs_matching_rows(False, _match)
+        return self._rows_to_snapshots(rows)
 
-        return snapshots
+    async def get_ibtracs_by_atcf_id(
+        self, atcf_id: str, *, full_archive: bool = True,
+    ) -> list[HurricaneSnapshot]:
+        """IBTrACS track by its USA_ATCF_ID column (e.g. AL142024 -> Milton).
+
+        Recent file first; the full archive only when *full_archive* — a
+        storm newer than the last-3-years window cannot be in it, so callers
+        pass False for current-season ids."""
+        atcf_id = atcf_id.strip()
+
+        def _match(r):
+            return r.get("USA_ATCF_ID", "").strip() == atcf_id
+
+        rows = await self._ibtracs_matching_rows(True, _match)
+        if not rows and full_archive:
+            rows = await self._ibtracs_matching_rows(False, _match)
+        return self._rows_to_snapshots(rows)
 
     async def get_ibtracs_by_name_year(
         self,
@@ -1654,12 +1672,17 @@ class NOAAClient:
             basin: optional basin filter (NA, EP, WP, NI, SI, SP, SA)
         """
         use_recent = year >= (utcnow().year - 3)
-        csv_text = await self._fetch_ibtracs(use_recent=use_recent)
-        if not csv_text and use_recent:
-            csv_text = await self._fetch_ibtracs(use_recent=False)
+        name = name.upper()
 
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._search_ibtracs_csv, csv_text, name.upper(), year, basin)
+        def _match(r):
+            if r.get("NAME", "").strip().upper() != name:
+                return False
+            season = r.get("SEASON", "").strip()
+            if season and int(season) != year:
+                return False
+            return not (basin and r.get("BASIN", "").strip() != basin)
+
+        return self._rows_to_snapshots(await self._ibtracs_matching_rows(use_recent, _match))
 
     async def get_ibtracs_by_name(
         self,
@@ -1675,25 +1698,58 @@ class NOAAClient:
             name: storm name (e.g., "KATRINA")
             basin: optional basin filter (NA, EP, WP, NI, SI, SP, SA)
         """
-        # Search recent first (faster, smaller file)
-        csv_text = await self._fetch_ibtracs(use_recent=True)
-        if not csv_text:
-            csv_text = await self._fetch_ibtracs(use_recent=False)
+        name = name.upper()
 
+        def _match(r):
+            return (r.get("NAME", "").strip().upper() == name
+                    and not (basin and r.get("BASIN", "").strip() != basin))
+
+        # Search recent first (faster, smaller file), then the full archive.
+        for use_recent in (True, False):
+            snapshots = self._most_recent_season(
+                await self._ibtracs_matching_rows(use_recent, _match))
+            if snapshots:
+                return snapshots
+        return []
+
+    # ── streamed row access ─────────────────────────────────────────────
+    # The per-storm lookups used to read the whole CSV into a str and wrap
+    # it in io.StringIO (4 bytes/char): ~1.6 GB transient for the 315 MB
+    # archive, on every live-storm refresh, and two such frames were found
+    # pinning 630 MB after the hourly pass (2026-09-24 buffer census). Rows
+    # now stream straight off the cached file in a worker thread; only the
+    # matching rows (a few hundred at most) are kept.
+    def _scan_ibtracs(self, source, row_filter) -> list[dict]:
+        """Rows passing *row_filter*, from a Path (streamed) or CSV text."""
+        if isinstance(source, str):
+            return [r for r in csv.DictReader(io.StringIO(source)) if row_filter(r)]
+        with open(source, 'r', newline='', encoding='utf-8', errors='replace') as fh:
+            return [r for r in csv.DictReader(fh) if row_filter(r)]
+
+    async def _ibtracs_matching_rows(self, use_recent: bool, row_filter) -> list[dict]:
+        path = await self._ibtracs_path(use_recent=use_recent)
+        source = path if path is not None else await self._fetch_ibtracs(use_recent=use_recent)
+        if not source:
+            return []
         loop = asyncio.get_event_loop()
-        snapshots = await loop.run_in_executor(
-            None, self._search_ibtracs_name_only, csv_text, name.upper(), basin
-        )
+        return await loop.run_in_executor(None, self._scan_ibtracs, source, row_filter)
 
-        # If nothing in recent, try full archive
-        if not snapshots:
-            csv_text = await self._fetch_ibtracs(use_recent=False)
-            if csv_text:
-                snapshots = await loop.run_in_executor(
-                    None, self._search_ibtracs_name_only, csv_text, name.upper(), basin
-                )
+    def _rows_to_snapshots(self, rows) -> list[HurricaneSnapshot]:
+        snaps = (self._ibtracs_row_to_snapshot(r) for r in rows)
+        return [s for s in snaps if s is not None]
 
-        return snapshots
+    def _most_recent_season(self, rows) -> list[HurricaneSnapshot]:
+        """Snapshots for the latest SEASON among *rows* (name-only search)."""
+        seasons = set()
+        for r in rows:
+            try:
+                seasons.add(int(r.get("SEASON", "").strip()))
+            except ValueError:
+                pass
+        if not seasons:
+            return []
+        latest = str(max(seasons))
+        return self._rows_to_snapshots(r for r in rows if r.get("SEASON", "").strip() == latest)
 
     async def _fetch_ibtracs(self, use_recent: bool = True) -> str:
         """Download IBTrACS CSV (cached).
@@ -1874,94 +1930,6 @@ class NOAAClient:
 
         logger.info(f"IBTrACS chunk parse: {storm_count} rows -> {len(catalog)} storms")
         return catalog
-
-    def _parse_ibtracs_csv(
-        self, csv_text: str, target_sid: str
-    ) -> list[HurricaneSnapshot]:
-        """Parse IBTrACS CSV for a specific storm ID."""
-        snapshots = []
-        reader = csv.DictReader(io.StringIO(csv_text))
-
-        for row in reader:
-            if row.get("SID", "").strip() != target_sid:
-                continue
-
-            snap = self._ibtracs_row_to_snapshot(row)
-            if snap is not None:
-                snapshots.append(snap)
-
-        return snapshots
-
-    def _search_ibtracs_csv(
-        self, csv_text: str, name: str, year: int, basin: Optional[str]
-    ) -> list[HurricaneSnapshot]:
-        """Search IBTrACS CSV by name, year, and optional basin."""
-        snapshots = []
-        reader = csv.DictReader(io.StringIO(csv_text))
-
-        for row in reader:
-            row_name = row.get("NAME", "").strip().upper()
-            row_season = row.get("SEASON", "").strip()
-            row_basin = row.get("BASIN", "").strip()
-
-            if row_name != name:
-                continue
-            if row_season and int(row_season) != year:
-                continue
-            if basin and row_basin != basin:
-                continue
-
-            snap = self._ibtracs_row_to_snapshot(row)
-            if snap is not None:
-                snapshots.append(snap)
-
-        return snapshots
-
-    def _search_ibtracs_name_only(
-        self, csv_text: str, name: str, basin: Optional[str]
-    ) -> list[HurricaneSnapshot]:
-        """Search IBTrACS CSV by name only, return snapshots for the most recent year match."""
-        # First pass: find all years that have this storm name
-        years_found: set[int] = set()
-        reader = csv.DictReader(io.StringIO(csv_text))
-        for row in reader:
-            row_name = row.get("NAME", "").strip().upper()
-            row_season = row.get("SEASON", "").strip()
-            row_basin = row.get("BASIN", "").strip()
-            if row_name != name:
-                continue
-            if basin and row_basin != basin:
-                continue
-            if row_season:
-                try:
-                    years_found.add(int(row_season))
-                except ValueError:
-                    pass
-
-        if not years_found:
-            return []
-
-        # Pick the most recent year
-        most_recent_year = max(years_found)
-
-        # Second pass: collect snapshots for that year
-        snapshots = []
-        reader2 = csv.DictReader(io.StringIO(csv_text))
-        for row in reader2:
-            row_name = row.get("NAME", "").strip().upper()
-            row_season = row.get("SEASON", "").strip()
-            row_basin = row.get("BASIN", "").strip()
-            if row_name != name:
-                continue
-            if not row_season or int(row_season) != most_recent_year:
-                continue
-            if basin and row_basin != basin:
-                continue
-            snap = self._ibtracs_row_to_snapshot(row)
-            if snap is not None:
-                snapshots.append(snap)
-
-        return snapshots
 
     def _ibtracs_row_to_snapshot(self, row: dict) -> Optional[HurricaneSnapshot]:
         """Convert a single IBTrACS CSV row to a HurricaneSnapshot."""

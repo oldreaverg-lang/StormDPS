@@ -293,6 +293,48 @@ _LAST_CENSUS: dict = {"t": 0.0, "result": None}
 CENSUS_MIN_INTERVAL_S = 60.0
 
 
+def _frame_owner(frame, skip_ids) -> str:
+    """Why is a FINISHED function's frame still alive? Nearly always a
+    traceback: some exception that passed through the frame is being kept.
+    Walk frame -> traceback(s) -> exception -> whoever holds the exception."""
+    import gc
+    import types
+    try:
+        tbs = [r for r in gc.get_referrers(frame)
+               if isinstance(r, types.TracebackType) and id(r) not in skip_ids]
+        if not tbs:
+            kinds = sorted({type(r).__name__ for r in gc.get_referrers(frame)
+                            if id(r) not in skip_ids})
+            return "referenced by " + ", ".join(kinds[:4]) if kinds else ""
+        seen, todo, exc = set(), list(tbs), None
+        while todo and exc is None:
+            tb = todo.pop()
+            if id(tb) in seen:
+                continue
+            seen.add(id(tb))
+            for r in gc.get_referrers(tb):
+                if isinstance(r, BaseException):
+                    exc = r
+                    break
+                if isinstance(r, types.TracebackType):
+                    todo.append(r)
+        if exc is None:
+            return "traceback (no exception found)"
+        holders = []
+        for r in gc.get_referrers(exc):
+            if id(r) in skip_ids or r is exc:
+                continue
+            if isinstance(r, dict):
+                key = next((str(k)[:30] for k, v in r.items() if v is exc), "?")
+                holders.append(f"dict[{key}] of {_owner_of(r, skip_ids | {id(exc)})}")
+            else:
+                holders.append(type(r).__qualname__)
+        return (f"traceback of {type(exc).__name__}: {str(exc)[:80]!r}"
+                + (f" held by {'; '.join(holders[:3])}" if holders else ""))
+    except Exception as e:
+        return f"? ({type(e).__name__})"
+
+
 def buffer_census(min_kb: int = 256, top: int = 15, *, force: bool = False) -> dict:
     """Large buffers reachable from gc-tracked objects and thread stacks,
     grouped by holder. Seconds of CPU on a big heap, and the endpoint is
@@ -356,7 +398,13 @@ def _buffer_census(min_kb: int, top: int) -> dict:
         by_holder = []
         for g in ranked:
             h = g.pop("_h")
-            owner = _owner_of(h, skip) if isinstance(h, (dict, list, tuple, set)) else ""
+            import types
+            if isinstance(h, (dict, list, tuple, set)):
+                owner = _owner_of(h, skip)
+            elif isinstance(h, types.FrameType):
+                owner = _frame_owner(h, skip)
+            else:
+                owner = ""
             by_holder.append({"holder": g["holder"], "owner": owner,
                               "mb": round(g["mb"], 1), "count": g["count"]})
         largest.sort(key=lambda x: -x[0])

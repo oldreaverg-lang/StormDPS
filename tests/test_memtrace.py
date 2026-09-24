@@ -88,3 +88,25 @@ def test_buffer_census_names_holders():
     # a repeat within the rate-limit window returns the cached result
     assert memtrace.buffer_census(min_kb=4096).get("cached") is True
     _PLANTED = None
+
+
+_KEPT_ERRORS = {}
+
+
+def _leaky_call():
+    big_text = "x" * (6 * 1024 * 1024)       # a big local, like the IBTrACS csv_text
+    try:
+        raise ValueError("boom")
+    except ValueError as e:
+        _KEPT_ERRORS["last"] = e             # keeping the exception keeps this frame
+    return len(big_text)
+
+
+def test_census_explains_a_frame_kept_alive_by_an_exception():
+    _leaky_call()
+    out = memtrace.buffer_census(min_kb=4096, force=True)
+    frames = [h for h in out["by_holder"] if h["holder"].startswith("frame _leaky_call")]
+    assert frames, out["by_holder"]
+    owner = frames[0]["owner"]
+    assert "traceback of ValueError" in owner and "_KEPT_ERRORS" in owner, owner
+    _KEPT_ERRORS.clear()
