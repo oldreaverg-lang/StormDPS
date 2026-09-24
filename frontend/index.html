@@ -5337,7 +5337,7 @@ function _buildScoreChart(canvasId, scores, data, label, lineColor, gradientStop
     const ctx=document.getElementById(canvasId).getContext('2d');
     const gradient=ctx.createLinearGradient(0,0,0,ctx.canvas.clientHeight||300);
     gradientStops.forEach(s=>gradient.addColorStop(s[0],s[1]));
-    const labels=data.map(d=>{const t=new Date(d.timestamp);return`${t.getUTCMonth()+1}/${t.getUTCDate()} ${String(t.getUTCHours()).padStart(2,'0')}Z`});
+    const labels=data.map(d=>{const t=_utcDate(d.timestamp);return`${t.getUTCMonth()+1}/${t.getUTCDate()} ${String(t.getUTCHours()).padStart(2,'0')}Z`});
     const datasets=[
         {label,data:scores,borderColor:lineColor,backgroundColor:gradient,borderWidth:3,fill:true,tension:.35,pointRadius:0,pointHitRadius:10,
          segment:{borderColor:c=>{
@@ -5492,7 +5492,7 @@ window.addEventListener('analystmodechange', function () {
 
 function renderChart(data){
     const ctx=document.getElementById('ikeChart').getContext('2d');if(currentChart)currentChart.destroy();
-    const labels=data.map(d=>{const t=new Date(d.timestamp);return`${t.getUTCMonth()+1}/${t.getUTCDate()} ${String(t.getUTCHours()).padStart(2,'0')}Z`});
+    const labels=data.map(d=>{const t=_utcDate(d.timestamp);return`${t.getUTCMonth()+1}/${t.getUTCDate()} ${String(t.getUTCHours()).padStart(2,'0')}Z`});
     let peakSdp=data.reduce((m,d)=>d.et?m:Math.max(m,sdpFromIke(d.ike_total_tj||0)),0);
     // Fully-extratropical storms have no tropical snapshot; fall back to all-track
     // (mirrors the backend peak-IKE fallback) so the subtitle isn't a bogus 0.
@@ -5511,7 +5511,7 @@ function renderChart(data){
 function renderSurgeChart(data){
     const ctx=document.getElementById('surgeChart').getContext('2d');
     if(currentSurgeChart)currentSurgeChart.destroy();
-    const labels=data.map(d=>{const t=new Date(d.timestamp);return`${t.getUTCMonth()+1}/${t.getUTCDate()} ${String(t.getUTCHours()).padStart(2,'0')}Z`});
+    const labels=data.map(d=>{const t=_utcDate(d.timestamp);return`${t.getUTCMonth()+1}/${t.getUTCDate()} ${String(t.getUTCHours()).padStart(2,'0')}Z`});
     const surgeData=data.map(d=>calculateSurgeParametric(d));
     currentSurgeChart=new Chart(ctx,{type:'line',data:{labels,datasets:[
         {label:'Storm Surge (ft)',data:surgeData,borderColor:'#047857',backgroundColor:'rgba(16,185,129,.08)',borderWidth:2.5,fill:true,tension:.35,pointRadius:0,pointHitRadius:10}
@@ -5524,7 +5524,7 @@ function renderSurgeChart(data){
 function renderPressureChart(data){
     const ctx=document.getElementById('pressureChart').getContext('2d');
     if(currentPressureChart)currentPressureChart.destroy();
-    const labels=data.map(d=>{const t=new Date(d.timestamp);return`${t.getUTCMonth()+1}/${t.getUTCDate()} ${String(t.getUTCHours()).padStart(2,'0')}Z`});
+    const labels=data.map(d=>{const t=_utcDate(d.timestamp);return`${t.getUTCMonth()+1}/${t.getUTCDate()} ${String(t.getUTCHours()).padStart(2,'0')}Z`});
     const pressureData=data.map(d=>d.min_pressure_hpa||1013);
     currentPressureChart=new Chart(ctx,{type:'line',data:{labels,datasets:[
         {label:'Min Pressure (mb)',data:pressureData,borderColor:'#b45309',backgroundColor:'rgba(245,158,11,.08)',borderWidth:2.5,fill:true,tension:.35,pointRadius:0,pointHitRadius:10}
@@ -5553,7 +5553,7 @@ const WIND_ZONES=[
 function renderWindChart(data){
     const ctx=document.getElementById('windChart').getContext('2d');
     if(currentWindChart)currentWindChart.destroy();
-    const labels=data.map(d=>{const t=new Date(d.timestamp);return`${t.getUTCMonth()+1}/${t.getUTCDate()} ${String(t.getUTCHours()).padStart(2,'0')}Z`});
+    const labels=data.map(d=>{const t=_utcDate(d.timestamp);return`${t.getUTCMonth()+1}/${t.getUTCDate()} ${String(t.getUTCHours()).padStart(2,'0')}Z`});
     // max_wind_ms is in m/s — convert to mph (1 m/s = 2.23694 mph)
     const windMph=data.map(d=>(d.max_wind_ms||0)*2.23694);
     // Also show knots as secondary dataset
@@ -5663,7 +5663,7 @@ async function fetchAndRenderSST(data, stormId){
 function renderSSTChart(data,sstData){
     const ctx=document.getElementById('sstChart').getContext('2d');
     if(currentSSTChart)currentSSTChart.destroy();
-    const labels=data.map(d=>{const t=new Date(d.timestamp);return`${t.getUTCMonth()+1}/${t.getUTCDate()} ${String(t.getUTCHours()).padStart(2,'0')}Z`});
+    const labels=data.map(d=>{const t=_utcDate(d.timestamp);return`${t.getUTCMonth()+1}/${t.getUTCDate()} ${String(t.getUTCHours()).padStart(2,'0')}Z`});
     const sstValues=sstData.map(s=>s.sst_c);
 
     currentSSTChart=new Chart(ctx,{type:'line',data:{labels,datasets:[
@@ -5707,7 +5707,7 @@ async function fetchAndRenderRainfall(data, stormId){
 function renderRainfallChart(data,rainData){
     const ctx=document.getElementById('rainfallChart').getContext('2d');
     if(currentRainChart)currentRainChart.destroy();
-    const labels=data.map(d=>{const t=new Date(d.timestamp);return`${t.getUTCMonth()+1}/${t.getUTCDate()} ${String(t.getUTCHours()).padStart(2,'0')}Z`});
+    const labels=data.map(d=>{const t=_utcDate(d.timestamp);return`${t.getUTCMonth()+1}/${t.getUTCDate()} ${String(t.getUTCHours()).padStart(2,'0')}Z`});
     const vals=rainData.map(x=>x?x.rainfall_mm:null);
     currentRainChart=new Chart(ctx,{type:'bar',data:{labels,datasets:[
         {label:'Rainfall at storm center (mm/6h)',data:vals,backgroundColor:'rgba(37,99,235,.55)',borderColor:'#2563eb',borderWidth:1,borderRadius:2}
@@ -5894,6 +5894,27 @@ function _wfShiftBounds(bounds, latOff, lonOff) {
             [bounds[1][0] + latOff, bounds[1][1] + lonOff]];
 }
 
+// Frames are swapped into ONE persistent overlay, and only once the next image
+// is decoded. The old code removed the overlay and added a new L.imageOverlay
+// per shape change; the new <img> decoded asynchronously, so the map showed
+// NOTHING for a paint or two — a blink at every sub-step (Katrina at 4x: 120
+// fresh <img> elements in 6 s). An <img> whose new src is already decoded
+// paints it synchronously, so there is never a blank frame; until the swap
+// lands, the previous frame keeps gliding with the storm center.
+function _wfDecoded(url) {
+    const st = window._windfieldState;
+    if (!st._decoded) st._decoded = new Map();   // url -> Promise (reset per storm)
+    let p = st._decoded.get(url);
+    if (!p) {
+        const im = new Image();
+        im.src = url;
+        p = (im.decode ? im.decode() : new Promise(r => { im.onload = im.onerror = r; }))
+            .catch(() => {}).then(() => im);
+        st._decoded.set(url, p);
+    }
+    return p;
+}
+
 function _windfieldDraw(bi, ni, fr, latOff, lonOff) {
     const st = window._windfieldState;
     if (!st.enabled || !currentMap) return;
@@ -5902,25 +5923,29 @@ function _windfieldDraw(bi, ni, fr, latOff, lonOff) {
     bi = Math.max(0, Math.min(bi, n - 1));
     ni = Math.max(0, Math.min(ni == null ? bi : ni, n - 1));
     latOff = latOff || 0; lonOff = lonOff || 0;
+    st._lastOff = [latOff, lonOff];
     const S = _WF_SUBSTEPS;
     let qs = Math.round((fr || 0) * S);
     if (qs < 0) qs = 0; else if (qs > S) qs = S;
     // Frame key = (segment start) or (segment + sub-step). The SHAPE only changes
     // when this key changes; POSITION glides every tick regardless.
     const fkey = (qs <= 0) ? ('i' + bi) : (bi + ':' + qs);
-    // Same-frame glide: shape unchanged since last tick — only slide the cached
+    // Same frame (or its replacement still decoding): only slide the current
     // overlay's bounds by the interpolated center offset. No canvas recompute.
-    if (fkey === st.currentKey && st.overlay && st._baseBounds) {
+    if ((fkey === st.currentKey || fkey === st._pendingKey) && st.overlay && st._baseBounds) {
         try { st.overlay.setBounds(_wfShiftBounds(st._baseBounds, latOff, lonOff)); } catch(e) {}
         return;
     }
     const img = _windfieldImageForFrac(bi, ni, qs);
-    if (st.overlay) {
-        try { currentMap.removeLayer(st.overlay); } catch(e) {}
-        st.overlay = null;
+    if (!img) {
+        // No field for this frame (too weak): nothing to protect — clear it.
+        if (st.overlay) { try { currentMap.removeLayer(st.overlay); } catch(e) {} st.overlay = null; }
+        st._baseBounds = null; st._pendingKey = null; st._swapToken = (st._swapToken || 0) + 1;
+        st.currentKey = fkey; st.currentIdx = bi;
+        return;
     }
-    st._baseBounds = img ? img.bounds : null;
-    if (img) {
+    if (!st.overlay) {
+        // First frame: nothing on screen yet, so create it directly.
         st.overlay = L.imageOverlay(img.url, _wfShiftBounds(img.bounds, latOff, lonOff), {
             opacity: 0.85,
             interactive: false,
@@ -5928,9 +5953,24 @@ function _windfieldDraw(bi, ni, fr, latOff, lonOff) {
             // storm-track polylines/markers (400+) so track dots stay readable.
             zIndex: 220,
         }).addTo(currentMap);
+        st._baseBounds = img.bounds; st._pendingKey = null;
+        st.currentKey = fkey; st.currentIdx = bi;
+        return;
     }
-    st.currentKey = fkey;
-    st.currentIdx = bi;
+    // Swap once decoded. A newer frame requested meanwhile supersedes this one.
+    st._pendingKey = fkey;
+    const token = st._swapToken = (st._swapToken || 0) + 1;
+    const overlay = st.overlay;
+    _wfDecoded(img.url).then(() => {
+        if (token !== st._swapToken || !st.enabled || st.overlay !== overlay) return;
+        const off = st._lastOff || [0, 0];
+        try {
+            overlay.setUrl(img.url);
+            overlay.setBounds(_wfShiftBounds(img.bounds, off[0], off[1]));
+        } catch(e) {}
+        st._baseBounds = img.bounds; st._pendingKey = null;
+        st.currentKey = fkey; st.currentIdx = bi;
+    });
 }
 
 // Public sync hook: called from syncVisualization as the animation plays or
@@ -5969,7 +6009,11 @@ function _windfieldPrewarmAll() {
     function slice() {
         if (!st.enabled) return;   // bailed if toggled off / storm changed mid-warm
         let budget = 6;            // ~6 frames per slice keeps each tick short
-        while (k < jobs.length && budget-- > 0) { const j = jobs[k++]; _windfieldImageForFrac(j[0], j[1], j[2]); }
+        while (k < jobs.length && budget-- > 0) {
+            const j = jobs[k++];
+            const im = _windfieldImageForFrac(j[0], j[1], j[2]);
+            if (im) _wfDecoded(im.url);    // decode ahead so playback swaps are instant
+        }
         if (k < jobs.length) schedule(slice);
     }
     schedule(slice);
@@ -6124,6 +6168,23 @@ function _windUVPayloadForFrac(bi, ni, qs) {
     return p;
 }
 
+// leaflet-velocity's setData() clearRect()s the particle canvas and reseeds —
+// at 4 shape changes per track fix the flow field blanked out 20x a second
+// during playback (Katrina at 4x: 120 clears in 6 s). Swap the grid and
+// restart the particle loop WITHOUT the clear: the previous frame's trails
+// fade out under the new animation's own trail fade, so the canvas is never
+// blank. Falls back to the library call if its internals ever change.
+function _velocitySetDataNoClear(layer, payload) {
+    if (layer._windy && typeof layer._windy.setData === 'function'
+        && typeof layer._startWindy === 'function' && layer._map) {
+        layer.options.data = payload;
+        layer._windy.setData(payload);
+        layer._startWindy();
+        return;
+    }
+    layer.setData(payload);
+}
+
 async function _windDirDraw(bi, ni, qs) {
     const st = window._windDirState;
     if (!st.enabled || !currentMap) return;
@@ -6137,7 +6198,7 @@ async function _windDirDraw(bi, ni, qs) {
         if (st.layer) { try { currentMap.removeLayer(st.layer); } catch (e) {} st.layer = null; }
         return;
     }
-    if (st.layer) { try { st.layer.setData(payload); } catch (e) {} return; }
+    if (st.layer) { try { _velocitySetDataNoClear(st.layer, payload); } catch (e) {} return; }
     // A first-time layer create is already in flight — clear the frame key so the
     // next tick re-attempts and converges to the current frame once the layer exists.
     if (st._creating) { st.currentKey = null; return; }
@@ -6201,6 +6262,11 @@ async function toggleWindDirLayer() {
 // and the app already fetches it; we surface it as a dedicated current-position
 // marker. This is PURE presentation: it never mutates window.stormData or any
 // scored data, so no DPS score can move.
+// Track timestamps: live feeds carry "+00:00", but IBTrACS / compiled fixes are
+// naive ("2005-08-29T03:00:00") and JS parses a naive ISO date-time as LOCAL
+// time, so the UTC labels read Katrina's 03:00Z fix as 10:00Z for a Pacific
+// viewer. Parse as UTC before formatting with the UTC getters.
+function _utcDate(ts){ return new Date(_parseUtcMs(ts)); }
 function _parseUtcMs(s){
     // Parse an ISO time; if it carries no timezone, assume UTC (JTWC t0 may be
     // naive). Returns epoch ms, or NaN.
@@ -6385,7 +6451,7 @@ function renderMap(data){
     // Pressure, Wind Speed, Sea Surface Temp, DPS. SST may still be loading when
     // the map renders — rebuildSnapshotPopup() handles the async refresh below.
     window._buildSnapshotPopup=function(d){
-        const ts=new Date(d.timestamp);
+        const ts=_utcDate(d.timestamp);
         const tStr=ts.toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'UTC'})+' '+String(ts.getUTCHours()).padStart(2,'0')+'Z';
         const estSurge=calculateSurgeParametric(d);
         const surgeTxt=estSurge>0?`${estSurge.toFixed(1)} ft`:'N/A';
@@ -6467,6 +6533,9 @@ function renderMap(data){
         wf.currentIdx = -1;
         wf.currentKey = null;
         wf._baseBounds = null;
+        wf._pendingKey = null;
+        wf._decoded = null;
+        wf._swapToken = (wf._swapToken || 0) + 1;   // drop any in-flight swap
     }
     // Reset the wind-flow layer for the incoming storm (stale per-index
     // caches would draw the previous storm's field), then auto-enable it
@@ -6676,7 +6745,7 @@ function _updateScrubFill(){
 
 function updateScrubDisplay(i){
     const d=window.stormData;if(!d||!d[i])return;
-    const ts=new Date(d[i].timestamp);
+    const ts=_utcDate(d[i].timestamp);
     // Fixes are UTC and the label says "Z" — local getters shifted it by the
     // viewer's offset (Polo's 12:00Z first fix read "05:00Z" on Pacific time).
     document.getElementById('scrubTime').textContent=ts.toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'UTC'})+' '+String(ts.getUTCHours()).padStart(2,'0')+':00Z';
