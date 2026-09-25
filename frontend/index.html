@@ -208,6 +208,29 @@
         .legend-chip.chip-dot i{width:9px;height:9px;border-radius:50%}
         .leaflet-popup-content-wrapper{background:rgba(255,255,255,.97);color:var(--text-main);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.4)}.leaflet-popup-tip{background:rgba(255,255,255,.97);border:1px solid var(--border)}.leaflet-popup-content{margin:8px 12px;line-height:1.5}
         .welcome-state{flex:1;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--text-dim)}.welcome-state.hidden{display:none}.welcome-icon{font-size:2.5rem;margin-bottom:.75rem;opacity:.5}.welcome-text{font-size:.9rem;font-weight:500;max-width:300px;line-height:1.6}
+        /* Homepage overview: every live storm on one dark map, coloured by DPS */
+        .overview-state{padding:1rem 1.2rem 1.4rem;display:flex;flex-direction:column;gap:.75rem;min-width:0}
+        .overview-state.hidden{display:none}
+        .ov-head{display:flex;align-items:baseline;justify-content:space-between;gap:.6rem 1rem;flex-wrap:wrap}
+        .ov-title{font-size:1.15rem;font-weight:800;letter-spacing:-.02em;color:var(--text-main);margin:0}
+        .ov-count{font-size:.8rem;font-weight:600;color:var(--text-muted);margin-left:.3rem}
+        .ov-legend{display:flex;flex-wrap:wrap;gap:.35rem .7rem;font-size:.72rem;color:var(--text-muted);align-items:center}
+        .ov-legend .ov-lg{display:inline-flex;align-items:center;gap:.3rem;white-space:nowrap}
+        .ov-legend .ov-sw{width:14px;height:4px;border-radius:2px;display:inline-block}
+        .ov-map{height:min(62vh,580px);min-height:320px;border-radius:12px;overflow:hidden;background:#0e1116;border:1px solid var(--border)}
+        .ov-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:.5rem}
+        .ov-card{display:flex;align-items:center;gap:.6rem;padding:.55rem .7rem;border-radius:10px;border:1px solid var(--border);background:var(--bg-card);cursor:pointer;text-align:left;font:inherit;color:inherit;transition:border-color .15s,transform .15s}
+        .ov-card:hover,.ov-card:focus-visible{border-color:var(--primary);transform:translateY(-1px)}
+        .ov-card .ov-dps{min-width:2.6rem;text-align:center;font-weight:800;font-size:1.05rem;border-radius:8px;padding:.3rem .35rem;line-height:1.05}
+        .ov-card .ov-dps small{display:block;font-size:.55rem;font-weight:700;letter-spacing:.06em;opacity:.85}
+        .ov-card .ov-body{display:flex;flex-direction:column;min-width:0}
+        .ov-card .ov-name{font-weight:700;color:var(--text-main);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .ov-card .ov-meta{font-size:.72rem;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .ov-note{font-size:.72rem;color:var(--text-dim);line-height:1.5;margin:0}
+        .leaflet-tooltip.ov-label{background:rgba(14,17,22,.88);border:1px solid rgba(255,255,255,.18);color:#f1f5f9;font-weight:700;font-size:12px;padding:2px 7px;border-radius:6px;box-shadow:none;cursor:pointer}
+        .leaflet-tooltip.ov-label::before{display:none}
+        .leaflet-tooltip.ov-label .ov-lbl-dps{margin-left:.35rem;font-weight:800}
+        @media(max-width:900px){.overview-state{padding:.7rem .6rem 1rem}.ov-map{height:52vh;min-height:280px}.ov-cards{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}}
         /* Larger H1 in the welcome state so it (not the footer) wins LCP.
            PageSpeed previously flagged the small-print site-footer as LCP
            because its multi-line paragraph spanned a bigger pixel area
@@ -459,7 +482,8 @@
         @keyframes activePing{0%{transform:scale(1);opacity:.3}100%{transform:scale(2);opacity:0}}
         .active-chip .chip-detail{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1}
         .active-chip .chip-name{font-weight:700;color:var(--text-main);font-size:.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-        .active-chip .chip-stats{font-size:.65rem;color:var(--text-muted);white-space:nowrap}
+        .active-chip .chip-stats{font-size:.65rem;color:var(--text-muted);white-space:normal;line-height:1.35;overflow-wrap:anywhere}
+        .active-chip .chip-dps small{font-size:.55rem;font-weight:700;letter-spacing:.04em;opacity:.8;margin-right:1px}
         /* Filled badge: intensity-colored TEXT on white failed WCAG contrast
            (Cat 1 indigo = 2.98:1); a filled pill with auto black/white text
            (badgeTextColor) always picks the passing side. */
@@ -960,6 +984,15 @@
             </div>
         </div>
         <div class="welcome-state" id="welcomeState"><div><div class="welcome-icon" style="margin-bottom:1rem"><picture><source srcset="/frontend/logo-180.webp" type="image/webp"><img src="/frontend/logo-180.png" alt="StormDPS" width="180" height="180" fetchpriority="high" decoding="async" style="width:180px;height:180px;border-radius:30px;box-shadow:0 8px 40px rgba(32,84,147,.35)"></picture></div><h1 class="welcome-title" style="font-weight:800;letter-spacing:-.04em;color:var(--text-main);margin-bottom:.4rem">One number. Total threat.</h1><div class="welcome-text" style="font-size:.85rem;color:var(--text-muted);max-width:400px;line-height:1.7">See any hurricane's <b style="color:var(--primary)">Destructive Power Score</b> — a 0-100 number that captures what the Category scale misses: size, surge, duration, and geographic reach.</div><div class="quick-start"><div class="quick-start-label">Try a famous storm</div><div class="quick-start-row"><button class="quick-start-btn" onclick="loadPreset('AL122005')"><span class="qs-dot" style="background:var(--cat5)"></span>Katrina <span class="qs-meta">2005</span></button><button class="quick-start-btn" onclick="loadPreset('AL092008')"><span class="qs-dot" style="background:var(--cat2)"></span>Ike <span class="qs-meta">2008</span></button><button class="quick-start-btn" onclick="loadPreset('AL182012')"><span class="qs-dot" style="background:var(--cat1)"></span>Sandy <span class="qs-meta">2012</span></button><button class="quick-start-btn" onclick="loadPreset('AL142018')"><span class="qs-dot" style="background:var(--cat5)"></span>Michael <span class="qs-meta">2018</span></button></div><div class="quick-start-row"><button class="quick-start-btn" onclick="loadPreset('AL092017')"><span class="qs-dot" style="background:var(--cat4)"></span>Harvey <span class="qs-meta">2017</span></button><button class="quick-start-btn" onclick="loadPreset('AL052019')"><span class="qs-dot" style="background:var(--cat5)"></span>Dorian <span class="qs-meta">2019</span></button></div><div style="font-size:.72rem;color:var(--text-dim);margin-top:.5rem;line-height:1.5;max-width:340px">Or type any storm name in the search bar. During hurricane season, active storms appear automatically in the sidebar.</div></div></div></div>
+        <section class="overview-state hidden" id="overviewState" aria-labelledby="ovTitle">
+            <div class="ov-head">
+                <h2 class="ov-title" id="ovTitle">Active storms <span class="ov-count" id="ovCount"></span></h2>
+                <div class="ov-legend" id="ovLegend" aria-label="Destructive Power Score colour scale"></div>
+            </div>
+            <div class="ov-map" id="overviewMap" role="region" aria-label="Map of active storms"></div>
+            <div class="ov-cards" id="overviewCards"></div>
+            <p class="ov-note">Tracks are coloured by <b>Destructive Power Score</b> as each storm evolved. Dashed line = official forecast track; shaded area = forecast cone. Tap a storm for its full analysis. Forecast positions from NHC / CPHC / JTWC &mdash; always defer to the official agencies.</p>
+        </section>
         <div class="site-footer" id="siteFooter">&copy; 2025&ndash;2026 StormDPS &middot; <b>Experimental &amp; educational</b> &mdash; not an official forecast; always defer to the relevant official agency. &middot; <a href="/about">About</a> &middot; <a href="/methodology">Methodology</a> &middot; <a href="/historic-storms">Historic storms</a> &middot; <a href="/storms">All storms</a> &middot; <a href="/data">Dataset</a> &middot; <a href="/faq">FAQ</a> &middot; <a href="/privacy">Privacy</a> &middot; <details class="footer-details"><summary>Full disclaimer &amp; contact</summary><span>Data is aggregated from public sources (NOAA, NHC). AI-enhanced visualizations for informational purposes only; not official forecasts. StormDPS is not liable for any actions taken based on this data. <b>Life-safety decisions:</b> always defer to the relevant official agency (e.g. NHC, JTWC, PAGASA, JMA) and local emergency management for official warnings and evacuation orders. Provided &ldquo;as-is&rdquo; and &ldquo;where-is&rdquo; without warranty. <b>Media, partnerships, or data licensing:</b> <a href="mailto:&#114;&#101;&#97;&#118;&#101;&#115;&#114;&#103;&#64;&#103;&#109;&#97;&#105;&#108;&#46;&#99;&#111;&#109;">&#114;&#101;&#97;&#118;&#101;&#115;&#114;&#103;&#64;&#103;&#109;&#97;&#105;&#108;&#46;&#99;&#111;&#109;</a>.</span></details></div>
     </div>
 </div>
@@ -3890,8 +3923,11 @@ function renderActiveStorms(storms){
         const kt = (_useOv && _ov.max_wind_kt!=null) ? _ov.max_wind_kt : (s.intensity_knots||0);
         const _presMb = (_useOv && _ov.min_pressure_mb!=null) ? _ov.min_pressure_mb : s.pressure_mb;
         const _clsRaw = (_useOv && _ov.classification) ? _ov.classification : s.classification;
-        const color=intensityColor(kt);
-        const label=intensityLabel(kt);
+        // DPS, not Saffir–Simpson, is the headline: the dot and the badge carry
+        // the storm's Destructive Power Score colour and number (the scale the
+        // site exists to replace shouldn't be the badge it shows first).
+        const _dps = (typeof s.dps === 'number' && isFinite(s.dps)) ? s.dps : null;
+        const color = _dps != null ? dpsColor(_dps) : intensityColor(kt);
         const cls=classificationShort(_clsRaw);
         const wind=kt?`${kt} kt`:'--';
         const pres=_presMb?`${_presMb} mb`:'';
@@ -3913,7 +3949,7 @@ function renderActiveStorms(storms){
                 <span class="chip-name">${escapeHtml(s.name||'Unnamed')}${stallHint}</span>
                 <span class="chip-stats">${wind}${pres?' &middot; '+pres:''}${move?' &middot; '+escapeHtml(move):''}${loc?' &middot; '+loc:''}</span>
             </div>
-            <span class="chip-intensity" style="background:${color};color:${badgeTextColor(color)}">${kt>=64?label:escapeHtml(cls)}</span>
+            <span class="chip-intensity chip-dps" title="${_dps != null ? 'Destructive Power Score ' + Math.round(_dps) + ' — ' + escapeHtml(getDPSBand(_dps)) : 'Destructive Power Score not computed yet'} · ${escapeHtml(cls || '')}" style="background:${color};color:${badgeTextColor(color)}"><small>DPS</small> ${_dps != null ? Math.round(_dps) : '—'}</span>
         </div>`;
     }).join('');
 }
@@ -3975,8 +4011,10 @@ async function fetchActiveStorms(){
         // If there are active storms and nothing is currently visualized, auto-load the first one.
         // (_autoLoadedFromHint: the server-injected hint already started this load —
         // without the guard, this response landing mid-load would start it twice.)
-        if(storms.length>0 && !window._autoLoadedFromHint && !document.getElementById('statsRow').classList.contains('visible')){
-            loadActiveStorm(storms[0].id);
+        if(storms.length>0 && !window._autoLoadedFromHint && _isHomepage() && !_storyIsOpen() && !_overviewShown){
+            showOverview();
+        } else if (_overviewShown) {
+            refreshOverview();
         }
     }catch(e){
         // A failed poll is NOT an all-clear. Blanking the list here rendered
@@ -4001,6 +4039,222 @@ async function fetchActiveStorms(){
     }
 }
 
+// ── Homepage overview: every live storm on one dark map ──────────────────
+// The homepage (no storm in the URL) opens on this instead of auto-loading the
+// top storm. Tracks are coloured by DPS as each storm evolved (the live DPS
+// series sampled onto its track), with the official forecast track dashed and
+// the cone shaded. One request: /storms/active/overview (server-cached).
+// The dark CARTO raster basemap costs the same as the light one — no
+// satellite imagery (the GIBS layer was retired on cost).
+let _overviewMap = null, _overviewLayer = null, _overviewShown = false, _overviewStamp = null;
+const _OV_BASIN = { AL: 'Atlantic', EP: 'E. Pacific', CP: 'C. Pacific', WP: 'W. Pacific', IO: 'N. Indian', SH: 'S. Hemisphere' };
+
+function _isHomepage(){
+    return !(typeof window.__INITIAL_STORM_ID === 'string' && window.__INITIAL_STORM_ID)
+        && !/^\/storm\//.test(window.location.pathname);
+}
+function _storyIsOpen(){ return document.getElementById('statsRow').classList.contains('visible'); }
+
+function _renderOverviewLegend(){
+    const el = document.getElementById('ovLegend');
+    if (!el || el.childElementCount) return;
+    el.innerHTML = '<span style="font-weight:700;color:var(--text-main)">DPS</span>' +
+        [[80,'80+ Devastating'],[60,'60 Extreme'],[40,'40 Severe'],[20,'20 Moderate'],[10,'10 Low'],[0,'0 Minimal']]
+        .map(([v,t]) => `<span class="ov-lg"><span class="ov-sw" style="background:${dpsColor(v)}"></span>${t}</span>`).join('');
+}
+
+function _renderOverviewCards(storms){
+    const el = document.getElementById('overviewCards');
+    if (!el) return;
+    document.getElementById('ovCount').textContent = storms.length ? '· ' + storms.length : '';
+    el.innerHTML = storms.map(s => {
+        const dps = (typeof s.dps === 'number' && isFinite(s.dps)) ? s.dps : null;
+        const col = dps != null ? dpsColor(dps) : '#64748b';
+        const band = s.dps_label || (dps != null ? getDPSBand(dps) : 'Not scored yet');
+        const basin = _OV_BASIN[String(s.id || '').slice(0, 2).toUpperCase()] || '';
+        const kt = s.intensity_knots != null ? Math.round(s.intensity_knots) + ' kt' : '';
+        const meta = [band, kt, basin].filter(Boolean).join(' · ');
+        return `<button class="ov-card" type="button" data-storm-id="${escapeHtml(s.id)}" title="Open ${escapeHtml(s.name || s.id)}">` +
+            `<span class="ov-dps" style="background:${col};color:${badgeTextColor(col)}"><small>DPS</small>${dps != null ? Math.round(dps) : '—'}</span>` +
+            `<span class="ov-body"><span class="ov-name">${escapeHtml(s.name || s.id)}</span><span class="ov-meta">${escapeHtml(meta)}</span></span></button>`;
+    }).join('');
+    el.querySelectorAll('.ov-card').forEach(b => b.addEventListener('click', () => openStormFromOverview(b.dataset.stormId)));
+}
+
+// Express east longitudes as lon-360 when that keeps the whole set closer
+// together — WP + E-Pacific + Atlantic storms then sit on one contiguous map
+// instead of splitting across the antimeridian.
+function _ovLonFn(storms){
+    const lons = [];
+    storms.forEach(s => {
+        if (isFinite(s.lon)) lons.push(s.lon);
+        (s.track || []).forEach(p => lons.push(p[1]));
+        (s.forecast || []).forEach(p => lons.push(p[1]));
+    });
+    if (!lons.length) return l => l;
+    const span = a => Math.max(...a) - Math.min(...a);
+    const shift = l => (l > 0 ? l - 360 : l);
+    return span(lons.map(shift)) < span(lons) ? shift : (l => l);
+}
+
+function _renderOverviewMap(data){
+    const storms = data.storms || [];
+    if (!window.L) return;
+    if (!_overviewMap) {
+        const coarse = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+        _overviewMap = L.map('overviewMap', { zoomControl: false, fadeAnimation: false, zoomSnap: 0.25,
+            minZoom: 1, worldCopyJump: false, dragging: !coarse });
+        if (coarse && typeof _installTwoFingerHint === 'function') _installTwoFingerHint(_overviewMap);
+        L.control.zoom({ position: 'topright' }).addTo(_overviewMap);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+            subdomains: 'abcd', maxZoom: 12
+        }).addTo(_overviewMap);
+        _overviewLayer = L.layerGroup().addTo(_overviewMap);
+    }
+    _overviewMap.invalidateSize();
+    _overviewLayer.clearLayers();
+    const lon = _ovLonFn(storms);
+    const all = [], labels = [];
+    storms.forEach(s => {
+        const col = (typeof s.dps === 'number') ? dpsColor(s.dps) : '#94a3b8';
+        const open = () => openStormFromOverview(s.id);
+        if (s.cone && s.cone.length > 2) {
+            L.polygon(s.cone.map(c => [c[0], lon(c[1])]), { color: 'rgba(255,255,255,.28)', weight: 1,
+                fillColor: '#ffffff', fillOpacity: .07, dashArray: '3 4', interactive: false }).addTo(_overviewLayer);
+        }
+        const tr = (s.track || []).map(p => [p[0], lon(p[1]), p[2]]);
+        for (let i = 1; i < tr.length; i++) {
+            const v = tr[i][2] != null ? tr[i][2] : tr[i - 1][2];
+            L.polyline([[tr[i - 1][0], tr[i - 1][1]], [tr[i][0], tr[i][1]]], {
+                color: v != null ? dpsColor(v) : '#94a3b8', weight: 3.5, opacity: .95, lineCap: 'round'
+            }).on('click', open).addTo(_overviewLayer);
+        }
+        tr.forEach(p => all.push([p[0], p[1]]));
+        const fc = (s.forecast || []).map(p => [p[0], lon(p[1])]);
+        if (fc.length > 1) {
+            L.polyline(fc, { color: col, weight: 2, opacity: .9, dashArray: '6 6' }).on('click', open).addTo(_overviewLayer);
+            fc.slice(1).forEach(q => L.circleMarker(q, { radius: 2.5, color: col, weight: 1.5,
+                fillColor: '#0e1116', fillOpacity: 1, interactive: false }).addTo(_overviewLayer));
+            fc.forEach(q => all.push(q));
+        }
+        if (isFinite(s.lat) && isFinite(s.lon)) {
+            const here = [s.lat, lon(s.lon)];
+            const m = L.circleMarker(here, { radius: 8, color: '#ffffff', weight: 2, fillColor: col, fillOpacity: 1 })
+                .on('click', open).addTo(_overviewLayer);
+            const dpsTxt = (typeof s.dps === 'number') ? Math.round(s.dps) : '—';
+            labels.push({ m, here, open, html: `${escapeHtml(s.name || s.id)}<span class="ov-lbl-dps" style="color:${col}">${dpsTxt}</span>`,
+                          chars: String(s.name || s.id).length + String(dpsTxt).length + 1 });
+            all.push(here);
+        }
+    });
+    if (all.length) _overviewMap.fitBounds(all, { padding: [36, 36], maxZoom: 5 });
+    else _overviewMap.setView([20, -100], 2);
+    _placeOverviewLabels(labels);
+}
+
+// Permanent name + DPS labels, placed greedily (most destructive first — the
+// list arrives sorted) at the first candidate spot that stays inside the map
+// and clears every label already placed and every other storm's marker.
+// Neighbouring storms (Polo and Odalys at zoom 2) otherwise stack their labels,
+// and on a phone the widest storm set pins markers against the map edge. When
+// nothing is clean, the spot with the least overlap + overhang wins.
+function _placeOverviewLabels(labels){
+    const size = _overviewMap.getSize();
+    const pts = labels.map(lb => _overviewMap.latLngToContainerPoint(lb.here));
+    const markers = pts.map(pt => ({ x: pt.x - 10, y: pt.y - 10, w: 20, h: 20 }));
+    const placed = [];
+    const area = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x))
+                         * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+    const view = { x: 4, y: 4, w: size.x - 8, h: size.y - 8 };
+    labels.forEach((lb, i) => {
+        const pt = pts[i];
+        const w = lb.chars * 7.2 + 22, h = 24;
+        // Leaflet anchors a 'right' tooltip at its left-middle, 'left' at its
+        // right-middle, 'top' at its bottom-centre, 'bottom' at its top-centre;
+        // the offset then shifts it in both axes.
+        const boxOf = (dir, [ox, oy]) => ({ w, h,
+            x: pt.x + ox - (dir === 'left' ? w : (dir === 'top' || dir === 'bottom') ? w / 2 : 0),
+            y: pt.y + oy - (dir === 'top' ? h : dir === 'bottom' ? 0 : h / 2) });
+        // Slide a top/bottom label sideways to stay on the map, but never so far
+        // it stops sitting over its own marker.
+        const room = w / 2 - 12;
+        const slide = Math.max(-room, Math.min(room,
+            pt.x - w / 2 < view.x ? view.x - (pt.x - w / 2)
+            : pt.x + w / 2 > view.x + view.w ? view.x + view.w - (pt.x + w / 2) : 0));
+        const dy = h / 2 + 3;
+        const opts = [
+            ['right', [10, 0]], ['left', [-10, 0]], ['top', [0, -10]], ['bottom', [0, 10]],
+            ['right', [8, -dy]], ['right', [8, dy]], ['left', [-8, -dy]], ['left', [-8, dy]],
+            ['top', [slide, -10]], ['bottom', [slide, 10]],
+        ];
+        let pick = null, best = Infinity;
+        for (const o of opts) {
+            const box = boxOf(o[0], o[1]);
+            const cost = placed.reduce((c, b) => c + area(b, box), 0)
+                       + markers.reduce((c, b, j) => c + (j === i ? 0 : area(b, box)), 0)
+                       + 2 * (w * h - area(view, box));
+            if (cost < best) { best = cost; pick = o; }
+            if (cost === 0) break;
+        }
+        placed.push(boxOf(pick[0], pick[1]));
+        lb.m.bindTooltip(lb.html, { permanent: true, direction: pick[0], offset: pick[1],
+                                    className: 'ov-label', interactive: true });
+        const tt = lb.m.getTooltip && lb.m.getTooltip();
+        if (tt && tt.getElement && tt.getElement()) L.DomEvent.on(tt.getElement(), 'click', lb.open);
+    });
+}
+
+async function _fetchOverview(){
+    try {
+        const r = await fetch(`${API_BASE}/storms/active/overview`);
+        return r.ok ? await r.json() : null;
+    } catch (e) { return null; }
+}
+
+async function showOverview(){
+    const ov = document.getElementById('overviewState');
+    if (!ov) return;
+    document.getElementById('welcomeState').classList.add('hidden');
+    ov.classList.remove('hidden');
+    _overviewShown = true;
+    _renderOverviewLegend();
+    if (Array.isArray(window._activeStorms) && window._activeStorms.length) _renderOverviewCards(window._activeStorms);
+    const [data] = await Promise.all([_fetchOverview(), loadLeaflet().catch(() => null)]);
+    if (!_overviewShown) return;                     // a storm was opened meanwhile
+    if (data && data.storms && data.storms.length) {
+        _overviewStamp = data.generated_utc || null;
+        _renderOverviewCards(data.storms);
+        _renderOverviewMap(data);
+    } else if (!(window._activeStorms || []).length) {
+        hideOverview();
+        document.getElementById('welcomeState').classList.remove('hidden');
+    }
+}
+
+// Re-draw only when the server built a newer overview (polled with /active).
+async function refreshOverview(){
+    if (!_overviewShown) return;
+    const data = await _fetchOverview();
+    if (!_overviewShown || !data || !data.storms) return;
+    if (data.generated_utc && data.generated_utc === _overviewStamp) return;
+    _overviewStamp = data.generated_utc || null;
+    _renderOverviewCards(data.storms);
+    _renderOverviewMap(data);
+}
+
+function hideOverview(){
+    _overviewShown = false;
+    const ov = document.getElementById('overviewState');
+    if (ov) ov.classList.add('hidden');
+}
+
+function openStormFromOverview(id){
+    if (!id) return;
+    hideOverview();
+    loadActiveStorm(id);
+}
+
 function startActiveStormPolling(intervalMs=300000){ // 5 minutes
     // Server-injected hint (main.py serve_frontend): render + auto-load the
     // live storm IMMEDIATELY instead of serializing behind the ~560 ms
@@ -4014,7 +4268,7 @@ function startActiveStormPolling(intervalMs=300000){ // 5 minutes
             window._activeStorms = hint;
             renderActiveStorms(hint);
             window._autoLoadedFromHint = true;
-            loadActiveStorm(hint[0].id);
+            if (_isHomepage()) showOverview();
         }
     } catch (e) { console.warn('[HINT] active-storm bootstrap failed:', e); }
     fetchActiveStorms();
@@ -4083,6 +4337,10 @@ _onDomReady(function dispatchInitialStorm() {
 
 // Browser back/forward navigation between storm pages.
 window.addEventListener('popstate', function() {
+    if (window.location.pathname === '/' && !window.location.hash && _storyIsOpen()) {
+        resetToWelcome();
+        return;
+    }
     const pathMatch = window.location.pathname.match(/^\/storm\/([A-Za-z0-9_-]{1,32})\/?$/);
     if (pathMatch) {
         const stormId = pathMatch[1];
@@ -4543,6 +4801,7 @@ function showLoadingSkeleton() {
     // just before this in fetchHistory) un-hides it and the "One number.
     // Total threat." hero renders underneath the skeletons + progress steps.
     document.getElementById('welcomeState').classList.add('hidden');
+    hideOverview();
     document.getElementById('skeletonRow').classList.add('visible');
     document.getElementById('skeletonViz').classList.add('visible');
     document.getElementById('loadingSteps').classList.add('visible');
@@ -4840,6 +5099,7 @@ function renderAll(stormId,data){
     window._currentStormId = stormId;  // Track for late-arriving compiled bundle re-render
     resetChartTracking(); // Force re-render of all charts for new storm data
     document.getElementById('welcomeState').classList.add('hidden');
+    hideOverview();
     // Hide the SSR'd storm summary card if present — the interactive UI
     // now shows the same numbers in a more useful form.
     const ssrCard = document.getElementById('ssrStormSummary');
@@ -6981,6 +7241,9 @@ function resetToWelcome() {
     document.getElementById('stormTitleBar').classList.remove('visible');
     document.getElementById('stormId').value = '';
     document.getElementById('nameSearchGroup').style.display = 'none';
+    window._isActiveStorm = false;
+    // While storms are live the homepage IS the overview map.
+    if ((window._activeStorms || []).length) { showOverview(); return; }
     document.getElementById('stormId').focus();
 }
 
