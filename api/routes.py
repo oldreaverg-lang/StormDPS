@@ -1241,6 +1241,178 @@ async def list_active_storms(request: Request, response: Response):
     return _active_summaries(_active_storms_cache) if _active_storms_cache else []
 
 
+# ------------------------------------------------------------------
+# Active-storm overview — the homepage map (every live storm at once)
+# ------------------------------------------------------------------
+# One response with, per active storm: the live row (position, DPS, advisory
+# time), its observed track with the DPS series sampled onto each point (the
+# map colours the track by DPS, not by Saffir–Simpson), and its forecast
+# track + cone. Built from caches the hourly warm loop already fills (IKE
+# track cache, live DPS bundle) plus one forecast fetch per storm, so a build
+# costs ~2 NHC/JTWC requests per storm — cached here for _OVERVIEW_TTL_S and
+# served stale-while-revalidate, never rebuilt per page view.
+_OVERVIEW_TTL_S = 300.0
+_OVERVIEW_STORM_TIMEOUT_S = 15.0
+_overview_cache: dict = {"t": 0.0, "payload": None}
+_overview_lock = asyncio.Lock()
+
+
+def _thin(points: list, max_pts: int) -> list:
+    """Evenly sample *points* down to *max_pts*, always keeping the last."""
+    if len(points) <= max_pts:
+        return points
+    step = (len(points) - 1) / (max_pts - 1)
+    return [points[round(i * step)] for i in range(max_pts)]
+
+
+def _overview_track(storm_id: str) -> list:
+    """Observed track as [[lat, lon, dps], ...] from the warm caches.
+    DPS is the live bundle's per-snapshot series, linearly interpolated onto
+    each track time (clamped at the ends); None where no series exists."""
+    rows = None
+    for sid in dict.fromkeys((storm_id, storm_id.upper(), storm_id.lower())):
+        rows = _load_ike_cache(sid, 15.0, 0)
+        if rows:
+            break
+    if not rows:
+        return []
+    series = []
+    for sid in dict.fromkeys((storm_id, storm_id.upper(), storm_id.lower())):
+        bundle = _load_dps_cache(sid)
+        if bundle and bundle.get("dpi_timeseries"):
+            for p in bundle["dpi_timeseries"]:
+                try:
+                    series.append((_parse_ts_utc(p["t"]), float(p["dpi"])))
+                except Exception:
+                    continue
+            break
+    series.sort()
+
+    def _dps_at(t):
+        if not series or t is None:
+            return None
+        if t <= series[0][0]:
+            return series[0][1]
+        if t >= series[-1][0]:
+            return series[-1][1]
+        for (t0, v0), (t1, v1) in zip(series, series[1:]):
+            if t0 <= t <= t1:
+                span = (t1 - t0).total_seconds() or 1.0
+                return v0 + (v1 - v0) * (t - t0).total_seconds() / span
+        return None
+
+    pts = []
+    for r in rows:
+        lat, lon = r.get("lat"), r.get("lon")
+        if lat is None or lon is None:
+            continue
+        v = _dps_at(_parse_ts_utc(r.get("timestamp")))
+        pts.append([round(float(lat), 2), round(float(lon), 2),
+                    round(v, 1) if v is not None else None])
+    return _thin(pts, 80)
+
+
+def _parse_ts_utc(v):
+    """ISO / datetime -> aware UTC datetime (naive = UTC); None on failure."""
+    if v is None:
+        return None
+    try:
+        d = v if isinstance(v, datetime) else datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+        return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+async def _overview_forecast(shared_client, storm_id: str) -> dict:
+    """Forecast track + cone via the same sources as /storms/{id}/forecast
+    (NHC TCM + cone KMZ, JTWC synthesis, climatological cone fallback) —
+    without that route's stall/landfall/rain extras."""
+    fc: dict = {}
+    try:
+        async with NOAAClient(http_client=shared_client) as client:
+            fc = await client.get_forecast_track(storm_id) or {}
+    except Exception as e:
+        logger.info(f"[OVERVIEW] NHC forecast failed for {storm_id}: {e}")
+    if not fc.get("forecast_track") and storm_id[:2].upper() in ("WP", "IO", "SH"):
+        try:
+            jf = await _jtwc_forecast(storm_id.upper())
+            if jf.get("forecast_track"):
+                fc = jf
+        except Exception as e:
+            logger.info(f"[OVERVIEW] JTWC forecast failed for {storm_id}: {e}")
+    track = [[round(p["lat"], 2), round(p["lon"], 2), p.get("hour")]
+             for p in fc.get("forecast_track") or []
+             if p.get("lat") is not None and p.get("lon") is not None]
+    cone = fc.get("cone_polygon") or []
+    if track and len(cone) < 3:
+        try:
+            cone = _synthesize_cone(fc["forecast_track"])
+        except Exception:
+            cone = []
+    cone = [[round(float(c[0]), 2), round(float(c[1]), 2)] for c in cone if c and len(c) >= 2]
+    return {"forecast": track, "cone": _thin(cone, 160)}
+
+
+async def _build_overview(shared_client) -> dict:
+    rows = present_active_storms(_active_storms_cache or [])
+
+    async def _one(r):
+        sid = str(r.get("id") or "")
+        out = {k: r.get(k) for k in (
+            "id", "name", "classification", "lat", "lon", "intensity_knots", "pressure_mb",
+            "movement_speed_knots", "movement_direction_deg", "dps", "near_land",
+            "last_update_utc", "basin")}
+        bundle = None
+        for v in dict.fromkeys((sid, sid.upper(), sid.lower())):
+            bundle = _load_dps_cache(v)
+            if bundle:
+                break
+        out["dps_label"] = (bundle or {}).get("dps_label")
+        try:
+            out["track"] = await asyncio.to_thread(_overview_track, sid)
+        except Exception:
+            out["track"] = []
+        try:
+            out.update(await asyncio.wait_for(_overview_forecast(shared_client, sid),
+                                              _OVERVIEW_STORM_TIMEOUT_S))
+        except Exception:
+            out.update({"forecast": [], "cone": []})
+        return out
+
+    storms = await asyncio.gather(*[_one(r) for r in rows], return_exceptions=True)
+    return {"generated_utc": datetime.now(timezone.utc).isoformat(),
+            "storms": [s for s in storms if isinstance(s, dict)]}
+
+
+async def _refresh_overview(shared_client):
+    async with _overview_lock:
+        if (_overview_cache["payload"] is not None
+                and time.time() - _overview_cache["t"] < _OVERVIEW_TTL_S):
+            return
+        try:
+            payload = await _build_overview(shared_client)
+            _overview_cache.update(t=time.time(), payload=payload)
+        except Exception:
+            logger.exception("[OVERVIEW] build failed — keeping previous payload")
+
+
+@router.get("/storms/active/overview")
+async def active_storms_overview(request: Request, response: Response):
+    """Every active storm for the homepage map, in one response."""
+    response.headers["Cache-Control"] = "public, max-age=60, s-maxage=120"
+    shared_client = getattr(request.app.state, "http_client", None)
+    payload = _overview_cache["payload"]
+    fresh = payload is not None and time.time() - _overview_cache["t"] < _OVERVIEW_TTL_S
+    if fresh:
+        return payload
+    if payload is not None:
+        if not _overview_lock.locked():
+            asyncio.create_task(_refresh_overview(shared_client))
+        return payload
+    await _refresh_overview(shared_client)
+    return _overview_cache["payload"] or {"generated_utc": None, "storms": []}
+
+
 @router.get("/storms/search", response_model=list[StormSummary])
 async def search_storms(
     request: Request,
