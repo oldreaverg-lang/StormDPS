@@ -230,7 +230,7 @@
         .leaflet-tooltip.ov-label{background:rgba(14,17,22,.88);border:1px solid rgba(255,255,255,.18);color:#f1f5f9;font-weight:700;font-size:12px;padding:2px 7px;border-radius:6px;box-shadow:none;cursor:pointer}
         .leaflet-tooltip.ov-label::before{display:none}
         .leaflet-tooltip.ov-label .ov-lbl-dps{margin-left:.35rem;font-weight:800}
-        @media(max-width:900px){.overview-state{padding:.7rem .6rem 1rem}.ov-map{height:52vh;min-height:280px}.ov-cards{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}.ov-card .ov-meta{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}}
+        @media(max-width:900px){.overview-state{padding:.7rem .6rem 1rem}.ov-map{flex:0 0 auto;height:clamp(200px,55vw,60vh);min-height:0}.ov-cards{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}.ov-card .ov-meta{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.25;min-height:2.5em}}
         /* Short desktop screens (laptops): keep the cards to one row so they
            don't wrap and take the map's height -- the sidebar lists the
            storms too. Scrolls sideways only in a very busy season. */
@@ -991,7 +991,8 @@
         <section class="overview-state hidden" id="overviewState" aria-labelledby="ovTitle">
             <div class="ov-head">
                 <h2 class="ov-title" id="ovTitle">Active storms <span class="ov-count" id="ovCount"></span></h2>
-                <div class="ov-legend" id="ovLegend" aria-label="Destructive Power Score colour scale"></div>
+                <!-- Swatch colours = dpsColor() thresholds in the script below. -->
+                <div class="ov-legend" id="ovLegend" aria-label="Destructive Power Score colour scale"><span style="font-weight:700;color:var(--text-main)">DPS</span><span class="ov-lg"><span class="ov-sw" style="background:#ef4444"></span>80+ Devastating / Historic</span><span class="ov-lg"><span class="ov-sw" style="background:#f97316"></span>60 Extreme</span><span class="ov-lg"><span class="ov-sw" style="background:#fbbf24"></span>40 Severe</span><span class="ov-lg"><span class="ov-sw" style="background:#34d399"></span>20 Moderate</span><span class="ov-lg"><span class="ov-sw" style="background:#60a5fa"></span>10 Low</span><span class="ov-lg"><span class="ov-sw" style="background:#64748b"></span>0 Minimal</span></div>
             </div>
             <div class="ov-map" id="overviewMap" role="region" aria-label="Map of active storms"></div>
             <div class="ov-cards" id="overviewCards"></div>
@@ -1793,15 +1794,44 @@ function updateBreakdownBars(heroDPS, peakDpsObj, _unused, peakIasObj, peakErsOb
 // self-hosting fonts. fetchStorm() force-starts the preload inline if
 // the user picks a storm before requestIdleCallback fires.
 function _startPreload(){ if(!preloadPromise) preloadPromise = loadPreloadBundle(); }
+
+// Resolves once the first contentful paint has been PRESENTED (the paint-timing
+// entry). rAF + setTimeout is not enough: it fires after the frame is drawn
+// but before it reaches the screen, so requests started there still counted
+// as "before FCP" (measured 93 ms vs FCP 116 ms). No paint timing (old Safari):
+// two frames. The 3 s timer covers background tabs, which never paint.
+const _firstPaint = new Promise(res => {
+    let done = false;
+    const go = () => { if (!done) { done = true; res(); } };
+    setTimeout(go, 3000);
+    try {
+        if (PerformanceObserver.supportedEntryTypes.includes('paint')) {
+            new PerformanceObserver((list, obs) => {
+                if (list.getEntriesByName('first-contentful-paint').length) { obs.disconnect(); setTimeout(go, 0); }
+            }).observe({ type: 'paint', buffered: true });
+            return;
+        }
+    } catch (e) { /* fall through */ }
+    requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(go, 0)));
+});
+// On the homepage, data the first screen doesn't show (score zones, the
+// sidebar catalog, the /active refresh, this bundle index, the overview map's
+// data + Leaflet) starts after first paint so it doesn't compete with it:
+// PageSpeed treats every request started before LCP as an LCP dependency
+// (mobile 09-25: LCP 3.6 s). Storm pages need the zones for their first
+// render, so there everything still starts at once.
+function _homeDefer(fn){ return _isHomepage() ? _firstPaint.then(fn) : fn(); }
 // Bundle diet: the eager artifact is the slim bundle_index.json (~35 KB
 // wire), so the idle preload is safe on every viewport — including the
 // phones the old ≤900px gate protected from the 3.5 MB monolith parse.
 // Per-storm heavy data stays on-demand (ensureStormDetail, ~13 KB each).
-if ('requestIdleCallback' in window) {
-    requestIdleCallback(_startPreload, { timeout: 2500 });
-} else {
-    setTimeout(_startPreload, 200);
-}
+_homeDefer(() => {
+    if ('requestIdleCallback' in window) {
+        requestIdleCallback(_startPreload, { timeout: 2500 });
+    } else {
+        setTimeout(_startPreload, 200);
+    }
+});
 
 // ============================================================
 // ANIMATED COUNT-UP for hero DPS number
@@ -2621,7 +2651,7 @@ function loadNRIZones() {
         .then(data => { NRI_ZONES = data; dbg('NRI zones loaded:', Object.keys(data).length, 'zones'); })
         .catch(e => console.warn('NRI zones not available:', e));
 }
-loadNRIZones();
+_homeDefer(loadNRIZones);
 
 // Coastal economic zones — single source of truth in frontend/econ_zones.json
 // (the server reads the same file via core/ike._load_econ_zones). Edit zones THERE.
@@ -2640,7 +2670,7 @@ function loadEconZones() {
         })
         .catch(e => console.warn('Econ zones not available:', e));
 }
-loadEconZones();
+_homeDefer(loadEconZones);
 
 // Continental-shelf surge-amplification factors — single source of truth in
 // frontend/shelf_regions.json. Drives the IAS surge-geography component.
@@ -2658,7 +2688,7 @@ function loadShelfRegions() {
         })
         .catch(e => console.warn('Shelf regions not available:', e));
 }
-loadShelfRegions();
+_homeDefer(loadShelfRegions);
 
 function getEconomicExposure(lat, lon, useNRI = false, r34nm = 0) {
     // MIRROR of core/ike.get_economic_exposure — keep the two implementations
@@ -4015,7 +4045,9 @@ async function fetchActiveStorms(){
         // If there are active storms and nothing is currently visualized, auto-load the first one.
         // (_autoLoadedFromHint: the server-injected hint already started this load —
         // without the guard, this response landing mid-load would start it twice.)
-        if(storms.length>0 && !window._autoLoadedFromHint && _isHomepage() && !_storyIsOpen() && !_overviewShown){
+        // !_fetchInFlight: a storm load resets the URL to '/' (hideResults)
+        // before its story is visible — don't open the overview under it.
+        if(storms.length>0 && !window._autoLoadedFromHint && _isHomepage() && !_storyIsOpen() && !_overviewShown && !_fetchInFlight){
             showOverview();
         } else if (_overviewShown) {
             refreshOverview();
@@ -4064,14 +4096,9 @@ function _isHomepage(){
 }
 function _storyIsOpen(){ return document.getElementById('statsRow').classList.contains('visible'); }
 
-function _renderOverviewLegend(){
-    const el = document.getElementById('ovLegend');
-    if (!el || el.childElementCount) return;
-    el.innerHTML = '<span style="font-weight:700;color:var(--text-main)">DPS</span>' +
-        [[80,'80+ Devastating / Historic'],[60,'60 Extreme'],[40,'40 Severe'],[20,'20 Moderate'],[10,'10 Low'],[0,'0 Minimal']]
-        .map(([v,t]) => `<span class="ov-lg"><span class="ov-sw" style="background:${dpsColor(v)}"></span>${t}</span>`).join('');
-}
-
+// MIRRORED server-side by home_shell.render_card (the homepage is served with
+// these cards already in place): change the markup in both, or the boot
+// re-render shifts the layout.
 function _renderOverviewCards(storms){
     const el = document.getElementById('overviewCards');
     if (!el) return;
@@ -4194,36 +4221,19 @@ function _drawOverview(data, opts){
 // Frame every storm. The zoom floor is the lowest zoom at which one copy of
 // the world still spans the map, so a wide spread (W. Pacific to the
 // Atlantic) fits instead of being clamped at zoom 1 with markers against the
-// edge. On a phone the storms usually lie in an east-west band, so a fixed
-// tall map is mostly empty ocean and pushes the cards below the fold: there
-// the map takes the height the storms need at the width-limited zoom.
+// edge. The map's SIZE is pure CSS (a short, wide box on phones, where the
+// storms usually lie in an east-west band): sizing it from the data resized
+// it after first paint and shifted everything below it (CLS 0.14, 09-25).
 function _fitOverview(all){
     const el = _overviewMap.getContainer();
     const W = el.clientWidth || 1;
     _overviewMap.options.minZoom = Math.max(0, Math.ceil(Math.log2(W / 256) * 4) / 4);
-    const narrow = !!(window.matchMedia && window.matchMedia('(max-width: 900px)').matches);
+    _overviewMap.invalidateSize();
     if (!all.length) {
-        el.style.height = el.style.minHeight = el.style.flex = '';
-        _overviewMap.invalidateSize();
         _overviewMap.setView([20, -100], Math.max(2, _overviewMap.getMinZoom()), { animate: false });
         return;
     }
-    const b = L.latLngBounds(all), PAD = 36;
-    if (narrow) {
-        const nw = _overviewMap.project(b.getNorthWest(), 0), se = _overviewMap.project(b.getSouthEast(), 0);
-        const w0 = Math.max(se.x - nw.x, 1e-6), h0 = Math.max(se.y - nw.y, 0);
-        const z = Math.min(5, Math.max(_overviewMap.getMinZoom(), Math.floor(Math.log2((W - 2 * PAD) / w0) * 4) / 4));
-        // + 28 px so a label above the northern-most storm stays on the map.
-        const want = h0 * Math.pow(2, z) + 2 * PAD + 28;
-        const h = Math.round(Math.max(200, Math.min(want, window.innerHeight * 0.62)));
-        el.style.flex = '0 0 auto';
-        el.style.minHeight = '0';
-        el.style.height = h + 'px';
-    } else {
-        el.style.height = el.style.minHeight = el.style.flex = '';
-    }
-    _overviewMap.invalidateSize();
-    _overviewMap.fitBounds(b, { padding: [PAD, PAD], maxZoom: 5, animate: false });
+    _overviewMap.fitBounds(L.latLngBounds(all), { padding: [36, 36], maxZoom: 5, animate: false });
 }
 
 // Permanent name + DPS labels, placed greedily (most destructive first — the
@@ -4284,7 +4294,9 @@ function _placeOverviewLabels(labels){
     });
 }
 
+let _overviewFetchAt = 0;
 async function _fetchOverview(){
+    _overviewFetchAt = Date.now();
     try {
         const r = await fetch(`${API_BASE}/storms/active/overview`);
         return r.ok ? await r.json() : null;
@@ -4297,8 +4309,9 @@ async function showOverview(){
     document.getElementById('welcomeState').classList.add('hidden');
     ov.classList.remove('hidden');
     _overviewShown = true;
-    _renderOverviewLegend();
     if (Array.isArray(window._activeStorms) && window._activeStorms.length) _renderOverviewCards(window._activeStorms);
+    await _firstPaint;                               // map data + Leaflet: after the first frame
+    if (!_overviewShown) return;
     const [data] = await Promise.all([_fetchOverview(), loadLeaflet().catch(() => null)]);
     if (!_overviewShown) return;                     // a storm was opened meanwhile
     if (data && data.storms && data.storms.length) {
@@ -4314,6 +4327,10 @@ async function showOverview(){
 // Re-draw only when the server built a newer overview (polled with /active).
 async function refreshOverview(){
     if (!_overviewShown) return;
+    // Boot: showOverview (from the hint) fetched moments ago and the first
+    // /active response lands here — don't fetch the same payload twice.
+    // The server rebuilds it at most every 5 min anyway.
+    if (Date.now() - _overviewFetchAt < 60000) return;
     const data = await _fetchOverview();
     if (!_overviewShown || !data || !data.storms) return;
     if (data.generated_utc && data.generated_utc === _overviewStamp) return;
@@ -4350,7 +4367,7 @@ function startActiveStormPolling(intervalMs=300000){ // 5 minutes
             if (_isHomepage()) showOverview();
         }
     } catch (e) { console.warn('[HINT] active-storm bootstrap failed:', e); }
-    fetchActiveStorms();
+    _homeDefer(fetchActiveStorms);                   // the hint already drew the list
     activeStormsPollTimer=setInterval(fetchActiveStorms,intervalMs);
 }
 
@@ -4445,7 +4462,7 @@ const BASIN_NAMES={NA:'Atlantic',EP:'East Pacific',WP:'West Pacific',NI:'N. Indi
 function basinName(b){return BASIN_NAMES[b]||b}
 
 // Fetch HURDAT2 catalog (Atlantic) + IBTrACS global catalog
-(async function loadCatalog(){
+async function loadCatalog(){
     const container=document.getElementById('stormAccordion');
     
     if(!container) {
@@ -4615,7 +4632,9 @@ function basinName(b){return BASIN_NAMES[b]||b}
     } finally {
         clearTimeout(timeout);
     }
-})();
+}
+// The sidebar Storm Browser: after first paint on the homepage (_homeDefer).
+_homeDefer(loadCatalog);
 
 function dpsChipColor(score){
     if(score>=80)return'var(--cat5)';if(score>=60)return'var(--cat4)';

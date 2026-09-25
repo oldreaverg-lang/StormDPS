@@ -1021,19 +1021,15 @@ async def serve_frontend():
             import json as _json
             from api.routes import present_active_storms
             storms = present_active_storms(storms)
-            # A storm WILL auto-load, so the map is coming: open the tile-CDN
-            # connection and start Leaflet downloading during HTML parse.
-            # These are injected (not static in index.html) because on a
-            # storm-free homepage no map ever renders and they'd be dead
-            # weight + PSI "unused preload" flags. Notes from measurement:
-            #  - ONE carto preconnect (a-d share a cert; Chrome coalesces
-            #    onto one h2 connection — extra preconnects sit unused).
-            #    No crossorigin: Leaflet tiles are plain <img>.
-            #  - Leaflet preload integrity/crossorigin MUST stay in lockstep
-            #    with loadLeaflet's _loadScript attrs in index.html or the
-            #    preload is wasted (as=script preloads ARE reused, unlike
-            #    the as=fetch /track attempt: API cache headers blocked
-            #    reuse and it double-downloaded 41 KB).
+            # The overview map is coming: open the tile-CDN connection early.
+            # Injected (not static in index.html) because a storm-free
+            # homepage never renders a map. ONE carto preconnect (a-d share a
+            # cert; Chrome coalesces onto one h2 connection); no crossorigin:
+            # Leaflet tiles are plain <img>.
+            # No Leaflet preload any more (2026-09-25): it existed for the old
+            # storm auto-load, where a map tile was the LCP. The overview map
+            # is never the LCP, and the SPA starts Leaflet after first paint
+            # so it doesn't compete with it on slow links.
             # "</" escaped so feed-sourced strings can never close the tag.
             hint_json = _json.dumps(storms).replace("</", "<\\/")
             inject = (
@@ -1041,13 +1037,16 @@ async def serve_frontend():
                 '<link rel="dns-prefetch" href="https://a.basemaps.cartocdn.com">\n    '
                 '<link rel="dns-prefetch" href="https://b.basemaps.cartocdn.com">\n    '
                 '<link rel="dns-prefetch" href="https://d.basemaps.cartocdn.com">\n    '
-                '<link rel="preload" as="script" '
-                'href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" '
-                'integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" '
-                'crossorigin="">\n    '
                 f"<script>window.__ACTIVE_HINT__={hint_json};</script>\n"
             )
             html = html.replace("</head>", inject + "</head>", 1)
+            # First paint IS the overview (welcome hidden, cards filled) —
+            # see home_shell.py. Fail-open: unchanged shell on any mismatch.
+            try:
+                from home_shell import overview_first
+                html = overview_first(html, storms)
+            except Exception:
+                logger.exception("[home] overview-first render failed — serving welcome-first shell")
         return HTMLResponse(html, headers=headers)
     except Exception:
         logger.exception("[home] active-hint injection failed — serving raw shell")
