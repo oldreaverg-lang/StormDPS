@@ -1,7 +1,158 @@
-# StormDPS — session handoff (updated 2026-09-24)
+# StormDPS — session handoff (updated 2026-09-25)
 
 **Deploy state:** local HEAD == origin/main (this handoff commit, on top of
-`19a5dc7`). Site healthy; 420 tests pass (8 skipped).
+`d18ad4b`). Site healthy; 436 tests pass (8 skipped); CI green.
+
+---
+
+## 2026-09-25 — the homepage is now an all-storms overview map
+
+Read this before touching the homepage, the sidebar storm chips, or
+`/storms/active*`. Commits: `1577417` (API), `02d622a` (frontend + DPS
+chips), `d18ad4b` (screen-filling layout, phone sizing, label fixes).
+
+**What changed for visitors.** `/` no longer auto-opens the top active
+storm. It lands on a dark CARTO map (`dark_all`, same key and cost as the
+light raster — no satellite layer) showing every active storm at once:
+- observed tracks coloured segment-by-segment by the storm's DPS as it
+  evolved (NOT Saffir–Simpson — operator direction, see below);
+- the official forecast track dashed in the storm's current DPS colour,
+  inside its shaded cone;
+- a name + DPS label per storm, and a DPS-sorted card per storm below the map;
+- the NHC / CPHC / JTWC deferral note under the cards.
+
+Any marker, label, card or sidebar chip opens that storm (`/storm/{id}`).
+Back or the storm view's close button returns to the overview
+(`resetToWelcome()` → `showOverview()`). Direct `/storm/{id}` links are
+unchanged and never show the overview. With no active storms, the old
+welcome screen shows as before.
+
+**Operator direction — DPS, not Saffir–Simpson.** "The desire to replace
+the Saffir-Simpson scale is done no favors by USING the saffir-simpson scale."
+The sidebar chips lost their Cat 5 / TS badge for a `DPS 92` badge in the
+`dpsColor()` band colour (wind-based colour only when a storm has no DPS
+yet). Any new surface that summarises severity should use DPS the same way.
+The overview legend reads "80+ Devastating / Historic" because 80–89
+(Devastating) and 90+ (Historic) share the red swatch.
+
+### Backend — `GET /api/v1/storms/active/overview` (`api/routes.py`)
+
+One response carrying, per active storm: the `/active` row fields (incl.
+`dps`, `near_land`, `last_update_utc`), `dps_label`, and:
+- `track` — `[[lat, lon, dps]]`, thinned to 80 points. Built from the IKE
+  track cache (tries id case variants), with the live bundle's
+  `dpi_timeseries` linearly interpolated onto each point. `dps` is null
+  where no series exists, so that segment draws grey.
+- `forecast` — `[[lat, lon, hour]]`, from the same sources as
+  `/storms/{id}/forecast`: NHC TCM, with the JTWC fallback for
+  WP/IO/SH ids.
+- `cone` — ≤160 points; `_synthesize_cone` fallback when there is no
+  official cone.
+
+Rows come sorted by DPS (via `present_active_storms`). Details:
+- **Fail-soft per storm:** one storm's forecast failing, or taking longer
+  than 15 s, leaves that storm with empty `forecast`/`cone` and never sinks
+  the response.
+- **In-process cache:** the built payload is cached for 300 s and served
+  stale-while-revalidate behind a lock. A rebuild costs about 2 NHC/JTWC
+  requests per storm, and only runs when someone requests the endpoint.
+- **Size:** about 21 KB, or 6.7 KB gzipped, for 6 storms.
+
+Tests: `tests/test_active_overview.py` (thinning, DPS interpolation onto the
+track, sort order + one-storm failure).
+
+**Not edge-cached yet.** The endpoint sends `public, max-age=60,
+s-maxage=120`, but Cloudflare returns `cf-cache-status: DYNAMIC`. The 07-21
+Cache Rule lists only `/`, `/index.html` and `/api/v1/storms/active`, so
+every homepage view reaches the origin; the 300 s in-process cache keeps
+that cheap. **Optional operator step:** add
+`/api/v1/storms/active/overview` to that Cache Rule.
+
+### Frontend (`frontend/index.html`)
+
+**Markup and routing**
+- Markup: `<section id="overviewState">` (after `welcomeState`) with
+  `#overviewMap`, `#overviewCards`, `#ovLegend`.
+- `_isHomepage()` gates it: no `__INITIAL_STORM_ID`, and a path that isn't
+  `/storm/…`.
+- The `__ACTIVE_HINT__` bootstrap now calls `showOverview()` on the
+  homepage instead of `loadActiveStorm(hint[0].id)`.
+- `showLoadingSkeleton` and `renderAll` hide the overview; `popstate` back to
+  `/` restores it.
+- `fetchActiveStorms` calls `refreshOverview()`, which redraws only when
+  `generated_utc` changed.
+
+**Layout**
+- *Desktop fills the viewport:* `.overview-state{flex:1 0 auto}` and
+  `.ov-map{flex:1 1 auto; min-height:320px}` inside the fixed-height
+  `.main-content`. The map takes whatever the heading, cards and note leave
+  (1601×799 at 1920×1080), and the footer sits at the bottom.
+- *Cards:* `auto-fit`, so they share the row. At ≤900 px tall they stay one
+  row and scroll sideways only in a very busy season.
+- *Phones (≤900 px wide):* the map height follows the storms' extent at the
+  width-limited zoom, clamped to 200 px…62% of the viewport (`_fitOverview`,
+  inline style). A fixed 52vh was mostly empty ocean and pushed the cards
+  below the fold; at 375×812 the map is now 346×200 with all 6 cards above
+  the fold. Card meta wraps to 2 lines on phones.
+- *Zoom floor:* the lowest zoom at which one world copy still spans the map
+  (`options.minZoom = ceil4(log2(width/256))`). A W. Pacific → Atlantic
+  spread (~210° of longitude) then fits instead of clamping at zoom 1.
+  `_ovLonFn` shifts east longitudes by −360 when that shortens the span, so
+  the set sits on one contiguous map.
+
+**Labels (`_placeOverviewLabels`)**
+- Greedy placement, most destructive storm first, over 10 candidate spots:
+  right, left, top, bottom, 4 diagonals, and top/bottom slid sideways.
+- Obstacles: every other storm's marker, the zoom control and the
+  attribution.
+- If no spot is clean, the one with the least overlap + overhang wins.
+- Width is ESTIMATED (7.2 px/char + 22), not measured.
+- Labels are re-placed after the reader zooms (`zoomend`).
+
+**Resize and refresh**
+- A `ResizeObserver` on the map re-fits and re-labels on any size change;
+  Leaflet's `trackResize` is off when the observer exists.
+- The 5-minute data refresh keeps the reader's own pan/zoom (`_ovUserView`,
+  with `_ovFitting` bracketing our own view changes).
+
+**Verified:** at 1024, 1280, 1366, 1440, 1920, 2000×765 and 2560 wide,
+375×812 and 390×844, and 844×390 landscape, including live resizes between
+them — 0 label overlaps, 0 clipped labels, no horizontal page overflow,
+footer at the bottom on desktop. Live on stormdps.com: tiles load with the
+`?key=` injected by `carto_key.py`, the OSM/CARTO attribution is visible,
+and there are no console errors.
+
+### Gotchas learned here
+
+- **Leaflet `fitBounds`/`setView` animate on a map that already has a view.**
+  `latLngToContainerPoint` right after them still reflects the OLD view, so
+  anything measured from it is wrong (this is what clipped and stacked the
+  labels after a live resize). Pass `{animate:false}` whenever code measures
+  right after setting the view.
+- **`map.setMinZoom()` calls an animated `setZoom`** when the current zoom
+  is below the new floor, and that can race a following fit. Set
+  `map.options.minZoom` directly, then fit.
+- **Leaflet tooltip `offset` applies on both axes for every `direction`,**
+  which is how the diagonal and slid label spots work.
+- **The local preview proxy has no CARTO key,** so tiles show an "API KEY
+  REQUIRED" watermark. That's expected; check the key on the live site.
+- **Emulated viewports wider than the preview pane screenshot oddly**
+  (shrunk into a corner). Judge layout from `getBoundingClientRect`
+  measurements, not screenshots.
+- **index.html deploys still need the `/` + `/index.html` purge** (§6);
+  without one, `/` kept serving the pre-`d18ad4b` page from the edge (HIT,
+  Age 670–708 s) until the 900 s TTL ran out.
+
+### Still open / ideas
+
+- Add the overview endpoint to the Cloudflare Cache Rule (above).
+- Sidebar chips (260 px) wrap the stats line onto a second line. That's
+  readable, but a denser chip layout is possible.
+- Storms without a live DPS bundle draw grey tracks and a "—" label until
+  the hourly loop scores them.
+- The overview replaces the old homepage behaviour that auto-loaded the
+  live storm's track and map tiles as the mobile LCP (see the comment in
+  `startActiveStormPolling`). Re-check the PageSpeed/LCP numbers for `/`.
 
 ---
 
@@ -111,7 +262,8 @@ list. Anything added to that path must fail open.
 - The alarm still has no transient-vs-sustained split (see 08-10 below).
 - Unrelated but also failing selfcheck on 09-24: `live position for
   ep152026: displayed /active center is 55 km from the fresh advisory` — the
-  known active-cache freeze, not memory.
+  known active-cache freeze, not memory. **Fixed 09-24 in `aaf0d99`**
+  (per-source refresh; check 7 is advisory-time-aware via `live_position.py`).
 
 ---
 
