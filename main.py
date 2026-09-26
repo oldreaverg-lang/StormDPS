@@ -986,6 +986,24 @@ from carto_key import inject_carto_key
 _INDEX_HTML_CACHE: dict = {"mtime": None, "html": None}
 
 
+def _presented_active_storms() -> list:
+    """The cached active-storm feed, display-ready and DPS-sorted ([] if none)."""
+    from storage import ACTIVE_STORMS_FILE, cache_read
+    storms = (cache_read(ACTIVE_STORMS_FILE) or {}).get("storms") or []
+    if not storms:
+        return []
+    from api.routes import present_active_storms
+    return present_active_storms(storms)
+
+
+def _active_hint_tag(storms: list) -> str:
+    """<script> setting window.__ACTIVE_HINT__ (the SPA's boot copy of the
+    active list). "</" escaped so feed-sourced strings can never close the tag."""
+    import json as _json
+    hint_json = _json.dumps(storms).replace("</", "<\\/")
+    return f"<script>window.__ACTIVE_HINT__={hint_json};</script>\n"
+
+
 @app.get("/")
 async def serve_frontend():
     # Cache-Control lets Cloudflare cache the SPA shell at the edge so the
@@ -1015,12 +1033,8 @@ async def serve_frontend():
                 html=inject_carto_key(path.read_text(encoding="utf-8")))
         html = _INDEX_HTML_CACHE["html"]
 
-        from storage import ACTIVE_STORMS_FILE, cache_read
-        storms = (cache_read(ACTIVE_STORMS_FILE) or {}).get("storms") or []
+        storms = _presented_active_storms()
         if storms:
-            import json as _json
-            from api.routes import present_active_storms
-            storms = present_active_storms(storms)
             # The overview map is coming: open the tile-CDN connection early.
             # Injected (not static in index.html) because a storm-free
             # homepage never renders a map. ONE carto preconnect (a-d share a
@@ -1030,14 +1044,12 @@ async def serve_frontend():
             # storm auto-load, where a map tile was the LCP. The overview map
             # is never the LCP, and the SPA starts Leaflet after first paint
             # so it doesn't compete with it on slow links.
-            # "</" escaped so feed-sourced strings can never close the tag.
-            hint_json = _json.dumps(storms).replace("</", "<\\/")
             inject = (
                 '<link rel="preconnect" href="https://c.basemaps.cartocdn.com">\n    '
                 '<link rel="dns-prefetch" href="https://a.basemaps.cartocdn.com">\n    '
                 '<link rel="dns-prefetch" href="https://b.basemaps.cartocdn.com">\n    '
                 '<link rel="dns-prefetch" href="https://d.basemaps.cartocdn.com">\n    '
-                f"<script>window.__ACTIVE_HINT__={hint_json};</script>\n"
+                + _active_hint_tag(storms)
             )
             html = html.replace("</head>", inject + "</head>", 1)
             # First paint IS the overview (welcome hidden, cards filled) —
@@ -1073,6 +1085,19 @@ async def serve_storm_page(storm_id: str):
     html_out = _render_storm_page(storm_id)
     if not html_out:
         raise HTTPException(status_code=500, detail="render failed")
+    # The active list, as on "/": the SPA decides whether THIS storm is live
+    # from window._activeStorms when it starts loading it. Without the hint a
+    # direct link always started before /storms/active answered, so a live
+    # storm rendered as historical — no forecast cone, landfall panel, current
+    # position or rain bar (found 2026-09-26 on /storm/EP152026). The hint
+    # bootstrap runs before the initial-storm dispatch (both on DOM ready, in
+    # that order). Fail-open: no hint = the old behaviour.
+    try:
+        storms = _presented_active_storms()
+        if storms:
+            html_out = html_out.replace("</head>", _active_hint_tag(storms) + "</head>", 1)
+    except Exception:
+        logger.exception("[storm-page] active-hint injection failed")
     return HTMLResponse(
         content=html_out,
         headers={"Cache-Control": "public, max-age=300, s-maxage=900"},
