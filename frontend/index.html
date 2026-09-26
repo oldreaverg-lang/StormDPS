@@ -2098,6 +2098,36 @@ function _renderRainBanner(mode, suffix) {
     bar.style.display = 'flex';
 }
 
+// Live storms: forecast rain OVER LAND from /forecast's land_rain (official
+// NHC/CPHC advisory RAINFALL section -> NWS grids -> model guidance, all
+// basins; core/land_rain.py builds the wording). It replaces the banner above
+// for a live storm: that score measures rain the storm produces along its
+// track and could only fire on a landfall or near-land stall, so an offshore
+// storm never showed it (Nolo EP152026: CPHC forecast 8-12 in, max 16 in, for
+// the Big Island with no landfall). available=false (lookup failed) leaves
+// the observed-track banner exactly as it was.
+function _applyLandRain(lr) {
+    const bar = document.getElementById('rainfallBar');
+    if (!bar || !lr || !lr.available) return;
+    window._landRainOwnsBar = true;
+    bar.classList.remove('rain-expanded');
+    if (!lr.show) {
+        bar.classList.remove('rain-extreme');
+        bar.style.display = 'none';
+        return;
+    }
+    const scoreEl = document.getElementById('rainfallBarScore');
+    const textEl = document.getElementById('rainfallBarText');
+    scoreEl.textContent = lr.score_text || '';
+    textEl.textContent = deAuthorize(lr.text || '');
+    bar.style.borderColor = 'rgba(239,68,68,.3)';
+    bar.style.background = 'rgba(239,68,68,.06)';
+    scoreEl.style.color = '#b3261e';
+    textEl.style.color = '#b3261e';
+    bar.classList.toggle('rain-extreme', lr.level === 'EXTREME' || lr.level === 'HISTORIC');
+    bar.style.display = 'flex';
+}
+
 // ── Score anchors ("for scale") ────────────────────────────────────────────
 // When no storm is similar enough to be an analog (Polo/Odalys 2026: the EP
 // catalog is thin), a bare "85" or "14" means little to a newcomer. Name the
@@ -5455,6 +5485,7 @@ function renderAll(stormId,data){
     updateBreakdownBars(heroDPS, peakDpsObj, peakDpsObj, peakIasObj, peakErsObj, peakDpsObj.basin || 'ATLANTIC', compiled);
 
     // Rainfall Red Bar Warning
+    window._landRainOwnsBar = false;     // _applyLandRain takes over once the forecast arrives
     const rainBar = document.getElementById('rainfallBar');
     if (compiled && compiled.rainfall_anomalous) {
         const _rw = Math.round(compiled.rainfall_warning);
@@ -6995,12 +7026,15 @@ function renderMap(data){
                     const _lfExpected = !!(fc.landfall && fc.landfall.expected);
                     const _stallLvl = (fc.stall_risk && fc.stall_risk.risk_level) || 'none';
                     const _stallProjected = (_stallLvl === 'moderate' || _stallLvl === 'high' || _stallLvl === 'extreme');
-                    if (window._rainBannerMuted && _fcErs && _fcErs.score >= 10 && (_lfExpected || _stallProjected)) {
+                    if (window._rainBannerMuted && !window._landRainOwnsBar && _fcErs && _fcErs.score >= 10 && (_lfExpected || _stallProjected)) {
                         _renderRainBanner('warning', _lfExpected
                             ? ' Forecast track makes landfall.'
                             : ' Forecast shows the storm stalling near land.');
                     }
                 } catch(e) {}
+
+                // ── Rain over land (the rain bar, all basins) ──
+                try { _applyLandRain(fc.land_rain); } catch(e) { console.warn('[FORECAST] land rain failed:', e); }
 
                 // ── Landfall panel ("when and how hard") ──
                 // Guarded like the blocks above: a render error here must

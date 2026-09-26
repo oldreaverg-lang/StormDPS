@@ -1659,6 +1659,20 @@ async def get_storm_forecast(request: Request, storm_id: str):
         logger.warning(f"[forecast] rain-hazard estimate failed for {storm_id}: {e}")
         forecast["rain_forecast"] = {"available": False, "note": "error"}
 
+    # ── Forecast rain OVER LAND (the storm page's rain bar) ──
+    # Official advisory RAINFALL section -> NWS grids -> global model guidance
+    # (core/land_rain.py). Unlike the kinematic numbers above this is rain
+    # forecast to fall on named places, so an offshore storm counts (Nolo
+    # EP152026: CPHC 8-12 in, max 16, for the Big Island with no landfall).
+    # Cached per storm (services/land_rain_client); fail-open.
+    try:
+        from services.land_rain_client import get_land_rain
+        forecast["land_rain"] = await get_land_rain(
+            storm_id, forecast.get("forecast_track", []), http_client=shared_client)
+    except Exception as e:
+        logger.warning(f"[forecast] land-rain lookup failed for {storm_id}: {e}")
+        forecast["land_rain"] = {"available": False, "note": "error"}
+
     # ── RAPID-INTENSIFICATION OUTLOOK (SHIPS-RII) ──
     # The site's own RI signal is retrospective: calculate_dps awards its RI
     # bonus only after the b-deck shows the jump already happened, which is
