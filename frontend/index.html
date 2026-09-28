@@ -5295,6 +5295,7 @@ function renderAll(stormId,data){
                 const s = Math.min(100, Math.round(srv));
                 d.dps = Object.assign({}, d.dps, {
                     score: s,
+                    scoreExact: Math.min(100, srv),
                     color: dpsColor(s),
                     label: s >= 80 ? 'Catastrophic' : s >= 60 ? 'Extreme' : s >= 40 ? 'Severe' : s >= 20 ? 'Moderate' : s >= 10 ? 'Minor' : 'Minimal'
                 });
@@ -5382,16 +5383,35 @@ function renderAll(stormId,data){
         heroDPSExact = peakDpsObj.score;
         heroDPSLabel = getDPSBand(heroDPSExact);
     }
-    // A LIVE storm's hero is its score so far, while the map chip shows the
-    // score at the selected fix — Polo 2026 read "85" beside "76" with nothing
-    // saying which was which. Label the hero, and name the current value when
-    // it is lower. (Historical storms are over: one headline score, no split.
-    // This replaces a "· Peak X" note built on compiled.peak_dps — the raw
-    // pre-adjustment peak, which never reaches the hero for a live storm.)
-    const _liveNow = window._isActiveStorm && data.length ? data[data.length - 1].dps.score : null;
-    if (_liveNow != null && Math.round(_liveNow) < heroDPS) heroDPSLabel += ' · now ' + Math.round(_liveNow);
+    // A LIVE storm headlines its CURRENT score (the server's per-fix series
+    // at the newest track fix) and names its peak so far in the label. For a
+    // live storm compiled.dps IS that peak (the max of dpi_timeseries), and
+    // headlining it read as the present threat: Polo 2026 showed "92" while
+    // its latest fix was 52 as it approached landfall. Everything below that
+    // reads heroDPS / heroDPSExact (colour, severity, context line, breakdown,
+    // "for scale" anchors, share text) follows the headline. Historical
+    // storms are over: one headline score, unchanged. (Not compiled.peak_dps:
+    // that is the raw pre-adjustment peak, 73 for Polo.)
+    window._heroPeakDPS = null;
+    const _lastDps = window._isActiveStorm && data.length ? data[data.length - 1].dps : null;
+    if (_lastDps && typeof _lastDps.score === 'number') {
+        const nowExact = typeof _lastDps.scoreExact === 'number' ? _lastDps.scoreExact : _lastDps.score;
+        const peakExact = heroDPSExact, peakLabel = heroDPSLabel;
+        heroDPSExact = nowExact;
+        heroDPS = Math.round(nowExact);
+        const peakRounded = Math.round(peakExact);
+        heroDPSLabel = getDPSBand(nowExact) + (peakRounded > heroDPS
+            ? ' · peak so far ' + peakRounded + ' (' + peakLabel + ')'
+            : ' · at its peak so far');
+        window._heroPeakDPS = peakRounded;
+    }
     const _soFarEl = document.getElementById('dpsSoFar');
-    if (_soFarEl) _soFarEl.textContent = window._isActiveStorm ? ' · so far' : '';
+    if (_soFarEl) {
+        _soFarEl.textContent = window._isActiveStorm ? ' · now' : '';
+        _soFarEl.title = window._isActiveStorm
+            ? 'DPS at the most recent best-track fix (6-hourly, so it can trail the newest advisory by a few hours). The line below gives the highest DPS this storm has reached so far.'
+            : '';
+    }
     // Color / severity / context all band the UNROUNDED score so they can
     // never disagree with the label; only the big displayed number rounds.
     const heroColor = dpsTextColor(heroDPSExact);
@@ -5536,7 +5556,7 @@ function renderAll(stormId,data){
     // Sync sidebar preset chip DPS with hero card to ensure consistency
     const matchPreset = PRESETS.find(p => p.id === stormId) ||
                         (data[0] && data[0].name ? PRESETS.find(p => p.name.toUpperCase() === data[0].name.toUpperCase() && p.year === new Date(data[0].timestamp).getFullYear()) : null);
-    if (matchPreset && matchPreset.dps !== heroDPS) {
+    if (matchPreset && !window._isActiveStorm && matchPreset.dps !== heroDPS) {
         matchPreset.dps = heroDPS;
         rerenderPresetChips();
         highlightSelectedChip(stormId);
@@ -7323,7 +7343,8 @@ function updateStormTitleBar(stormId, name, year, cat, heroDPS) {
     } else {
         rankEl.style.display = 'none';
     }
-    window._shareInfo = { id: stormId, name: name, year: year, cat: cat, dps: heroDPS };
+    window._shareInfo = { id: stormId, name: name, year: year, cat: cat, dps: heroDPS,
+                          peak: window._isActiveStorm ? window._heroPeakDPS : null };
     bar.classList.add('visible');
 }
 
@@ -7337,8 +7358,12 @@ async function shareStorm(btn) {
     const catTxt = (info.cat >= 1) ? ' — Category ' + info.cat : '';
     const hasScore = (info.dps !== null && info.dps !== undefined && info.dps !== '');
     const who = info.name || 'This storm';
-    const title = who + yr + (hasScore ? ' — DPS ' + info.dps : '') + ' · StormDPS';
-    const text = who + yr + (hasScore ? ' scored ' + info.dps + '/100 on the Destructive Power Score' : '') + catTxt + '. See the full breakdown:';
+    const livePeak = (hasScore && info.peak != null && info.peak > info.dps) ? info.peak : null;
+    const title = who + yr + (hasScore ? ' — DPS ' + info.dps + (livePeak ? ' now (peak ' + livePeak + ')' : '') : '') + ' · StormDPS';
+    const text = who + yr + (hasScore
+        ? (livePeak ? ' is at ' + info.dps + '/100 on the Destructive Power Score now (peak so far ' + livePeak + ')'
+                    : ' scored ' + info.dps + '/100 on the Destructive Power Score')
+        : '') + catTxt + '. See the full breakdown:';
     if (navigator.share) {
         try { await navigator.share({ title: title, text: text, url: url }); return; }
         catch (e) { if (e && e.name === 'AbortError') return; /* otherwise fall through to copy */ }
