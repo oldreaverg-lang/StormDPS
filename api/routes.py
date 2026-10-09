@@ -1101,19 +1101,18 @@ _ACTIVE_DPS_MEMO: dict = {}
 
 def _active_dps(storm_id: str) -> Optional[float]:
     """The live storm's hero DPS from the warm-loop cache (None if not cached)."""
-    for sid in dict.fromkeys((storm_id, storm_id.upper(), storm_id.lower())):
-        fp = _dps_cache_path(sid)
-        try:
-            key = (str(fp), fp.stat().st_mtime)
-        except OSError:
-            continue
-        if key not in _ACTIVE_DPS_MEMO:
-            bundle = _load_dps_cache(sid) or {}
-            dps = bundle.get("dps")
-            _ACTIVE_DPS_MEMO[key] = float(dps) if isinstance(dps, (int, float)) else None
-        if _ACTIVE_DPS_MEMO[key] is not None:
-            return _ACTIVE_DPS_MEMO[key]
-    return None
+    fp = _dps_cache_file(storm_id)          # newest spelling; None if not cached
+    if fp is None:
+        return None
+    try:
+        key = (str(fp), fp.stat().st_mtime)
+    except OSError:
+        return None
+    if key not in _ACTIVE_DPS_MEMO:
+        bundle = _load_dps_cache(storm_id) or {}
+        dps = bundle.get("dps")
+        _ACTIVE_DPS_MEMO[key] = float(dps) if isinstance(dps, (int, float)) else None
+    return _ACTIVE_DPS_MEMO[key]
 
 
 def present_active_storms(storms: list) -> list:
@@ -3181,14 +3180,55 @@ async def get_storm_track(
 # result is cached to the persistent volume for subsequent loads.
 
 def _dps_cache_path(storm_id: str) -> Path:
+    """The storm's DPS cache file. ONE file per storm regardless of how the
+    id is capitalized (the id is upper-cased).
+
+    Until 2026-10-09 the filename kept the caller's spelling, so a storm had
+    two entries on the (case-sensitive) volume: the hourly live refresh wrote
+    the feed's spelling ("al092026" for NHC storms) while the storm page asks
+    for "AL092026". The page's entry was filled once, on first view, and never
+    refreshed: Hurricane Isaias's page showed DPS 13 "Low" as a 105 kt Cat 3
+    while the refreshed entry said 55, and every NHC storm page lagged the
+    same way (Rachel's by 66 h)."""
     safe = "".join(c for c in storm_id if c.isalnum() or c in "_-")
-    return _DPS_CACHE_DIR / f"{safe}_{_DPS_CACHE_VERSION}.json"
+    return _DPS_CACHE_DIR / f"{safe.upper()}_{_DPS_CACHE_VERSION}.json"
+
+
+def _dps_cache_legacy_path(storm_id: str) -> Path:
+    """The pre-2026-10-09 lower-case spelling of the same entry (what the
+    hourly loop wrote for NHC storms). Read-only fallback; never written."""
+    safe = "".join(c for c in storm_id if c.isalnum() or c in "_-")
+    return _DPS_CACHE_DIR / f"{safe.lower()}_{_DPS_CACHE_VERSION}.json"
+
+
+def _dps_cache_file(storm_id: str) -> Optional[Path]:
+    """The NEWEST existing cache file for this storm: the canonical one, or a
+    legacy lower-case one that has not been superseded yet. During the
+    changeover the legacy file is the fresh one until the hourly loop first
+    writes the canonical file; after that it is simply older and ignored.
+    Falling back (rather than treating a missing canonical file as a miss)
+    also means dead storms that only have a legacy file are not all
+    recomputed on the first warm pass after the deploy."""
+    # No Path de-duplication: WindowsPath equality ignores case, which would
+    # hide the twin on a case-sensitive directory. Statting one file twice is harmless.
+    best, best_m = None, -1.0
+    for fp in (_dps_cache_path(storm_id), _dps_cache_legacy_path(storm_id)):
+        try:
+            m = fp.stat().st_mtime
+        except OSError:
+            continue
+        if m > best_m:
+            best, best_m = fp, m
+    return best
 
 
 def _load_dps_cache(storm_id: str) -> Optional[dict]:
     # Version is encoded in the filename (_dps_cache_path), so a bump orphans
     # old files automatically — no in-content version check needed here.
-    data = _cache_read(_dps_cache_path(storm_id))
+    # Only the newest file counts: if it is an invalidation marker the entry
+    # is a miss, never a fall-back to the older spelling.
+    fp = _dps_cache_file(storm_id)
+    data = _cache_read(fp) if fp else None
     return data if isinstance(data, dict) else None
 
 
@@ -3233,17 +3273,18 @@ def _invalidate_dps_cache(storm_id: str) -> None:
     (e.g. after recording observed rainfall). On the Railway volume the app user
     can overwrite existing files but cannot unlink them (no dir-write; see
     _save_dps_cache), so fall back to overwriting with invalid JSON — which
-    _load_dps_cache treats as a miss. Fully fail-open."""
-    fp = _dps_cache_path(storm_id)
-    try:
-        fp.unlink()
-    except FileNotFoundError:
-        return  # nothing cached → next view computes fresh anyway
-    except OSError:
+    _load_dps_cache treats as a miss. Both spellings (canonical + legacy
+    lower-case) are invalidated. Fully fail-open."""
+    for fp in (_dps_cache_path(storm_id), _dps_cache_legacy_path(storm_id)):
         try:
-            fp.write_text("stale")  # invalid JSON → _load_dps_cache returns None
+            fp.unlink()
+        except FileNotFoundError:
+            continue  # nothing cached under this spelling
         except OSError:
-            logger.debug("[DPS CACHE] could not invalidate %s", storm_id)
+            try:
+                fp.write_text("stale")  # invalid JSON → _load_dps_cache returns None
+            except OSError:
+                logger.debug("[DPS CACHE] could not invalidate %s", storm_id)
 
 
 def _save_dps_cache(storm_id: str, bundle: dict) -> None:
@@ -3510,11 +3551,22 @@ def _dps_cache_scores() -> dict:
     out: dict = {}
     try:
         suffix = f"_{_DPS_CACHE_VERSION}.json"
+        newest: dict = {}                      # ID (upper) -> mtime of the file used
         for f in _DPS_CACHE_DIR.glob(f"*{suffix}"):
+            # Keys are upper-cased ids (harmonize_catalog tries id, then
+            # id.upper()). A storm can still have a legacy lower-case twin on
+            # the volume: the newer file is the live one.
+            sid = f.name[: -len(suffix)].upper()
+            try:
+                m = f.stat().st_mtime
+            except OSError:
+                continue
+            if newest.get(sid, -1.0) >= m:
+                continue
             data = _cache_read(f)
             if isinstance(data, dict) and data.get("dps") is not None:
-                out[f.name[: -len(suffix)]] = {
-                    "dps": data["dps"], "dps_label": data.get("dps_label")}
+                newest[sid] = m
+                out[sid] = {"dps": data["dps"], "dps_label": data.get("dps_label")}
     except Exception:
         logger.exception("[catalog] dps-cache score scan failed")
     return out
@@ -3693,7 +3745,9 @@ async def clear_storm_dps_cache(storm_id: str):
     """Clear the cached DPS bundle for a single storm (forces recomputation)."""
     safe = _safe_storm_id(storm_id)
     cleared = 0
-    for f in _DPS_CACHE_DIR.glob(f"{safe}_*.json"):
+    files = {f for v in dict.fromkeys((safe, safe.upper(), safe.lower()))
+             for f in _DPS_CACHE_DIR.glob(f"{v}_*.json")}
+    for f in files:
         try:
             f.unlink()
             cleared += 1
@@ -3730,8 +3784,7 @@ async def clear_all_dps_cache():
 async def _warm_one_dps(storm_id: str, *, force: bool = False) -> str:
     """Compute + persist a single storm's DPS bundle. Returns status tag."""
     if not force:
-        fp = _dps_cache_path(storm_id)
-        if fp.exists():
+        if _dps_cache_file(storm_id) is not None:
             # Recompute anyway when the cached bundle is unreadable (e.g.
             # post-invalidation "stale" marker) or carries a deferred
             # no-landfall dampener for a now-stale track.
