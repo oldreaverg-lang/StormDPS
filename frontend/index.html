@@ -2967,7 +2967,13 @@ function displayForecastERS(fcErs) {
     if (!el) return;
     const observed = window._observedPeakErs || 0;
     if (!fcErs || !fcErs.score || fcErs.score <= observed) { el.style.display = 'none'; return; }
-    const when = fcErs.hour ? ('+' + fcErs.hour + 'h') : 'ahead';
+    // fcErs.hour counts from the advisory's valid time, not from now: at 01Z
+    // on a 21Z forecast, Isaias's "+8h" point was 4 hours away.
+    let when = 'ahead';
+    if (fcErs.hour) {
+        const _h = _hoursFromNow({ valid_time_utc: window._forecastValidUtc }, fcErs.hour);
+        when = _h > 0 ? ('+' + _h + 'h') : 'now';
+    }
     const where = fcErs.zone ? (' near ' + fcErs.zone) : '';
     const edge = fcErs.in_cone_edge ? ' (cone edge)' : '';
     let age = '';
