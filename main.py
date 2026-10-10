@@ -1169,7 +1169,9 @@ async def serve_compare():
     fp = FRONTEND_DIR / "compare.html"
     if not fp.exists():
         raise HTTPException(status_code=404, detail="Not found")
-    headers = {"Cache-Control": "public, max-age=3600"}
+    # 5 minutes, like the tracker shell. At an hour, a returning visitor kept
+    # the old page (and missed new rows) long after a deploy.
+    headers = {"Cache-Control": "public, max-age=300"}
     # compare.html draws its own Leaflet map, so it needs the CARTO basemap
     # key like the SPA shell does. Fail-open to the raw file on any surprise.
     try:
