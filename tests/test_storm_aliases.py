@@ -73,17 +73,29 @@ def test_recorded_damage_rows_join_the_bundle():
     with open(DAMAGE, encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     assert len(rows) >= 60
+    catalogued = _table()["storms"]
+    outside = []
     for row in rows:
         sid = row["storm_id"]
-        assert sid in storms, f"damage row {sid} ({row['name']}) not a bundle key"
         dmg = float(row["damage_billions_usd"])
         assert 0 < dmg < 400, f"{sid}: implausible damage {dmg}B"
         assert row["source"].strip(), f"{sid}: missing source tag"
+        if sid not in storms:
+            # A storm outside the bundle (Opal 1995) is served straight from
+            # the CSV by the /dps overlay (core/recorded_damage.py). It must
+            # still be a real catalogued storm, keyed by its IBTrACS SID.
+            assert sid in catalogued, f"damage row {sid} ({row['name']}) is neither a bundle key nor a catalogued SID"
+            assert int(row["year"]) == int(catalogued[sid]["year"]), (sid, row["year"])
+            assert row["name"].upper() == str(catalogued[sid]["name"]).upper(), (sid, row["name"])
+            outside.append(sid)
+            continue
         # name/year must agree with the bundle entry it decorates
         entry = storms[sid]
         assert int(row["year"]) == int(entry["year"]), (sid, row["year"], entry["year"])
         if not ATCF_RE.match(str(entry.get("name") or "")):
             assert row["name"].upper() == str(entry["name"]).upper(), (sid, row["name"], entry["name"])
+    # The bundle is the main path; rows outside it are the exception.
+    assert len(outside) <= 10, f"non-bundle damage rows growing: {outside}"
 
 
 def test_bundle_actual_impact_coverage():

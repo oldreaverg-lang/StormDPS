@@ -245,8 +245,11 @@
             const minP = s.track.reduce((m, d) => (d.min_pressure_hpa ? Math.min(m, d.min_pressure_hpa) : m), 9999);
             const t0 = Date.parse(s.track[0].timestamp), t1 = Date.parse(s.track[s.track.length - 1].timestamp);
             const cat = catalog.find(c => c.id === s.id);
+            // A name that is really an id (the /dps payload of a live storm
+            // carried the feed spelling, "al092026") is not a name.
+            const isId = (n) => /^(?:[A-Za-z]{2}\d{6}|\d{7}[NSns]\d{5})$/.test(String(n || '').trim());
             return {
-                name: (s.dps.name && s.dps.name !== s.id) ? s.dps.name
+                name: (s.dps.name && !isId(s.dps.name)) ? s.dps.name
                       : (cat && cat.name) || pickedNames[s.id] || s.id,
                 year: s.dps.year || (cat && cat.year) || (isNaN(t0) ? '' : new Date(t0).getUTCFullYear()),
                 dps: Math.round(s.dps.dps || 0), dpsExact: s.dps.dps || 0,

@@ -70,7 +70,7 @@ from core.ike import (
     meters_to_nm,
 )
 from core.valuation import compute_valuation
-from core import refresh_cadence
+from core import recorded_damage, refresh_cadence
 
 
 router = APIRouter()
@@ -3699,7 +3699,16 @@ def _overlay_bundle_identity(payload: dict, storm_id: str) -> dict:
             entry = None
         cur_name = str(payload.get("name") or "")
         if not cur_name or _ID_FORM_RE.match(cur_name):
-            for cand in ((entry or {}).get("name"), ident.get("name")):
+            # A LIVE storm is in neither the bundle nor the alias table (both
+            # are built from the archive), so its payload kept the feed id as
+            # its name: the compare page headed Isaias's column "al092026".
+            # The active list knows the name.
+            live_name = None
+            for row in _active_storms_cache or []:
+                if str(row.get("id") or "").upper() == (storm_id or "").upper():
+                    live_name = str(row.get("name") or "").strip() or None
+                    break
+            for cand in ((entry or {}).get("name"), ident.get("name"), live_name):
                 if cand and not _ID_FORM_RE.match(str(cand)):
                     payload["name"] = cand
                     break
@@ -3711,6 +3720,13 @@ def _overlay_bundle_identity(payload: dict, storm_id: str) -> dict:
             # / `states_declared` lists, so a consumer mutating those would
             # corrupt the shared bundle. deepcopy severs it completely.
             payload["actual_impact"] = copy.deepcopy(entry["actual_impact"])
+        if not payload.get("actual_impact"):
+            # Storms outside the bundle (Opal 1995) get their recorded damage
+            # straight from the dataset the bake joins (core/recorded_damage).
+            rec = recorded_damage.lookup(
+                (storm_id, ident.get("atcf"), ident.get("sid")))
+            if rec:
+                payload["actual_impact"] = rec
     except Exception as e:
         logger.debug(f"[alias] overlay skipped for {storm_id}: {e}")
     return payload
