@@ -2192,8 +2192,11 @@ async function loadAnalogs(stormId) {
         el.innerHTML = '<span class="analog-strip-label">Storms like this one</span>' +
             list.map(a => {
                 const col = dpsTextColor(a.dps || 0);
+                // A hand-picked analog (core/analog_pins.py) says why it is here;
+                // a computed one shows its similarity.
+                const why = a.pinned && a.why ? a.why : `similarity ${a.similarity}%`;
                 return `<a class="analog-chip" href="/compare?a=${encodeURIComponent(myStorm)}&b=${encodeURIComponent(a.id)}"` +
-                       ` title="Compare ${escapeHtml(a.name)} (${escapeHtml(a.year)}) with this storm — similarity ${escapeHtml(a.similarity)}%">` +
+                       ` title="Compare ${escapeHtml(a.name)} (${escapeHtml(a.year)}) with this storm — ${escapeHtml(why)}">` +
                        `${escapeHtml(a.name)} <span style="color:var(--text-dim);font-weight:400">${escapeHtml(a.year)}</span>` +
                        ` <span class="ac-dps" style="color:${col}">${escapeHtml(a.dps)}</span>` +
                        `<span class="ac-cmp">compare →</span></a>`;

@@ -70,7 +70,7 @@ from core.ike import (
     meters_to_nm,
 )
 from core.valuation import compute_valuation
-from core import landfall_record, recorded_damage, refresh_cadence
+from core import analog_pins, landfall_record, recorded_damage, refresh_cadence
 
 
 router = APIRouter()
@@ -3597,12 +3597,56 @@ async def get_storm_analogs(
         "peak_wind_kt": s.get("peak_wind_kt"),
         "similarity": max(0, round((1.0 - dist) * 100)),
     } for dist, aid, s in ranked[:n]]
+
+    # Hand-picked analogs go first (core/analog_pins.py): comparisons the
+    # ranking cannot reach, such as a storm outside the bundle or beyond the
+    # 20-point gate. A pin that cannot be scored is skipped, never an error.
+    pinned = []
+    for pin in analog_pins.pins_for(sid):
+        pid = str(pin.get("id") or "").upper()
+        if not pid or pid == sid:
+            continue
+        s = pool.get(pid)
+        if s is None:
+            try:
+                res = await get_storm_dps(pid, name=None, year=None,
+                                          grid_resolution_km=15.0, skip_points=0,
+                                          force=False)
+                s = json.loads(res.body) if isinstance(res, JSONResponse) else res
+            except Exception as e:
+                logger.info(f"[ANALOGS] pinned analog {pid} unavailable for {sid}: {e}")
+                continue
+        if not isinstance(s, dict) or s.get("dps") is None:
+            continue
+        try:
+            sim = max(0, round((1.0 - _analog_distance(query, s)) * 100))
+        except Exception:
+            sim = None
+        pinned.append({
+            "id": pid,
+            "name": s.get("name") or pid,
+            "year": s.get("year"),
+            "basin": s.get("basin"),
+            "dps": round(s.get("dps") or 0),
+            "dps_label": s.get("dps_label"),
+            "category": s.get("category"),
+            "peak_wind_kt": s.get("peak_wind_kt"),
+            "similarity": sim,
+            "pinned": True,
+            "why": pin.get("why"),
+        })
+    if pinned:
+        taken = {(str(a["name"]).lower(), a["year"]) for a in pinned} | {a["id"] for a in pinned}
+        analogs = (pinned + [a for a in analogs
+                             if a["id"] not in taken
+                             and (str(a["name"]).lower(), a["year"]) not in taken])[:n]
+
     return JSONResponse(content={
         "query": {"id": sid, "name": query.get("name") or sid,
                   "year": q_year, "dps": round(query.get("dps") or 0),
                   "dps_label": query.get("dps_label")},
         "analogs": analogs,
-    }, headers={"Cache-Control": "public, max-age=3600"})
+    }, headers={"Cache-Control": "public, max-age=600"})
 
 
 # ── Storm identity aliases (docs/DATA_ARCHITECTURE.md roadmap #2) ──────────
