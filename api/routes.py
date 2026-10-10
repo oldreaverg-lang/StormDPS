@@ -504,7 +504,12 @@ _ACTIVE_TRACK_TTL_S = 5400  # 90 minutes
 #           against Louisiana, 317 km off, on a track into Fort Walton Beach
 #           (core/cumulative_dpi.landfall_regions). Atlantic / E. Pacific
 #           storms that peaked nearest one coast and landed on another move.
-_DPS_CACHE_VERSION = "v18-landfall-region"
+# v19-mex-pacific (2026-10-10): Mexico's Pacific coast gets scoring regions
+#           and profiles ("mex_pacific", "mex_baja"). It had none: a fix there
+#           took a waypoint key with no profile and was scored with a generic
+#           default built on US property values (Simon EP202026). Every East
+#           Pacific storm near Mexico recomputes.
+_DPS_CACHE_VERSION = "v19-mex-pacific"
 
 # Cache for global IBTrACS catalog to avoid repeated large downloads/parses.
 # We also persist a json cache file so restarts can reuse the catalog quickly.

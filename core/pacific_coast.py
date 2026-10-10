@@ -1,15 +1,25 @@
 """Coastline points for the Pacific coasts the shared waypoint DB lacks.
 
 core.land_proximity's CoastlineDatabase has only two Baja points on the
-Pacific side of the Americas and none in Hawaii. That DB also feeds DPS
-scoring and must not be extended casually, so these supplement it ONLY in
-presentation paths: the forecast stall banner (api/routes._stall_near_land)
-and the forecast landfall / closest-approach estimate
-(core/landfall_forecast.py). (lat, lon, name); ~100-150 km spacing.
+Pacific side of the Americas and none in Hawaii. That DB feeds DPS scoring
+and must not be extended casually, so these supplement it in presentation
+paths: the forecast stall banner (api/routes._stall_near_land), the forecast
+landfall / closest-approach estimate (core/landfall_forecast.py) and the
+rain-over-land bar.
+
+Since 2026-10-10 the two MEXICO groups also assign the scoring region for a
+storm at, or headed for, that coast (core/cumulative_dpi: "mex_pacific" and
+"mex_baja", whose coastal and economic profiles live in core/storm_surge.py
+and core/economic_vulnerability.py). Before that, Pacific Mexico had no
+profile at all: Simon (EP202026), a Cat 4 bound for Jalisco, was scored with
+a generic default that assumed US property values. The Central America and
+Hawaii groups stay presentation-only.
+
+(lat, lon, name); ~100-150 km spacing.
 """
 
-PACIFIC_COAST_POINTS = (
-    # Mainland Pacific Mexico, Chiapas -> Sonora
+# Mainland Pacific Mexico, Chiapas -> Sonora
+MEXICO_PACIFIC_MAINLAND_POINTS = (
     (14.70, -92.40, "Puerto Chiapas, Mexico"), (15.94, -93.81, "Puerto Arista, Mexico"),
     (16.17, -95.20, "Salina Cruz, Mexico"), (15.75, -96.13, "Huatulco, Mexico"),
     (15.86, -97.07, "Puerto Escondido, Mexico"), (16.33, -98.57, "Punta Maldonado, Mexico"),
@@ -21,13 +31,19 @@ PACIFIC_COAST_POINTS = (
     (21.54, -105.29, "San Blas, Mexico"), (22.54, -105.75, "Teacapan, Mexico"),
     (23.22, -106.42, "Mazatlan, Mexico"), (24.63, -107.93, "Altata, Mexico"),
     (25.60, -109.05, "Topolobampo, Mexico"), (27.92, -110.90, "Guaymas, Mexico"),
-    # Baja California
+)
+
+# Baja California
+BAJA_CALIFORNIA_POINTS = (
     (22.89, -109.91, "Cabo San Lucas, Mexico"), (23.06, -109.70, "San Jose del Cabo, Mexico"),
     (23.45, -110.22, "Todos Santos, Mexico"), (24.14, -110.31, "La Paz, Mexico"),
     (24.79, -112.11, "Puerto San Carlos, Mexico"), (26.01, -111.35, "Loreto, Mexico"),
     (27.34, -112.27, "Santa Rosalia, Mexico"), (27.97, -114.05, "Guerrero Negro, Mexico"),
     (31.86, -116.62, "Ensenada, Mexico"),
-    # Central America, Pacific side
+)
+
+# Central America, Pacific side
+CENTRAL_AMERICA_PACIFIC_POINTS = (
     (14.29, -91.91, "Champerico, Guatemala"), (13.92, -90.82, "Puerto San Jose, Guatemala"),
     (13.59, -89.83, "Acajutla, El Salvador"), (13.49, -89.32, "La Libertad, El Salvador"),
     (13.33, -87.84, "La Union, El Salvador"), (13.42, -87.45, "San Lorenzo, Honduras"),
@@ -35,8 +51,22 @@ PACIFIC_COAST_POINTS = (
     (10.30, -85.84, "Tamarindo, Costa Rica"), (9.98, -84.83, "Puntarenas, Costa Rica"),
     (9.43, -84.16, "Quepos, Costa Rica"), (8.64, -83.18, "Golfito, Costa Rica"),
     (8.37, -82.43, "Pedregal, Panama"), (8.95, -79.53, "Panama City, Panama"),
-    # Hawaii
+)
+
+# Hawaii
+HAWAII_POINTS = (
     (21.31, -157.86, "Honolulu, HI"), (21.09, -157.02, "Kaunakakai, HI"),
     (20.89, -156.47, "Kahului, HI"), (19.64, -155.99, "Kailua-Kona, HI"),
     (19.72, -155.08, "Hilo, HI"), (21.98, -159.37, "Lihue, HI"),
+)
+
+PACIFIC_COAST_POINTS = (
+    MEXICO_PACIFIC_MAINLAND_POINTS + BAJA_CALIFORNIA_POINTS
+    + CENTRAL_AMERICA_PACIFIC_POINTS + HAWAII_POINTS
+)
+
+# Scoring regions: (region key, points). See the module docstring.
+PACIFIC_MEXICO_SCORING_REGIONS = (
+    ("mex_pacific", MEXICO_PACIFIC_MAINLAND_POINTS),
+    ("mex_baja", BAJA_CALIFORNIA_POINTS),
 )

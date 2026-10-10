@@ -403,6 +403,35 @@ COASTAL_PROFILES = {
         antecedent_moisture=0.65,  # Tabasco lowlands are swampy/saturated
         bathymetric_concavity=0.20,  # Bay of Campeche creates concavity
     ),
+    # Pacific Mexico (2026-10-10). Assigned by core/cumulative_dpi from
+    # core/pacific_coast's point lists, not by the coastline waypoint DB.
+    "mex_pacific": CoastalProfile(
+        name="Mexico Pacific Coast (Chiapas to Sonora)",
+        # A subduction-zone coast: the shelf is a few km wide off Jalisco,
+        # Guerrero and Oaxaca, so surge is small (Patricia 2015, 130 kt at
+        # landfall, raised ~3 m on an open beach). The hazard is the Sierra
+        # Madre behind it: Manuel 2013 and John 2024 killed by flash flood
+        # and landslide, in the Jun-Oct wet season.
+        shelf_width_km=15, avg_slope=0.02, surge_amplification=0.80,
+        rain_enhancement=1.60, tidal_range_m=0.7, wetland_buffer=0.05,
+        bay_funneling=1.05,
+        coastal_defense=0.02,
+        river_basin_factor=1.20,  # Short, steep Sierra Madre rivers
+        antecedent_moisture=0.60,  # Landfalls come in the wet season
+        bathymetric_concavity=0.05,
+    ),
+    "mex_baja": CoastalProfile(
+        name="Baja California",
+        # Narrow shelf, desert peninsula: little surge, and rain falls on
+        # dry ground that sheds it down arroyos (Odile 2014, Lidia 2017).
+        shelf_width_km=20, avg_slope=0.015, surge_amplification=0.75,
+        rain_enhancement=1.15, tidal_range_m=1.0, wetland_buffer=0.02,
+        bay_funneling=1.05,
+        coastal_defense=0.02,
+        river_basin_factor=1.10,  # Arroyo flash floods
+        antecedent_moisture=0.20,  # Desert
+        bathymetric_concavity=0.05,
+    ),
     "central_am": CoastalProfile(
         name="Central America (Belize to Panama)",
         shelf_width_km=20, avg_slope=0.02, surge_amplification=0.80,

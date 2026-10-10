@@ -530,7 +530,8 @@ def _estimate_region_from_coords(lat: float, lon: float) -> Optional[str]:
                 if pop >= min_pop and dist_km <= max_km:
                     return key
             return "open_ocean"
-    return None
+    # Mexico's Pacific coast (2026-10-10): its own regions and profiles.
+    return _pacific_mexico_region(lat, lon)
 
 
 # ── The coast a fix is scored against ────────────────────────────────────────
@@ -583,12 +584,54 @@ def _coast_cells() -> Dict[Tuple[int, int], List[Tuple[float, float]]]:
             pts += [(float(la), float(lo)) for la, lo, _ in US_COASTAL_PLACES]
         except Exception:  # pragma: no cover
             pass
+        # Pacific Mexico: the waypoint DB has two points on the whole coast.
+        pts += [(float(la), float(lo)) for _key, group in _pacific_mexico_groups()
+                for la, lo, _ in group]
         grid: Dict[Tuple[int, int], List[Tuple[float, float]]] = {}
         for la, lo in pts:
             grid.setdefault((int(math.floor(la / _COAST_CELL_DEG)),
                              int(math.floor(lo / _COAST_CELL_DEG))), []).append((la, lo))
         _coast_grid = grid
     return _coast_grid
+
+
+def _pacific_mexico_groups():
+    try:
+        from core.pacific_coast import PACIFIC_MEXICO_SCORING_REGIONS
+        return PACIFIC_MEXICO_SCORING_REGIONS
+    except Exception:  # pragma: no cover - fail soft to the old behaviour
+        return ()
+
+
+def _pacific_mexico_region(lat: float, lon: float) -> Optional[str]:
+    """"mex_pacific" / "mex_baja" for a point AT Mexico's Pacific coast: a
+    point of that coast is within LANDFALL_NEAR_KM and no Gulf-side coastline
+    waypoint is nearer (the Bay of Campeche is 250 km from Salina Cruz).
+
+    Pacific Mexico had no scoring region: a fix there took the nearest
+    coastline waypoint's key, "mex_baja" (La Paz, up to 930 km away) or
+    "mex_veracruz" across the isthmus, neither of which had a profile, so it
+    was scored with a generic default built on US property values.
+    """
+    if not (8.0 <= lat <= 36.0 and -122.0 <= lon <= -88.0):
+        return None
+    best_d, best_key = float("inf"), None
+    for key, group in _pacific_mexico_groups():
+        for la, lo, _ in group:
+            d = _leg_km(lat, lon, la, lo)
+            if d < best_d:
+                best_d, best_key = d, key
+    if best_key is None or best_d > LANDFALL_NEAR_KM:
+        return None
+    if _lp is not None:
+        try:
+            info = _lp.compute_distance_to_coast(lat, lon)
+            if (info.get("nearest_region_key") not in ("open_ocean", "mex_baja")
+                    and info.get("distance_km", float("inf")) < best_d):
+                return None
+        except Exception:  # pragma: no cover
+            pass
+    return best_key
 
 
 def _leg_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
