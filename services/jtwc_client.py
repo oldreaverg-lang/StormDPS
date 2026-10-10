@@ -401,7 +401,9 @@ class JTWCClient:
         classification = _classify_by_wind(wind_kt) if wind_kt is not None else ""
 
         # Prefer a name pulled from the warning header if present, else RSS name.
-        header_name = _parse_header_name(text) or warning.get("name")
+        # The header must be THIS storm's (see _parse_header_name).
+        header_name = (_parse_header_name(text, _id_number(warning.get("id")))
+                       or warning.get("name"))
 
         movement_str = ""
         if mv_dir is not None and mv_spd is not None:
@@ -714,15 +716,32 @@ def _parse_movement(text: str) -> tuple[Optional[float], Optional[float]]:
     return (float(m.group(1)), float(m.group(2)))
 
 
-def _parse_header_name(text: str) -> Optional[str]:
-    """Pull the storm name from a bulletin header line if present."""
-    m = re.search(
-        r"(?:TYPHOON|SUPER\s+TYPHOON|TROPICAL\s+STORM|TROPICAL\s+DEPRESSION|"
-        r"TROPICAL\s+CYCLONE)\s+(\d{2}[WBAPS])\s*\(([A-Z]+)\)",
+def _id_number(storm_id) -> Optional[str]:
+    """'EP152026' -> '15' (the two-digit cyclone number inside our 8-char id)."""
+    sid = str(storm_id or "")
+    return sid[2:4] if len(sid) == 8 and sid[2:4].isdigit() else None
+
+
+def _parse_header_name(text: str, number: Optional[str] = None) -> Optional[str]:
+    """Pull the storm name from a bulletin header line if present.
+
+    `number` is the bulletin's own two-digit cyclone number. A bulletin can
+    name OTHER storms ("REFER TO TYPHOON 27W (KOGUMA) WARNINGS ..."), and the
+    old pattern accepted only W/B/A/P/S designators: for an E/C-Pacific storm
+    that crossed the dateline (15E Nolo, Oct 2026) it skipped the real header
+    "TROPICAL STORM 15E (NOLO)" and returned the cross-reference, so the live
+    list showed EP152026 as "KOGUMA" next to the real Koguma (WP272026).
+    With `number`, only that storm's header counts; None when it is absent
+    (the caller then falls back to the RSS name)."""
+    for m in re.finditer(
+        r"(?:TYPHOON|SUPER\s+TYPHOON|HURRICANE|TROPICAL\s+STORM|TROPICAL\s+DEPRESSION|"
+        r"TROPICAL\s+CYCLONE)\s+(\d{2})([WBAPSEC])\s*\(([A-Z][A-Z\-]*)\)",
         text,
         re.IGNORECASE,
-    )
-    return m.group(2).upper() if m else None
+    ):
+        if number is None or m.group(1) == number:
+            return m.group(3).upper()
+    return None
 
 
 def _classify_by_wind(kt: float) -> str:

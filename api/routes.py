@@ -1147,6 +1147,10 @@ def present_active_storms(storms: list) -> list:
                     name = desig
                 elif name.isupper():
                     name = name.title()
+            elif name.isupper() and str(s.get("source") or "").upper() == "JTWC":
+                # An E/C-Pacific storm that crossed the dateline keeps its EP/CP
+                # id but is warned on by JTWC, which upper-cases ("NOLO").
+                name = name.title()
             s["name"] = name or sid or s.get("name")
             lat, lon = _num(s.get("lat")), _num(s.get("lon"))
             try:
@@ -3580,8 +3584,22 @@ def _harmonized(catalog: list) -> list:
     the raw catalog."""
     try:
         from seo import _read_compiled_bundle
+        bundle = _read_compiled_bundle().get("storms", {})
         lookup = _dps_cache_scores()
-        lookup.update(_read_compiled_bundle().get("storms", {}))
+        # "Bundle wins on conflict" has to hold across id forms. The bundle
+        # keys Atlantic storms by ATCF id; a live-cache entry filed under the
+        # same storm's OTHER id (its IBTrACS SID) shares no key with it, so
+        # dict.update never displaced it, and the row lookup tries the row's
+        # own id first. Sally 2020: a cached live score under 2020256N25281
+        # (52.7 "Severe") put 53 in the sidebar while the storm page, which
+        # reads the bundle's AL192020, said 39 "Moderate" — the self-check's
+        # "catalog/hero score drift" from 2026-10. Drop cache entries for any
+        # storm the bundle already scores.
+        for key in list(lookup):
+            ident = _storm_identity(key)
+            if any(k and k in bundle for k in (key, ident.get("atcf"), ident.get("sid"))):
+                del lookup[key]
+        lookup.update(bundle)
         return _harmonize_catalog_rows(catalog, lookup)
     except Exception:
         logger.exception("[catalog] harmonize wrapper failed")
