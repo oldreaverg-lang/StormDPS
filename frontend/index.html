@@ -2931,6 +2931,37 @@ function computeForecastERS(forecastTrack, useNRI) {
 // Surface the forward-looking ERS on the Economic Risk card WITHOUT
 // overwriting the observed-to-date value — conflating "so far" with
 // "forecast" is the trap. Only shows when the forecast raises the risk.
+// LIVE storms: also score the newest OFFICIAL position. The card's value is
+// the peak over the track's fixes, and the best track runs up to ~6 h behind.
+// At Isaias's landfall (2026-10-10 00Z) the newest fix was 102 nm offshore,
+// just outside the 90 nm reach cap, so the card read "Not scored · no coast
+// in reach" with a 95 kt hurricane 45 miles from Pensacola; the advisory
+// position scores 24 "Moderate · Destin / Fort Walton". Shown when the card
+// is unscored or the live value is higher; labelled "now".
+function _applyLiveErs() {
+    try {
+        const cur = window._currentPosOverride, d = window.stormData || [];
+        if (!window._isActiveStorm || !cur || !d.length || cur.lat == null || cur.lon == null || !cur.max_wind_kt) return;
+        if (cur.id && window._currentStormId && String(cur.id).toUpperCase() !== String(window._currentStormId).toUpperCase()) return;
+        if (!(Date.parse(cur.valid_time_utc) > _utcDate(d[d.length - 1].timestamp).getTime())) return;
+        let r34 = 0;
+        for (let i = d.length - 1; i >= 0; i--) { if (d[i] && d[i].r34_nm) { r34 = d[i].r34_nm; break; } }
+        const e = calculateERS({ lat: cur.lat, lon: cur.lon, max_wind_ms: cur.max_wind_kt * 0.514444, r34_nm: r34 }, true);
+        if (!e || e.covered === false || !e.zone) return;
+        if (window._ersCardScored && !(e.score > (window._observedPeakErs || 0))) return;
+        document.getElementById('statPeakERS').textContent = e.score;
+        document.getElementById('statPeakERS').style.color = dpsTextColor(e.score);
+        document.getElementById('statERSLabel').textContent =
+            e.label + ' Risk' + (e.nriActive ? ' (NRI)' : '') + ' · ' + e.zone + ' · now';
+        setCardSeverity('ersCard', e.score);
+        const ctx = document.getElementById('ersContext');
+        if (ctx) ctx.textContent = getERSContext(e.score, true);
+        window._observedPeakErs = e.score;
+        window._ersCardScored = true;
+        displayForecastERS(window._lastFcErs);   // the forecast line only shows above the observed value
+    } catch (err) { console.warn('[ERS] live-position score failed:', err); }
+}
+
 function displayForecastERS(fcErs) {
     const el = document.getElementById('ersForecastLine');
     if (!el) return;
@@ -5374,6 +5405,8 @@ function renderAll(stormId,data){
         const _ersCard = document.getElementById('ersCard');
         if (_ersCard) _ersCard.className = _ersCard.className.replace(/\bsev-\w+/g, '').trim();
     }
+    window._ersCardScored = _ersScored;
+    if (window._lastFcErsSid !== stormId) window._lastFcErs = null;   // keep it across a same-storm re-render
 
     // Hero DPS — Destructive Power Score (0-100)
     // Use pre-compiled score if available; otherwise compute from DPS+IAS+ERS
@@ -5484,6 +5517,9 @@ function renderAll(stormId,data){
         }
     } catch (e) { /* must never break the rest of the render */ }
     updateScoreContexts(heroDPSExact, peakIasObj.score, peakErsObj.score, peakErsObj.covered);
+    // After the contexts are written (it rewrites the ERS one): a same-storm
+    // re-render must not drop the live-position score back to "not scored".
+    _applyLiveErs();
 
     // Storm title bar
     const stormYear = data[0] ? new Date(data[0].timestamp).getFullYear() : null;
@@ -6757,6 +6793,7 @@ function refreshCurrentPos(){
                 drawCurrentPosMarker(cur);
             }
             try { if (window.updateStormCard && window._lastCardSnap) window.updateStormCard(window._lastCardSnap); } catch(e) {}
+            _applyLiveErs();
         } else {
             window._currentPosOverride = null;
         }
@@ -7045,6 +7082,8 @@ function renderMap(data){
                 // (forward-looking; never overwrites observed-to-date ERS).
                 try {
                     const _fcErs = computeForecastERS(fc.forecast_track, true);
+                    window._lastFcErs = _fcErs;
+                    window._lastFcErsSid = sid;
                     displayForecastERS(_fcErs);
                     // Fish-storm banner de-escalation used the OBSERVED track
                     // only. If the forecast track reaches exposed coastline
