@@ -44,6 +44,7 @@ def compute_storm_dps(
     storm_name: str,
     storm_year: int,
     category_hint: Optional[int] = None,
+    landfall_hint: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Compute the canonical DPS bundle for a storm.
@@ -86,7 +87,8 @@ def compute_storm_dps(
 
     # 2. Cumulative DPI — peak + duration + breadth (no 100 cap; see cumulative_dpi.py v6)
     cum_result = compute_cumulative_dpi(
-        snapshots, storm_name=storm_name, storm_year=storm_year, basin=basin
+        snapshots, storm_name=storm_name, storm_year=storm_year, basin=basin,
+        landfall_hint=landfall_hint,
     )
 
     # 3. Landfall detection (needed for most downstream factors)

@@ -57,6 +57,8 @@ def test_scored_titles_match_basin_and_intensity():
 
 def test_known_titles():
     assert _title("2024244N09137").startswith("Typhoon Yagi (2024)")
-    assert _title("2025322S10131").startswith("Cyclone Fina (2025)")
+    # Southern Hemisphere storms carry their SEASON year (Fina formed in Nov
+    # 2025, season 2026, SH052026), as the catalog and the alias table do.
+    assert _title("2025322S10131").startswith("Cyclone Fina (2026)")
     assert _title("AL122005").startswith("Hurricane Katrina (2005)")
     assert "· Category 5 | StormDPS" in _title("AL122005")

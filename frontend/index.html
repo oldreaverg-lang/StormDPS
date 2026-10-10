@@ -1228,7 +1228,7 @@ async function ensureCompiledBundle(stormId, stormName, stormYear) {
 // Bundle cache version — bumped on every bake (by scripts/rebake.py) so the
 // versioned URL changes and the server can serve it immutably without ever
 // handing back a stale copy after a deploy. Keep in step with sw.js CACHE_NAME.
-const BUNDLE_VERSION = 16;
+const BUNDLE_VERSION = 17;
 async function loadPreloadBundle() {
     // Try multiple paths: Railway serves at /frontend/, GitHub Pages at relative path
     const pathDir = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1);
@@ -2135,9 +2135,9 @@ function _applyLandRain(lr) {
 // the tooltip — these are not similar tracks. Recognizable US landfalls
 // spanning the scale; scores are read from the compiled bundle at runtime so a
 // rebake can't leave them stale (an anchor with no compiled score is skipped).
-const SCALE_ANCHORS = ['AL062021','AL082021','AL062020','AL142021','AL052021',
-    'AL082020','AL192020','AL092020','AL172022','AL042024','AL062024','AL262020',
-    'AL102023','AL062018','AL092024','AL142018','AL092017','AL182012','AL092008','AL122005'];
+const SCALE_ANCHORS = ['AL062021','AL062020','AL082021','AL142021','AL052021',
+    'AL082020','AL192020','AL092020','AL172022','AL042024','AL062024','AL102023',
+    'AL262020','AL092024','AL062018','AL142018','AL092017','AL182012','AL092008','AL122005'];
 function _scaleAnchorChips(myStorm, score) {
     if (typeof score !== 'number' || !isFinite(score)) return '';
     const me = String(myStorm || '').toUpperCase();
@@ -2249,16 +2249,16 @@ const PRESETS=[
     {id:'AL112017',name:'Irma',year:2017,cat:5,dps:91,ias:0,ers:0},
     {id:'AL092022',name:'Ian',year:2022,cat:4,dps:91,ias:0,ers:0},
     {id:'AL052019',name:'Dorian',year:2019,cat:5,dps:90,ias:0,ers:0},
-    {id:'AL092008',name:'Ike',year:2008,cat:4,dps:89,ias:0,ers:0},
+    {id:'AL092008',name:'Ike',year:2008,cat:4,dps:87,ias:0,ers:0},
     {id:'AL182012',name:'Sandy',year:2012,cat:3,dps:87,ias:0,ers:0},
     {id:'AL152017',name:'Maria',year:2017,cat:5,dps:85,ias:0,ers:0},
     {id:'AL092017',name:'Harvey',year:2017,cat:4,dps:84,ias:0,ers:0},
+    {id:'AL142024',name:'Milton',year:2024,cat:5,dps:84,ias:0,ers:0},
     {id:'AL142018',name:'Michael',year:2018,cat:5,dps:82,ias:0,ers:0},
-    {id:'AL142024',name:'Milton',year:2024,cat:5,dps:81,ias:0,ers:0},
-    {id:'AL022024',name:'Beryl',year:2024,cat:5,dps:80,ias:0,ers:0},
-    {id:'AL092024',name:'Helene',year:2024,cat:4,dps:80,ias:0,ers:0},
-    {id:'AL062018',name:'Florence',year:2018,cat:4,dps:76,ias:0,ers:0},
-    {id:'AL102023',name:'Idalia',year:2023,cat:3,dps:69,ias:0,ers:0},
+    {id:'AL022024',name:'Beryl',year:2024,cat:5,dps:79,ias:0,ers:0},
+    {id:'AL062018',name:'Florence',year:2018,cat:4,dps:77,ias:0,ers:0},
+    {id:'AL092024',name:'Helene',year:2024,cat:4,dps:74,ias:0,ers:0},
+    {id:'AL102023',name:'Idalia',year:2023,cat:3,dps:60,ias:0,ers:0},
 ];
 
 function catColor(c){return['var(--td)','var(--cat1)','var(--cat2)','var(--cat3)','var(--cat4)','var(--cat5)'][c]||'var(--td)'}

@@ -200,7 +200,8 @@ def volume(tmp_path, monkeypatch):
 
 def test_places_are_real_towns_then_regions():
     assert routes._landfall_place(30.3, -87.1) == "Pensacola Beach, FL"      # Opal
-    assert routes._landfall_place(30.0, -83.7) == "FL Big Bend"              # no listed town in reach
+    assert routes._landfall_place(30.0, -83.7) == "Keaton Beach, FL"         # Helene
+    assert routes._landfall_place(29.0, -84.6) == "FL Big Bend"              # no listed town in reach
     assert routes._landfall_place(10.84, 125.68) == "Philippines"
     assert routes._landfall_place(30.0, -50.0) is None                       # the page shows coordinates
 

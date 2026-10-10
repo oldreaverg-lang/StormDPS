@@ -533,9 +533,223 @@ def _estimate_region_from_coords(lat: float, lon: float) -> Optional[str]:
     return None
 
 
-def compute_snapshot_dpi(snapshot: Dict) -> Tuple[float, DPIResult]:
+# ── The coast a fix is scored against ────────────────────────────────────────
+# A fix outside every coastal box used to take the profile of the NEAREST
+# coastline waypoint (land_proximity.get_nearest_region, 930 km reach), at
+# full strength. Isaias 2026 at 27.0N 87.6W was nearest a Louisiana waypoint
+# 317 km away: that fix scored with Louisiana's surge and economic profile
+# (68) on a track that came ashore at Fort Walton Beach, and three hours later,
+# when the nearest waypoint was the Panhandle's, the same storm scored 46. The
+# 68 was the storm's peak and set its DPS. Milton 2024 was scored against
+# Yucatan and then Cuba while crossing the Gulf to Tampa Bay.
+#
+# A fix far from any coast is now scored against the coast the storm is going
+# to reach: the first place on the track ahead of it, within the forecast
+# cone's length, that comes within LANDFALL_CONTACT_KM of the coast. For a
+# past track that is where the storm went; for a live storm the caller passes
+# the forecast landfall (the same test on the official forecast track).
+#
+# What does not change:
+#   - a fix inside a coastal box keeps that coast;
+#   - a fix within LANDFALL_NEAR_KM of a coast keeps the nearest-coast region
+#     (it is at that coast now, or has just crossed it);
+#   - WP / NI / SH fixes carry explicit regions and never reach the fallback;
+#   - a fix with no coast ahead of it keeps the nearest-waypoint region.
+LANDFALL_LOOKAHEAD_H = 120.0     # the forecast cone's length
+LANDFALL_CONTACT_KM = 50.0       # same reach as core.landfall_forecast.LANDFALL_KM
+LANDFALL_NEAR_KM = 150.0         # closer than this, the nearest coast is the storm's coast
+_CONTACT_STEP_KM = 20.0          # densify: a fast storm must not step over the coast
+_CONTACT_MAX_LEG_H = 24.0        # a longer gap is a hole in the record, not a leg
+_COAST_CELL_DEG = 2.0
+
+_coast_grid: Optional[Dict[Tuple[int, int], List[Tuple[float, float]]]] = None
+
+
+def _coast_cells() -> Dict[Tuple[int, int], List[Tuple[float, float]]]:
+    """Coast points bucketed on a 2 degree grid: the coastline waypoints plus
+    the US coastal towns. The waypoints alone are too sparse to see a landfall
+    (none within 110 km of Florida's Big Bend, or of Wilmington NC)."""
+    global _coast_grid
+    if _coast_grid is None:
+        pts: List[Tuple[float, float]] = []
+        try:
+            if _lp is not None:
+                pts += [(float(w.lat), float(w.lon)) for w in _lp._get_coastline_db().waypoints
+                        if w.region_key != "open_ocean"]
+        except Exception:  # pragma: no cover - fail soft to the old behaviour
+            pass
+        try:
+            from core.coastal_places import US_COASTAL_PLACES
+            pts += [(float(la), float(lo)) for la, lo, _ in US_COASTAL_PLACES]
+        except Exception:  # pragma: no cover
+            pass
+        grid: Dict[Tuple[int, int], List[Tuple[float, float]]] = {}
+        for la, lo in pts:
+            grid.setdefault((int(math.floor(la / _COAST_CELL_DEG)),
+                             int(math.floor(lo / _COAST_CELL_DEG))), []).append((la, lo))
+        _coast_grid = grid
+    return _coast_grid
+
+
+def _leg_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dl = math.radians(lon2 - lon1)
+    h = math.sin((p2 - p1) / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * 6371.0088 * math.asin(min(1.0, math.sqrt(h)))
+
+
+def _coast_km(lat: float, lon: float) -> float:
+    """Distance to the nearest coast point, or inf when none is within about
+    200 km (all the callers ask is "within 50" and "within 150")."""
+    grid = _coast_cells()
+    ci = int(math.floor(lat / _COAST_CELL_DEG))
+    cj = int(math.floor(lon / _COAST_CELL_DEG))
+    best = float("inf")
+    for di in (-1, 0, 1):
+        for dj in (-2, -1, 0, 1, 2):
+            for la, lo in grid.get((ci + di, cj + dj), ()):
+                d = _leg_km(lat, lon, la, lo)
+                if d < best:
+                    best = d
+    return best
+
+
+def _region_at(lat: float, lon: float) -> Optional[str]:
+    """The region a fix AT this point is scored against today: its coastal
+    box, else the nearest coastline waypoint's region."""
+    key = _estimate_region_from_coords(lat, lon)
+    if key is None:
+        try:
+            from core.storm_surge import estimate_region_from_coordinates
+            key = estimate_region_from_coordinates(lat, lon)
+        except Exception:  # pragma: no cover
+            key = None
+    return key if key and key != "open_ocean" else None
+
+
+def _track_samples(points: List[Tuple[datetime, float, float]]) -> List[Tuple[datetime, float, float]]:
+    """The track densified to about _CONTACT_STEP_KM between samples."""
+    out: List[Tuple[datetime, float, float]] = []
+    for (ta, la, lo), (tb, lb, lob) in zip(points, points[1:]):
+        out.append((ta, la, lo))
+        span_h = (tb - ta).total_seconds() / 3600.0
+        if span_h <= 0 or span_h > _CONTACT_MAX_LEG_H:
+            continue
+        dlon = ((lob - lo + 180.0) % 360.0) - 180.0
+        steps = int(math.ceil(_leg_km(la, lo, lb, lo + dlon) / _CONTACT_STEP_KM))
+        for k in range(1, steps):
+            f = k / steps
+            out.append((ta + (tb - ta) * f, la + (lb - la) * f, lo + dlon * f))
+    if points:
+        out.append(points[-1])
+    return out
+
+
+def coast_contacts(points: List[Tuple[datetime, float, float]]) -> List[Tuple[datetime, str]]:
+    """Each time the track comes within LANDFALL_CONTACT_KM of the coast:
+    (time, region) at its closest pass. Region is the one a fix at that spot
+    is scored against (_region_at)."""
+    out: List[Tuple[datetime, str]] = []
+    run: List[Tuple[float, datetime, float, float]] = []
+
+    def close_run():
+        if run:
+            _d, t, la, lo = min(run, key=lambda r: r[0])
+            key = _region_at(la, lo)
+            if key:
+                out.append((t, key))
+            run.clear()
+
+    for t, la, lo in _track_samples(points):
+        d = _coast_km(la, lo)
+        if d <= LANDFALL_CONTACT_KM:
+            run.append((d, t, la, lo))
+        else:
+            close_run()
+    close_run()
+    return out
+
+
+def forecast_landfall_hint(forecast_points: List[Dict]) -> Optional[Dict]:
+    """A live storm's forecast landfall as {"region_key", "time_utc"}: the
+    first coast contact on its official forecast track ({"timestamp", "lat",
+    "lon"} points). None when the forecast does not reach a coast."""
+    pts: List[Tuple[datetime, float, float]] = []
+    for p in forecast_points or []:
+        try:
+            pts.append((_parse_timestamp(str(p.get("timestamp") or "")), float(p["lat"]), float(p["lon"])))
+        except (KeyError, TypeError, ValueError):
+            continue
+    pts.sort(key=lambda p: p[0])
+    hits = coast_contacts(pts)
+    if not hits:
+        return None
+    t, key = hits[0]
+    return {"region_key": key, "time_utc": t.strftime("%Y-%m-%dT%H:%M:%S")}
+
+
+def landfall_regions(snapshots: List[Dict], landfall_hint: Optional[Dict] = None) -> List[Optional[str]]:
+    """For each snapshot, the region of the coast the storm reaches next, or
+    None where the snapshot keeps today's behaviour (see the block comment).
+
+    landfall_hint: {"region_key", "time_utc"} for a LIVE storm, its forecast
+    landfall (forecast_landfall_hint). It stands in for the part of the track
+    that has not happened yet; a contact the track has already made wins.
+    """
+    n = len(snapshots)
+    out: List[Optional[str]] = [None] * n
+    times: List[Optional[datetime]] = []
+    for s in snapshots:
+        try:
+            times.append(_parse_timestamp(s.get("timestamp", "")))
+        except ValueError:
+            times.append(None)
+    pts = [(t, float(s["lat"]), float(s["lon"])) for s, t in zip(snapshots, times) if t is not None]
+    if not pts:
+        return out
+    try:
+        contacts = coast_contacts(pts)
+    except Exception:  # pragma: no cover - never let the look-ahead break a score
+        logger.debug("landfall look-ahead failed; nearest-coast regions kept", exc_info=True)
+        return out
+
+    if landfall_hint:
+        try:
+            hint_key = str(landfall_hint.get("region_key") or "")
+            hint_t = _parse_timestamp(str(landfall_hint.get("time_utc") or ""))
+            # A forecast contact dated before the newest fix means "at the coast now".
+            if hint_key and hint_key != "open_ocean":
+                contacts.append((max(hint_t, pts[-1][0]), hint_key))
+        except ValueError:
+            pass
+    if not contacts:
+        return out
+    contacts.sort(key=lambda c: c[0])
+
+    j = 0
+    for i in range(n):
+        t = times[i]
+        if t is None:
+            continue
+        while j < len(contacts) and contacts[j][0] < t:
+            j += 1
+        if j >= len(contacts):
+            break
+        if (contacts[j][0] - t).total_seconds() > LANDFALL_LOOKAHEAD_H * 3600.0:
+            continue
+        if _coast_km(float(snapshots[i]["lat"]), float(snapshots[i]["lon"])) <= LANDFALL_NEAR_KM:
+            continue
+        out[i] = contacts[j][1]
+    return out
+
+
+def compute_snapshot_dpi(snapshot: Dict, landfall_region: Optional[str] = None) -> Tuple[float, DPIResult]:
     """
     Compute single-snapshot DPI from a preload bundle snapshot.
+
+    landfall_region: the coast the storm reaches next (landfall_regions). Used
+    only where the fix has no coast of its own, in place of the nearest
+    coastline waypoint.
 
     Returns: (dpi_score, full_result)
     """
@@ -546,6 +760,8 @@ def compute_snapshot_dpi(snapshot: Dict) -> Tuple[float, DPIResult]:
     lat = snapshot["lat"]
     lon = snapshot["lon"]
     region = _estimate_region_from_coords(lat, lon)
+    if region is None and landfall_region:
+        region = landfall_region
 
     # Extract quadrant data if available
     r34_quads = None
@@ -600,6 +816,7 @@ def compute_cumulative_dpi(
     storm_name: str = "Unknown",
     storm_year: int = 2024,
     basin: Optional[str] = None,
+    landfall_hint: Optional[Dict] = None,
 ) -> CumulativeDPIResult:
     """
     Compute cumulative DPI from a series of storm snapshots.
@@ -610,6 +827,8 @@ def compute_cumulative_dpi(
         storm_year: Year for era adjustments
         basin: Basin key (e.g. "ATLANTIC"); selects per-basin breadth/duration
             tuning (see _BASIN_CUM_TUNING). None → default tuning.
+        landfall_hint: {"region_key", "time_utc"} — a live storm's forecast
+            landfall (see landfall_regions). None for a finished track.
 
     Returns:
         CumulativeDPIResult with cumulative score and breakdown
@@ -629,8 +848,9 @@ def compute_cumulative_dpi(
 
     # Compute DPI for each snapshot
     dpi_series = []
-    for snap in snapshots:
-        dpi_val, result = compute_snapshot_dpi(snap)
+    _lf_regions = landfall_regions(snapshots, landfall_hint)
+    for snap, _lf_region in zip(snapshots, _lf_regions):
+        dpi_val, result = compute_snapshot_dpi(snap, _lf_region)
         ts = snap.get("timestamp", "")
         lat, lon = snap["lat"], snap["lon"]
         near_coast = _is_near_coast(lat, lon)

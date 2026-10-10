@@ -12,7 +12,7 @@ not move (that would change DPS and need a rebake), so display names come
 from this list instead: the nearest real town to the point being described.
 
 Coordinates are town centres to ~0.01 deg, each checked against
-OpenStreetMap's geocoder (2026-10-09). Coverage: Texas to Maine, Puerto Rico
+OpenStreetMap's geocoder (2026-10-09; Big Bend towns added 2026-10-10). Coverage: Texas to Maine, Puerto Rico
 and the US Virgin Islands. Elsewhere callers fall back to their own labels.
 
 Stdlib only.
@@ -77,7 +77,10 @@ US_COASTAL_PLACES: Tuple[Tuple[float, float, str], ...] = (
     (29.73, -84.98, "Apalachicola, FL"),
     (29.85, -84.66, "Carrabelle, FL"),
     (30.16, -84.21, "St. Marks, FL"),
+    (29.83, -83.59, "Keaton Beach, FL"),
     (29.67, -83.39, "Steinhatchee, FL"),
+    (29.44, -83.29, "Horseshoe Beach, FL"),
+    (29.33, -83.14, "Suwannee, FL"),
     (29.14, -83.04, "Cedar Key, FL"),
     # Florida west coast and Keys
     (28.90, -82.59, "Crystal River, FL"),

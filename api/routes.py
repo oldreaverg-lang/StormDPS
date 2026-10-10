@@ -497,7 +497,14 @@ _ACTIVE_TRACK_TTL_S = 5400  # 90 minutes
 #           with EP coefficients instead of falling through to the ATLANTIC
 #           default. Bump so any live storm whose mean track longitude sits in
 #           140°W–180° recomputes under the correct basin.
-_DPS_CACHE_VERSION = "v17-cp-basin"
+# v18-landfall-region (2026-10-10): a fix far from any coast is scored against
+#           the coast the storm reaches next (its landfall; the forecast
+#           landfall for a live storm) instead of the nearest coastline
+#           waypoint up to 930 km away. Isaias AL092026 peaked at 68 scored
+#           against Louisiana, 317 km off, on a track into Fort Walton Beach
+#           (core/cumulative_dpi.landfall_regions). Atlantic / E. Pacific
+#           storms that peaked nearest one coast and landed on another move.
+_DPS_CACHE_VERSION = "v18-landfall-region"
 
 # Cache for global IBTrACS catalog to avoid repeated large downloads/parses.
 # We also persist a json cache file so restarts can reuse the catalog quickly.
@@ -3738,7 +3745,7 @@ def _overlay_bundle_identity(payload: dict, storm_id: str) -> dict:
 # payload is scoring machinery and is not a landfall a reader would recognise.
 # ------------------------------------------------------------------
 _LANDFALL_CACHE_DIR = _PERSISTENT_DATA / "cache" / "landfall"
-_LANDFALL_CACHE_VERSION = 1
+_LANDFALL_CACHE_VERSION = 2            # v2: Big Bend towns added to the place list
 _LANDFALL_RECENT_TTL_S = 7 * 86400     # recent seasons are still being revised
 _LANDFALL_LIVE_TTL_S = 300
 _landfall_live_memo: dict = {}         # STORM_ID -> (monotonic time, payload)
@@ -3893,6 +3900,49 @@ async def get_storm_landfall(storm_id: str):
                             headers={"Cache-Control": "public, max-age=60"})
 
 
+# A LIVE storm's forecast landfall, for the scoring engine: the part of the
+# track that has not happened yet (core/cumulative_dpi.landfall_regions).
+# One forecast fetch per storm per 10 minutes; any failure means "no hint"
+# and the engine keeps its nearest-coast behaviour.
+_LANDFALL_HINT_TTL_S = 600
+_landfall_hint_memo: dict = {}         # STORM_ID -> (monotonic time, hint or None)
+
+
+async def _live_landfall_hint(storm_id: str) -> Optional[dict]:
+    key = (storm_id or "").upper()
+    # WP / NI / SH fixes carry explicit regions and never use the hint.
+    if len(key) != 8 or key[:2] not in ("AL", "EP", "CP"):
+        return None
+    row = next((r for r in (_active_storms_cache or [])
+                if str(r.get("id") or "").upper() == key), None)
+    if row is None:
+        return None
+    hit = _landfall_hint_memo.get(key)
+    if hit and (time.monotonic() - hit[0]) < _LANDFALL_HINT_TTL_S:
+        return hit[1]
+    hint = None
+    try:
+        from core.cumulative_dpi import forecast_landfall_hint
+        async with NOAAClient() as client:
+            fc = await asyncio.wait_for(client.get_forecast_track(storm_id), timeout=25)
+        pts = [{"timestamp": pt.get("valid_time_utc"), "lat": pt.get("lat"), "lon": pt.get("lon")}
+               for pt in (fc or {}).get("forecast_track") or [] if pt.get("valid_time_utc")]
+        # Start from the newest advisory position when it is ahead of the
+        # forecast's own first point (intermediate advisories).
+        t1 = _parse_ts_utc(row.get("last_update_utc"))
+        lat, lon = _num(row.get("lat")), _num(row.get("lon"))
+        if t1 and lat is not None and lon is not None:
+            pts = [{"timestamp": t1.isoformat(), "lat": lat, "lon": lon}] + [
+                pt for pt in pts if (_parse_ts_utc(pt["timestamp"]) or t1) > t1]
+        hint = forecast_landfall_hint(pts)
+    except Exception as e:
+        logger.info(f"[DPS] forecast landfall hint unavailable for {storm_id}: {e}")
+    if len(_landfall_hint_memo) > 64:
+        _landfall_hint_memo.clear()
+    _landfall_hint_memo[key] = (time.monotonic(), hint)
+    return hint
+
+
 @router.get("/storms/{storm_id}/dps")
 async def get_storm_dps(
     storm_id: str,
@@ -3979,12 +4029,14 @@ async def get_storm_dps(
 
     # 3) Compute via the unified engine (same code path as compile_cache.py)
     from core.dps_engine import compute_storm_dps
+    _lf_hint = await _live_landfall_hint(storm_id)
     try:
         bundle = compute_storm_dps(
             storm_id=storm_id,
             snapshots=engine_snaps,
             storm_name=storm_name,
             storm_year=int(derived_year),
+            landfall_hint=_lf_hint,
         )
     except Exception as e:
         logger.exception(f"[DPS] engine failed for {storm_id}: {e}")
@@ -4091,6 +4143,7 @@ async def _warm_one_dps(storm_id: str, *, force: bool = False) -> str:
         if 1840 <= _y <= datetime.now().year + 1:
             derived_year = _y
 
+    _lf_hint = await _live_landfall_hint(storm_id)
     try:
         from core.dps_engine import compute_storm_dps
         # compute_storm_dps is pure CPU (math-only, no I/O). Running it
@@ -4102,6 +4155,7 @@ async def _warm_one_dps(storm_id: str, *, force: bool = False) -> str:
             snapshots=engine_snaps,
             storm_name=_lookup_storm_name_from_catalog(storm_id) or storm_id,
             storm_year=int(derived_year),
+            landfall_hint=_lf_hint,
         )
     except Exception as e:
         logger.warning(f"[DPS WARM] engine failed for {storm_id}: {e}")
