@@ -70,7 +70,7 @@ from core.ike import (
     meters_to_nm,
 )
 from core.valuation import compute_valuation
-from core import recorded_damage, refresh_cadence
+from core import landfall_record, recorded_damage, refresh_cadence
 
 
 router = APIRouter()
@@ -3730,6 +3730,167 @@ def _overlay_bundle_identity(payload: dict, storm_id: str) -> dict:
     except Exception as e:
         logger.debug(f"[alias] overlay skipped for {storm_id}: {e}")
     return payload
+
+
+# ------------------------------------------------------------------
+# Landfall record: where, when and how hard a storm came ashore.
+# Display only (core/landfall_record.py); the `landfalls` list in the /dps
+# payload is scoring machinery and is not a landfall a reader would recognise.
+# ------------------------------------------------------------------
+_LANDFALL_CACHE_DIR = _PERSISTENT_DATA / "cache" / "landfall"
+_LANDFALL_CACHE_VERSION = 1
+_LANDFALL_RECENT_TTL_S = 7 * 86400     # recent seasons are still being revised
+_LANDFALL_LIVE_TTL_S = 300
+_landfall_live_memo: dict = {}         # STORM_ID -> (monotonic time, payload)
+
+
+def _landfall_place(lat: float, lon: float) -> Optional[str]:
+    """A real US coastal town within 45 km, else the coarse coastal region,
+    else None (the page then shows coordinates). Coastline-waypoint labels are
+    not used: outside the US town list they are unaudited."""
+    try:
+        from core.coastal_places import place_name
+        town = place_name(lat, lon)
+        if town:
+            return town
+    except Exception:
+        pass
+    try:
+        from compile_cache import COASTAL_REGIONS
+        for la0, la1, lo0, lo1, name in COASTAL_REGIONS:
+            if la0 <= lat <= la1 and lo0 <= lon <= lo1:
+                return name
+    except Exception:
+        pass
+    return None
+
+
+def _landfall_payload(storm_id: str, ident: dict, source: Optional[str], landfalls: list) -> dict:
+    for lf in landfalls:
+        lf["place"] = _landfall_place(lf["lat"], lf["lon"])
+    out = landfall_record.summary(source, landfalls)
+    out["storm_id"] = storm_id
+    out["name"] = ident.get("name")
+    out["year"] = _landfall_year(storm_id, ident)
+    return out
+
+
+def _landfall_year(storm_id: str, ident: dict) -> Optional[int]:
+    if ident.get("year"):
+        return int(ident["year"])
+    digits = storm_id[4:8] if len(storm_id) == 8 else storm_id[:4]
+    return int(digits) if digits.isdigit() else None
+
+
+def _landfall_from_ibtracs(storm_id: str, ident: dict) -> Optional[dict]:
+    """The landfall record from the IBTrACS CSVs already on the volume, or
+    None when the storm is in neither file (or no file is present)."""
+    sid = ident.get("sid") or (storm_id if landfall_record.SID_RE.match(storm_id) else None)
+    atcf = ident.get("atcf") or (storm_id if landfall_record.ATCF_RE.match(storm_id) else None)
+    if not sid and not atcf:
+        return None
+    year = _landfall_year(storm_id, ident)
+    names = ["ibtracs_all.csv"]
+    if year is None or year >= utcnow().year - 2:
+        names.insert(0, "ibtracs_recent.csv")      # smaller, and the fresher copy
+    for name in names:
+        path = _PERSISTENT_DATA / "cache" / name
+        if not path.exists():
+            continue
+        try:
+            rows = landfall_record.scan_ibtracs(path, sid=sid, atcf=None if sid else atcf)
+        except OSError as e:
+            logger.warning(f"[landfall] {name} unreadable: {e}")
+            continue
+        res = landfall_record.from_ibtracs(rows)
+        if res["source"]:
+            return _landfall_payload(storm_id, ident, res["source"], res["landfalls"])
+    return None
+
+
+def _landfall_estimate(storm_id: str, ident: dict) -> dict:
+    """A storm too recent for IBTrACS: estimate from the track we serve, plus
+    the newest advisory position when it is ahead of the last fix."""
+    rows = None
+    for sid in dict.fromkeys((storm_id, ident.get("atcf"), ident.get("sid"))):
+        rows = _load_ike_cache(sid, 15.0, 0) if sid else None
+        if rows:
+            break
+    points = landfall_record.points_from_track(rows or [])
+    try:
+        row = next((r for r in (_active_storms_cache or [])
+                    if str(r.get("id") or "").upper() == storm_id), None)
+        t1 = _parse_ts_utc((row or {}).get("last_update_utc"))
+        lat, lon = _num((row or {}).get("lat")), _num((row or {}).get("lon"))
+        if points and t1 and lat is not None and lon is not None and t1 > points[-1]["t"]:
+            points.append({"t": t1, "lat": lat, "lon": lon,
+                           "wind": _num(row.get("intensity_knots")) or points[-1]["wind"],
+                           "pres": _num(row.get("pressure_mb")) or points[-1]["pres"]})
+    except Exception as e:
+        logger.info(f"[landfall] advisory position skipped for {storm_id}: {e}")
+    if len(points) < 2:
+        return _landfall_payload(storm_id, ident, None, [])
+    from services.land_rain_client import all_places
+    return _landfall_payload(storm_id, ident, "estimate",
+                             landfall_record.estimate(points, all_places()))
+
+
+@router.get("/storms/{storm_id}/landfall")
+async def get_storm_landfall(storm_id: str):
+    """Where, when and how hard the storm came ashore: every landfall, with
+    the strongest called out. `source` says how it is known: "official" (the
+    agency's best-track landfall record), "crossing" (IBTrACS over-land flag),
+    "estimate" (a live storm: closest pass of the track to the coast) or null
+    (not known). Fail-open: an error yields source null, never a 500."""
+    key = _safe_storm_id(storm_id).upper()
+    try:
+        ident = dict(_storm_identity(key) or {})
+        if not ident.get("name"):
+            ident["name"] = next((str(r.get("name") or "") or None for r in (_active_storms_cache or [])
+                                  if str(r.get("id") or "").upper() == key), None)
+        year = _landfall_year(key, ident)
+        live = any(str(r.get("id") or "").upper() == key for r in (_active_storms_cache or []))
+        recent = year is not None and year >= utcnow().year - 1
+
+        if not live:
+            fp = _LANDFALL_CACHE_DIR / "{}_v{}.json".format(ident.get("sid") or key, _LANDFALL_CACHE_VERSION)
+            try:
+                fresh = (not recent) or (time.time() - fp.stat().st_mtime) < _LANDFALL_RECENT_TTL_S
+            except OSError:
+                fresh = False
+            cached = _cache_read(fp) if fresh else None
+            if isinstance(cached, dict):
+                return JSONResponse(content=cached, headers={"Cache-Control": "public, max-age=3600"})
+            payload = await asyncio.to_thread(_landfall_from_ibtracs, key, ident)
+            if payload is not None:
+                try:
+                    _LANDFALL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+                    _cache_write(fp, payload)
+                except Exception as e:
+                    logger.info(f"[landfall] cache write skipped for {key}: {e}")
+                return JSONResponse(content=payload, headers={"Cache-Control": "public, max-age=3600"})
+            if not recent:
+                # An archived storm we could not look up is "not known", never
+                # an estimate dressed as a record.
+                return JSONResponse(content=_landfall_payload(key, ident, None, []),
+                                    headers={"Cache-Control": "public, max-age=300"})
+
+        hit = _landfall_live_memo.get(key)
+        if hit and (time.monotonic() - hit[0]) < _LANDFALL_LIVE_TTL_S:
+            payload = hit[1]
+        else:
+            payload = await asyncio.to_thread(_landfall_estimate, key, ident)
+            if len(_landfall_live_memo) > 64:
+                _landfall_live_memo.clear()
+            _landfall_live_memo[key] = (time.monotonic(), payload)
+        return JSONResponse(content=payload, headers={"Cache-Control": "public, max-age=120"})
+    except HTTPException:
+        raise
+    except Exception:
+        logger.warning(f"[landfall] lookup failed for {key}", exc_info=True)
+        return JSONResponse(content={"storm_id": key, "source": None, "note": None, "count": 0,
+                                     "landfalls": [], "strongest": None},
+                            headers={"Cache-Control": "public, max-age=60"})
 
 
 @router.get("/storms/{storm_id}/dps")

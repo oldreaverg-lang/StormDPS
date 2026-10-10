@@ -71,6 +71,7 @@
         .vs-val.b { text-align:right; }
         .vs-val .win { font-weight:800; }
         .vs-val .sub { font-size:.75rem; color:var(--text-dim); font-weight:400; margin-left:.3rem; }
+        .vs-val .sub.blk { display:block; margin-left:0; }
         .dps-big { font-size:2.1rem; font-weight:800; line-height:1.1; }
         .dps-band { font-size:.8rem; font-weight:700; }
 
@@ -300,14 +301,83 @@
             return out + '.';
         }
 
+        // ── landfall ────────────────────────────────────────────────────
+        // Peak wind and minimum pressure are lifetime figures, often reached
+        // far out at sea (Opal 1995: 150 mph in the central Gulf, 115 mph at
+        // Pensacola Beach). These rows put the two storms side by side AT THE
+        // COAST, from /landfall: the agency's own landfall record where one
+        // exists (NHC), the best track's coast crossing otherwise, and a
+        // labelled estimate for a storm too recent to have either. Fetched
+        // after the scores are on screen (it never delays the page) and after
+        // /track (a live storm's estimate is made from the cached track).
+        async function fetchLandfall(id) {
+            try {
+                const r = await fetch(`${API}/storms/${encodeURIComponent(id)}/landfall`);
+                return r.ok ? await r.json() : { source: null };
+            } catch (e) { return { source: null }; }
+        }
+        const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const lfTop = (s) => (s.lf && s.lf.strongest) || null;
+        const lfEst = (s) => !!(s.lf && s.lf.source === 'estimate');
+        // Only an agency record is exact; a crossing or an estimate is "~".
+        const lfApprox = (t) => (t && t.kind !== 'official') ? '~' : '';
+        function lfWhen(iso) {
+            const d = new Date(iso);
+            if (isNaN(d)) return '';
+            const hh = String(d.getUTCHours()).padStart(2, '0'), mm = String(d.getUTCMinutes()).padStart(2, '0');
+            return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()} · ${hh}:${mm}Z`;
+        }
+        function lfPlace(t) {
+            if (t.place) return esc(t.place);
+            return `${Math.abs(t.lat).toFixed(1)}°${t.lat >= 0 ? 'N' : 'S'} ${Math.abs(t.lon).toFixed(1)}°${t.lon >= 0 ? 'E' : 'W'}`;
+        }
+        function lfWind(s) {
+            if (s.lf === undefined) return '…';
+            const t = lfTop(s);
+            return (t && t.wind_kt) ? `${lfApprox(t)}${t.wind_kt} kt<span class="sub">${Math.round(t.wind_kt * 1.15078)} mph</span>` : '—';
+        }
+        function lfPres(s) {
+            if (s.lf === undefined) return '…';
+            const t = lfTop(s);
+            return (t && t.pressure_mb) ? `${lfApprox(t)}${t.pressure_mb} mb` : '—';
+        }
+        function lfWhere(s) {
+            if (s.lf === undefined) return '…';
+            const t = lfTop(s);
+            if (!t) {
+                if (!s.lf || !s.lf.source) return '—';
+                return lfEst(s) ? 'None so far' : 'None on record';
+            }
+            const more = s.lf.count > 1 ? ` · strongest of ${s.lf.count}` : '';
+            return `${lfPlace(t)}<span class="sub blk">${lfApprox(t)}${lfWhen(t.time_utc)}${more}${lfEst(s) ? ' · estimate' : ''}</span>`;
+        }
+        // Hover text for the landfall rows: how each side is known, and every
+        // landfall when a storm made more than one.
+        function lfTip(A, B) {
+            return [A, B].map(S => {
+                const lf = S.s.lf;
+                if (!lf || !lf.source) return '';
+                let out = `${S.s.name}: ${lf.note || ''}`;
+                if (lf.count > 1) {
+                    out += ' All landfalls: ' + lf.landfalls.map(x =>
+                        `${(x.place || '').replace(/,.*/, '') || 'coast'} ${lfWhen(x.time_utc).replace(/ · .*/, '')} ${x.wind_kt || '?'} kt`).join('; ') + '.';
+                }
+                return out;
+            }).filter(Boolean).join(' ');
+        }
+
         // ── render ──────────────────────────────────────────────────────
         function renderScores(A, B) {
+            const _lfTip = lfTip(A, B);
             const rows = [
                 ['DPS', a => `<span class="dps-big" style="color:${bandColor(a.dpsExact)}">${a.dps}</span><div class="dps-band" style="color:${bandColor(a.dpsExact)}">${esc(a.label)}</div>`, s => s.dpsExact],
                 ...((A.s.parts && B.s.parts) ? PARTS.map(([k, label, , tip]) =>
                     [label, a => `${Math.round(a.parts[k])}<span class="sub">pts</span>`, s => Math.round(s.parts[k]), tip]) : []),
                 ['Peak wind', a => a.windKt ? `${a.windKt} kt<span class="sub">${Math.round(a.windKt * 1.15078)} mph</span>` : '—', s => s.windKt],
                 ['Min pressure', a => a.minP ? `${a.minP} mb` : '—', s => s.minP ? 1100 - s.minP : 0],
+                ['Landfall wind', lfWind, s => { const t = lfTop(s); return (t && t.wind_kt) || 0; }, _lfTip],
+                ['Landfall pressure', lfPres, s => { const t = lfTop(s); return (t && t.pressure_mb) ? 1100 - t.pressure_mb : 0; }, _lfTip],
+                ['Landfall', lfWhere, () => 0, _lfTip],
                 ['Peak IKE', a => a.ike ? `${a.ike.toFixed(0)} TJ` : '—', s => s.ike],
                 // (No Impact-Area / Economic-Risk rows: the raw /track API
                 // carries no per-point scores — the SPA computes those
@@ -426,6 +496,7 @@
 
         // ── orchestration ───────────────────────────────────────────────
         let busy = false;
+        let lfRun = 0;            // guards a slow landfall reply against a newer comparison
         async function compare() {
             if (busy) return;
             const ia = resolveId($('stormA').value), ib = resolveId($('stormB').value);
@@ -444,6 +515,12 @@
                 // own — every deep-link load would show a world-zoom map.
                 $('results').style.display = 'block';
                 renderScores(A, B); renderMap(A, B); renderChart(A, B);
+                const run = ++lfRun;
+                Promise.all([fetchLandfall(ia), fetchLandfall(ib)]).then(([la, lb]) => {
+                    if (run !== lfRun) return;
+                    A.s.lf = la; B.s.lf = lb;
+                    renderScores(A, B);
+                });
                 // Show names, not the raw IDs a deep link arrives with.
                 $('stormA').value = `${A.s.name} (${A.s.year}) — ${ia}`;
                 $('stormB').value = `${B.s.name} (${B.s.year}) — ${ib}`;
