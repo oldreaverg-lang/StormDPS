@@ -55,12 +55,24 @@ def all_places() -> List[Tuple[float, float, str]]:
     if _places_cache is not None:
         return _places_cache
     out: List[Tuple[float, float, str]] = []
+    # US Gulf/Atlantic coasts: real towns at their real coordinates. The
+    # coastline waypoints there carry labels tens of km from the town they
+    # name (their "Pensacola, FL" is near Niceville), so a rain total sampled
+    # at one was credited to the wrong town. Waypoints the town list already
+    # covers are skipped; elsewhere the waypoint lists are all we have.
+    try:
+        from core.coastal_places import US_COASTAL_PLACES, nearest_place
+        out += [(float(a), float(b), str(n)) for a, b, n in US_COASTAL_PLACES]
+    except Exception as e:  # pragma: no cover
+        logger.warning(f"[land_rain] coastal town list unavailable: {e}")
+        nearest_place = lambda *_a, **_k: None  # noqa: E731
     try:
         from core.land_proximity import _get_coastline_db
         db = _get_coastline_db()
         for attr in ("waypoints", "wp_waypoints", "sh_waypoints", "ni_waypoints"):
             for w in getattr(db, attr, None) or []:
-                if w.region_key != "open_ocean" and getattr(w, "name", None):
+                if w.region_key != "open_ocean" and getattr(w, "name", None) \
+                        and nearest_place(float(w.lat), float(w.lon), 45.0) is None:
                     out.append((float(w.lat), float(w.lon), str(w.name)))
     except Exception as e:  # pragma: no cover - degrade to the supplements
         logger.warning(f"[land_rain] coastline DB unavailable: {e}")

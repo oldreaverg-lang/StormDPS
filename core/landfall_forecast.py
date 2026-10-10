@@ -174,6 +174,81 @@ def _nearest_coastal_wp(lat, lon, coastal_wps):
     return best, best_d
 
 
+def _wp_display_name(wp):
+    """Display name for a coastline waypoint: the real town at its
+    coordinates where core.coastal_places covers the area (the waypoint's own
+    label is often a different town tens of km away — see that module),
+    else the label."""
+    if wp is None:
+        return None
+    try:
+        from core.coastal_places import place_name
+        return place_name(wp.lat, wp.lon, fallback=wp.name)
+    except Exception:  # pragma: no cover — naming must never break the estimate
+        return wp.name
+
+
+def _landfall_display_name(profile, eta_h, hit_wp):
+    """Name the landfall by the real town nearest the point where the track
+    passes closest to the coast point it is heading for. The "hit" sample is
+    up to LANDFALL_KM offshore, so naming from it (or from the waypoint's
+    label) can be a town or two off; the closest pass over the next few hours
+    is where the centre actually comes ashore."""
+    if hit_wp is None:
+        return None
+    try:
+        from core.coastal_places import place_name
+        ahead = [r for r in profile if eta_h <= r[0] <= eta_h + 8.0]
+        if ahead:
+            _h, lat, lon, _wk, _d, _wp = min(
+                ahead, key=lambda r: _haversine_nm(r[1], r[2], hit_wp.lat, hit_wp.lon))
+            name = place_name(lat, lon)
+            if name:
+                return name
+    except Exception:  # pragma: no cover
+        pass
+    return _wp_display_name(hit_wp)
+
+
+def anchor_track(forecast_track, cur_lat, cur_lon, hours_after_tau0, wind_kt=None):
+    """The forecast track restarted at a NEWER official position.
+
+    A full advisory's track starts at its valid time (tau0). NHC then issues
+    intermediate advisories with a fresh centre every 3 h (hourly near
+    landfall) but no new track. When that newer position has drifted off the
+    forecast line, landfall worked out from the old line is in the wrong
+    place: Isaias 2026 was at 30.1N 86.6W at 00Z, 30 km east of the 21Z line,
+    heading for Fort Walton Beach while the 21Z line crossed the coast near
+    Navarre. This drops the forecast points at or before the newer time and
+    starts from the current position; hours stay counted from tau0 so every
+    consumer's "hours from now" maths is unchanged.
+
+    Returns the original track when there is nothing newer to anchor on
+    (missing position, under 30 min or over 12 h after tau0, or no forecast
+    point left after it).
+    """
+    try:
+        h = float(hours_after_tau0)
+        la, lo = float(cur_lat), float(cur_lon)
+    except (TypeError, ValueError):
+        return forecast_track
+    pts = sorted((p for p in (forecast_track or [])
+                  if p.get("lat") is not None and p.get("lon") is not None),
+                 key=lambda p: float(p.get("hour") or 0))
+    later = [p for p in pts if float(p.get("hour") or 0) > h + 0.5]
+    if not (0.5 <= h <= 12.0) or not later:
+        return forecast_track
+    first = {"hour": round(h, 2), "lat": la, "lon": lo}
+    if wind_kt is not None:
+        first["max_wind_kt"] = wind_kt
+    else:
+        prev = [p for p in pts if float(p.get("hour") or 0) <= h]
+        w = (prev[-1] if prev else later[0]).get("max_wind_kt")
+        if w is not None:
+            first["max_wind_kt"] = w
+    return [first] + later
+
+
 def compute_forecast_landfall(forecast_track) -> dict:
     """Estimate the forecast landfall window from a forecast track.
 
@@ -245,7 +320,7 @@ def compute_forecast_landfall(forecast_track) -> dict:
     min_h, _min_lat, min_lon, _min_wk, min_d, min_wp = profile[min_i]
     base["min_distance_km"] = round(min_d, 1)
     base["closest_hour"] = round(min_h)
-    base["nearest_name"] = min_wp.name if min_wp else None
+    base["nearest_name"] = _wp_display_name(min_wp)
 
     # East-Pacific gap (see constants above): far from every known coastline
     # on the Pacific side means "no data", never "offshore".
@@ -284,7 +359,7 @@ def compute_forecast_landfall(forecast_track) -> dict:
         "window_start_hour": round(w_start),
         "window_end_hour": round(w_end),
         "lat": round(lat, 2), "lon": round(lon, 2),
-        "nearest_name": hit_wp.name if hit_wp else None,
+        "nearest_name": _landfall_display_name(profile, eta_h, hit_wp),
         "region_key": hit_wp.region_key if hit_wp else None,
         "wind_kt": round(wk) if wk is not None else None,
     })

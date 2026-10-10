@@ -3002,11 +3002,23 @@ function clearLandfallPanel() {
 // FLDATELBL and JTWC "Wed 07/09 18Z" strings ride the track points).
 function _nearestFixLabel(forecastTrack, hour) {
     try {
-        var best = null;
+        var best = null, base = NaN;
         (forecastTrack || []).forEach(function (p) {
-            if (!p || !p.time) return;
+            if (!p) return;
+            // Every fix carries its valid time; any one of them dates tau0.
+            if (isNaN(base) && p.valid_time_utc) base = Date.parse(p.valid_time_utc) - (p.hour || 0) * 3600e3;
+            if (!p.time) return;
             if (!best || Math.abs((p.hour || 0) - hour) < Math.abs((best.hour || 0) - hour)) best = p;
         });
+        // The time AT `hour`, not the nearest fix's: with fixes 9-12 h apart
+        // the old label could be 4+ h off (Isaias: "in ~2 h (~Sat Oct 10
+        // 06:00Z)" at 00:20Z). Same format as the fixes' own labels.
+        if (!isNaN(base) && isFinite(hour)) {
+            var d = new Date(base + Math.round(hour) * 3600e3);
+            var DAY = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'], MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+            return ' (~' + DAY[d.getUTCDay()] + ' ' + MON[d.getUTCMonth()] + ' ' + d.getUTCDate() + ' ' +
+                   String(d.getUTCHours()).padStart(2, '0') + ':00Z)';
+        }
         return (best && best.time) ? ' (~' + best.time + ')' : '';
     } catch (e) { return ''; }
 }
@@ -6744,6 +6756,7 @@ function refreshCurrentPos(){
             if(!prev || prev.lat !== cur.lat || prev.lon !== cur.lon || !window._currentPosMarker){
                 drawCurrentPosMarker(cur);
             }
+            try { if (window.updateStormCard && window._lastCardSnap) window.updateStormCard(window._lastCardSnap); } catch(e) {}
         } else {
             window._currentPosOverride = null;
         }
@@ -7451,6 +7464,26 @@ window.updateStormCard = function(snap) {
     // once ETA/stall data arrives, instead of waiting for a slider move.
     window._lastCardSnap = snap;
     card.style.display = 'block';
+
+    // LIVE storm with the timeline on its newest fix: show the newest
+    // ADVISORY's wind / pressure / motion (the snapshot the sidebar chip and
+    // the current-position marker already use). The best track runs up to
+    // ~6 h behind; at Isaias's landfall the card read "CAT 3 · 121 mph ·
+    // 959 mb" (the 18Z fix) while NHC had 110 mph / 967 mb. The DPS stays the
+    // fix's: it is scored per track fix. Scrubbing back shows each fix as is.
+    try {
+        const _all = window.stormData || [], _cur = window._currentPosOverride;
+        const _last = _all[_all.length - 1];
+        if (window._isActiveStorm && _cur && _last && snap.timestamp === _last.timestamp &&
+            Date.parse(_cur.valid_time_utc) > _utcDate(snap.timestamp).getTime()) {
+            snap = Object.assign({}, snap, {
+                max_wind_ms: _cur.max_wind_kt != null ? _cur.max_wind_kt * 0.514444 : snap.max_wind_ms,
+                min_pressure_hpa: _cur.min_pressure_mb != null ? _cur.min_pressure_mb : snap.min_pressure_hpa,
+                forward_speed_knots: _cur.movement_speed_kt != null ? _cur.movement_speed_kt : snap.forward_speed_knots,
+                forward_direction_deg: _cur.movement_dir_deg != null ? _cur.movement_dir_deg : snap.forward_direction_deg,
+            });
+        }
+    } catch (e) { /* fall back to the fix as is */ }
 
     // Storm name from the input (uppercased ID is fine fallback)
     const nameEl = document.getElementById('stormCardName');

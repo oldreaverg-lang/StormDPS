@@ -131,6 +131,14 @@ _TCM_PRES_RE = re.compile(r"MINIMUM CENTRAL PRESSURE\s+(\d{3,4})\s+MB")
 _TCM_HEADLINE_RE = re.compile(r"([A-Z][A-Z0-9 .\-]*?)\s+FORECAST/ADVISORY\s+NUMBER")
 
 
+def _mph_to_kt(v) -> Optional[float]:
+    """Statute mph -> knots, one decimal; None for a missing/odd value."""
+    try:
+        return round(float(v) / 1.15078, 1)
+    except (TypeError, ValueError):
+        return None
+
+
 def _tcm_storm_class(text: str) -> Optional[str]:
     """Short storm-type code from the TCM headline (HURRICANE HERNAN
     FORECAST/ADVISORY ...). Matches the short codes NHC's CurrentStorms feed
@@ -698,7 +706,10 @@ class NOAAClient:
                 "intensity_knots": feature.get("intensity"),
                 "pressure_mb": feature.get("pressure"),
                 "movement": feature.get("movement", ""),
-                "movement_speed_knots": feature.get("movementSpeed"),
+                # CurrentStorms.json gives forward speed in MPH (advisory 13A for
+                # Isaias 2026: "18 MPH" here, "15 KT" in the TCM). It was passed
+                # through as knots, so every NHC storm's motion read ~15% fast.
+                "movement_speed_knots": _mph_to_kt(feature.get("movementSpeed")),
                 "movement_direction_deg": feature.get("movementDir"),
                 # Advisory time of THIS position — intermediate advisories
                 # (3-hourly near land) move it ahead of the forecast's tau=0.

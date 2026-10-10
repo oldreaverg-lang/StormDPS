@@ -1634,9 +1634,29 @@ async def get_storm_forecast(request: Request, storm_id: str):
     # Fail-open: an estimator error must never drop the cone/track/stall data
     # this endpoint already serves.
     try:
-        from core.landfall_forecast import compute_forecast_landfall
-        forecast["landfall"] = compute_forecast_landfall(
-            forecast.get("forecast_track", []))
+        from core.landfall_forecast import anchor_track, compute_forecast_landfall
+        lf_track = forecast.get("forecast_track", [])
+        # Intermediate advisories move the centre without issuing a new track.
+        # When the live list holds a position newer than the track's tau0,
+        # restart the track there for the landfall estimate (the drawn track
+        # and cone stay the official ones). Isaias 2026-10-10 00Z: 30 km east
+        # of the 21Z line, i.e. Fort Walton Beach instead of Navarre.
+        anchored_utc = None
+        try:
+            row = next((r for r in (_active_storms_cache or [])
+                        if str(r.get("id") or "").lower() == storm_id.lower()), None)
+            t0 = _parse_ts_utc(forecast.get("valid_time_utc"))
+            t1 = _parse_ts_utc((row or {}).get("last_update_utc"))
+            if row and t0 and t1:
+                anchored = anchor_track(lf_track, _num(row.get("lat")), _num(row.get("lon")),
+                                        (t1 - t0).total_seconds() / 3600.0,
+                                        _num(row.get("intensity_knots")))
+                if anchored is not lf_track:
+                    lf_track, anchored_utc = anchored, t1.isoformat()
+        except Exception as e:
+            logger.info(f"[forecast] landfall anchor skipped for {storm_id}: {e}")
+        forecast["landfall"] = compute_forecast_landfall(lf_track)
+        forecast["landfall"]["anchored_utc"] = anchored_utc
     except Exception as e:
         logger.warning(f"[forecast] landfall estimate failed for {storm_id}: {e}")
         forecast["landfall"] = {"expected": False, "coverage": True, "description": ""}
