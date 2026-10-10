@@ -70,6 +70,7 @@ from core.ike import (
     meters_to_nm,
 )
 from core.valuation import compute_valuation
+from core import refresh_cadence
 
 
 router = APIRouter()
@@ -588,8 +589,8 @@ async def _swr_refresh_track(storm_id: str, grid_resolution_km: float, skip_poin
         _track_swr_inflight.discard(key)
 
 
-def _ike_cache_key(storm_id: str, grid_res_km: float, skip: int) -> str:
-    """Generate cache filename for a storm+params combo.
+def _ike_cache_name(storm_id: str, grid_res_km: float, skip: int) -> str:
+    """Cache filename for one exact spelling of a storm id.
 
     storm_id is sanitized to [A-Za-z0-9_-] before being used in the
     filename so probe traffic / malformed IDs don't accumulate as oddly-
@@ -601,6 +602,48 @@ def _ike_cache_key(storm_id: str, grid_res_km: float, skip: int) -> str:
     raw = f"{safe_sid}_{grid_res_km}_{skip}_{_IKE_CACHE_VERSION}"
     h = hashlib.md5(raw.encode()).hexdigest()[:8]
     return f"{safe_sid}_{h}.json"
+
+
+def _ike_cache_key(storm_id: str, grid_res_km: float, skip: int) -> str:
+    """The CANONICAL cache filename: the id upper-cased.
+
+    The filename used to follow the caller's capitalisation, so a live storm
+    had two entries: the refresh loop wrote the feed spelling ("al092026")
+    while the storm page read "AL092026", each on its own clock. During
+    Isaias's landfall the score series carried a new best-track fix 20-30
+    minutes before the map did. Same bug, same fix as the DPS cache
+    (_dps_cache_path)."""
+    return _ike_cache_name((storm_id or "").upper(), grid_res_km, skip)
+
+
+def _ike_cache_file(storm_id: str, grid_res_km: float, skip: int) -> Path:
+    """The entry to READ: the canonical file, or a legacy twin (the spelling
+    asked for, or the feed's lower case) while that one is still the newer.
+    Writes always go to the canonical file, so a twin is only ever read until
+    the first save after the changeover, and storms that only have a legacy
+    file are not all recomputed on the first request after the deploy."""
+    canon = _IKE_CACHE_DIR / _ike_cache_key(storm_id, grid_res_km, skip)
+    best, best_m = canon, -1.0
+    sid = storm_id or ""
+    # Plain names, not Paths: WindowsPath equality ignores case.
+    names = [canon.name]
+    for spelling in (sid, sid.lower()):
+        name = _ike_cache_name(spelling, grid_res_km, skip)
+        if name not in names:
+            names.append(name)
+    for name in names:
+        fp = _IKE_CACHE_DIR / name
+        try:
+            m = fp.stat().st_mtime
+        except OSError:
+            continue
+        if m > best_m:
+            best, best_m = fp, m
+    return best
+
+
+def _ike_cache_id_matches(data: dict, storm_id: str) -> bool:
+    return str(data.get("_storm_id") or "").upper() == (storm_id or "").upper()
 
 
 # Track sources that are NOT observed history. "jtwc" is the warning-bulletin
@@ -617,11 +660,11 @@ def _load_ike_cache_entry(storm_id: str, grid_res_km: float, skip: int) -> dict 
     observed track over a fresh synthesized one, so the usual TTL must not
     apply here.
     """
-    path = _IKE_CACHE_DIR / _ike_cache_key(storm_id, grid_res_km, skip)
+    path = _ike_cache_file(storm_id, grid_res_km, skip)
     data = _cache_read(path)
     if not isinstance(data, dict):
         return None
-    if data.get("_version") != _IKE_CACHE_VERSION or data.get("_storm_id") != storm_id:
+    if data.get("_version") != _IKE_CACHE_VERSION or not _ike_cache_id_matches(data, storm_id):
         return None
     return data
 
@@ -634,7 +677,7 @@ def _load_ike_cache(storm_id: str, grid_res_km: float, skip: int,
     as a miss so the next advisory is picked up. None = no age limit (immutable
     historical storms).
     """
-    path = _IKE_CACHE_DIR / _ike_cache_key(storm_id, grid_res_km, skip)
+    path = _ike_cache_file(storm_id, grid_res_km, skip)
     if max_age_s is not None:
         try:
             if (time.time() - path.stat().st_mtime) > max_age_s:
@@ -644,7 +687,7 @@ def _load_ike_cache(storm_id: str, grid_res_km: float, skip: int,
     data = _cache_read(path)
     if not isinstance(data, dict):
         return None
-    if data.get("_version") != _IKE_CACHE_VERSION or data.get("_storm_id") != storm_id:
+    if data.get("_version") != _IKE_CACHE_VERSION or not _ike_cache_id_matches(data, storm_id):
         return None
     return data.get("results")
 
@@ -1254,7 +1297,7 @@ async def list_active_storms(request: Request, response: Response):
 # track cache, live DPS bundle) plus one forecast fetch per storm, so a build
 # costs ~2 NHC/JTWC requests per storm — cached here for _OVERVIEW_TTL_S and
 # served stale-while-revalidate, never rebuilt per page view.
-_OVERVIEW_TTL_S = 300.0
+_OVERVIEW_TTL_S = 120.0   # was 300: the homepage map trailed a landfalling storm
 _OVERVIEW_STORM_TIMEOUT_S = 15.0
 _overview_cache: dict = {"t": 0.0, "payload": None}
 _overview_lock = asyncio.Lock()
@@ -3116,8 +3159,8 @@ async def get_storm_track(
             # b-deck is retried once per TTL instead of once per viewer, while
             # _cached_at in the payload still reports the data's true age.
             try:
-                (_IKE_CACHE_DIR / _ike_cache_key(
-                    storm_id, grid_resolution_km, skip_points)).touch()
+                # The file that was just read (canonical, or a legacy twin).
+                _ike_cache_file(storm_id, grid_resolution_km, skip_points).touch()
             except OSError:
                 pass
             return JSONResponse(content=_prior["results"], headers={
@@ -4017,43 +4060,83 @@ async def warm_current_season_dps(app_state=None, *, regenerate_view: bool = Tru
     return {"targets": len(ids), **stats}
 
 
-async def refresh_active_dps_loop(app_state, interval_seconds: int = 3600):
+def _coast_distance_km(lat: float, lon: float) -> Optional[float]:
+    """Distance from a storm centre to the nearest coastline point: the shared
+    waypoint DB (Atlantic, Gulf, Caribbean, WP, NI, SH) plus the Pacific
+    coasts it lacks. The same point set as _stall_near_land."""
+    from core.land_proximity import _get_coastline_db
+    points = [(w.lat, w.lon) for w in _get_coastline_db().waypoints
+              if w.region_key != "open_ocean"]
+    points.extend((la, lo) for la, lo, _ in _STALL_PACIFIC_COAST)
+    return min((_haversine_km((lat, lon), p) for p in points), default=None)
+
+
+async def refresh_active_dps_loop(app_state, interval_seconds: int = 3600,
+                                  fast_interval_seconds: int = refresh_cadence.FAST_INTERVAL_S):
     """
-    Periodically recompute DPS for currently-active storms so hero-card values
-    stay fresh as a live system intensifies. Runs forever until the task is
-    cancelled on shutdown. `force=True` because active-storm tracks change
-    each advisory cycle.
+    Periodically recompute the track + DPS for currently-active storms so the
+    hero card, the score series and the map stay current as a live system
+    evolves. Runs forever until the task is cancelled on shutdown.
+    `force=True` because active-storm tracks change each advisory cycle.
+
+    Two cadences (core/refresh_cadence.py): every active storm on the full
+    pass (`interval_seconds`), and storms NEAR LAND every
+    `fast_interval_seconds` in between. On the hourly pass alone a new
+    best-track fix at Isaias's landfall could take over an hour to reach the
+    score and the map.
     """
+    tick = max(60, min(interval_seconds, fast_interval_seconds))
+    last_full = time.monotonic()        # the startup warm was the first full pass
     while True:
         try:
-            await asyncio.sleep(interval_seconds)
+            await asyncio.sleep(tick)
             active_ids = await _collect_active_storm_ids(app_state)
-            if active_ids:
+            full = refresh_cadence.full_pass_due(
+                time.monotonic(), last_full, interval_seconds, tick)
+            if full:
+                targets = active_ids
+            else:
+                try:
+                    _near = set(refresh_cadence.fast_lane_ids(
+                        _active_storms_cache or [], _coast_distance_km))
+                except Exception:
+                    logger.warning("[DPS WARM] fast-lane selection failed", exc_info=True)
+                    _near = set()
+                targets = [sid for sid in active_ids if sid in _near]
+            if targets:
                 sem = asyncio.Semaphore(2)
 
                 async def _one(sid: str):
                     async with sem:
                         await _warm_one_dps(sid, force=True)
 
-                with memtrace.span("hourly:active_dps"):
-                    await asyncio.gather(*[_one(sid) for sid in active_ids], return_exceptions=True)
-                logger.info(f"[DPS WARM] hourly active refresh: {len(active_ids)} storms")
+                with memtrace.span("hourly:active_dps" if full else "fast:active_dps"):
+                    await asyncio.gather(*[_one(sid) for sid in targets], return_exceptions=True)
+                logger.info(
+                    f"[DPS WARM] {'hourly' if full else 'fast-lane'} active refresh: "
+                    f"{len(targets)} of {len(active_ids)} storms")
 
-            # Warm the REST of the current season (dissipated-but-unbaked
-            # storms) so a just-ended system picks up its canonical score
-            # instead of lingering as a crude estimate / bare category. Cheap
-            # after the first pass (force=False → cached no-op); also
-            # regenerates the harmonized sidebar view.
-            try:
-                await warm_current_season_dps(app_state)
-            except Exception:
-                logger.warning("[DPS WARM] current-season warm failed (non-fatal)",
-                               exc_info=True)
+            if full:
+                last_full = time.monotonic()
+                # Warm the REST of the current season (dissipated-but-unbaked
+                # storms) so a just-ended system picks up its canonical score
+                # instead of lingering as a crude estimate / bare category. Cheap
+                # after the first pass (force=False → cached no-op); also
+                # regenerates the harmonized sidebar view.
+                try:
+                    await warm_current_season_dps(app_state)
+                except Exception:
+                    logger.warning("[DPS WARM] current-season warm failed (non-fatal)",
+                                   exc_info=True)
             # Heartbeat even with zero active storms — an empty result is a healthy
             # iteration, not a dead loop (read by /health/selfcheck).
             _h = getattr(app_state, "health", None)
             if isinstance(_h, dict):
-                _h["active_dps"] = {"last_ok": time.time(), "detail": f"{len(active_ids)} active"}
+                _h["active_dps"] = {
+                    "last_ok": time.time(),
+                    "detail": f"{len(active_ids)} active, {len(targets)} refreshed"
+                              f" ({'full' if full else 'fast lane'})",
+                }
         except asyncio.CancelledError:
             logger.info("[DPS WARM] refresh loop cancelled")
             raise

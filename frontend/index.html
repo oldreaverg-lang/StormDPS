@@ -3325,11 +3325,26 @@ function applyStallRiskToIAS(data, stallRisk) {
     // This is the key innovation: current forward speed might be 12 kt
     // (no rainfall risk), but if the forecast shows it slowing to 3 kt
     // in 24 hours, the IAS should reflect that FUTURE stall risk NOW.
-    if(!stallRisk || stallRisk.risk_score <= 0) return;
-
-    const stallBoost = stallRisk.risk_score / 100; // 0→1 scale
-
+    //
+    // Idempotent: the forecast is re-fetched while a live storm's page is open
+    // (_refreshLiveForecast), and the blend below moves rainfall TOWARD the
+    // forecast value, so a second pass would boost again. Every call starts
+    // from the un-boosted values, and a forecast that drops the stall risk
+    // takes the boost back off.
+    let _restored = false;
     data.forEach(d => {
+        if(!d.ias || !d.ias._preStall) return;
+        Object.assign(d.ias, d.ias._preStall);
+        delete d.ias._preStall;
+        d.ias._stallBoosted = false;
+        _restored = true;
+    });
+    const _stallActive = !!(stallRisk && stallRisk.risk_score > 0);
+    if(!_stallActive && !_restored) return;
+
+    const stallBoost = _stallActive ? stallRisk.risk_score / 100 : 0; // 0→1 scale
+
+    if(_stallActive) data.forEach(d => {
         if(!d.ias) return;
 
         // Compute what the rainfall component WOULD be at the forecast min speed
@@ -3361,6 +3376,7 @@ function applyStallRiskToIAS(data, stallRisk) {
         const newScore = Math.min(100, Math.round(rawScore));
 
         if(newScore > d.ias.score) {
+            d.ias._preStall = { score: d.ias.score, rainfallThreat: d.ias.rainfallThreat, label: d.ias.label, color: d.ias.color };
             d.ias.score = newScore;
             d.ias.rainfallThreat = boostedRainfall;
             d.ias._stallBoosted = true;
@@ -4105,6 +4121,7 @@ function loadActiveStorm(id){
 
 let _activeRetryPending=false;
 async function fetchActiveStorms(){
+    window._activeFetchAt = Date.now();
     try{
         const controller=new AbortController();
         const timeout=setTimeout(()=>controller.abort(),8000); // 8s — deploy restarts + slow mobile links overran the old 3s
@@ -4424,7 +4441,37 @@ function openStormFromOverview(id){
     loadActiveStorm(id);
 }
 
-function startActiveStormPolling(intervalMs=300000){ // 5 minutes
+// How often an open page re-reads the live feeds. The server refreshes the
+// active list every 2 min and the forecast products on every request; at the
+// old 5 min poll (and a forecast fetched once per page load) a tab left open
+// through Isaias's landfall trailed the advisories.
+const ACTIVE_POLL_MS = 120000;        // /storms/active: position, intensity, motion
+const FORECAST_REFRESH_MS = 300000;   // /forecast: cone, landfall, rain, stall
+
+// Hidden tabs do not poll; coming back to one catches up at once.
+function _pollActiveStorms(){ if (!document.hidden) fetchActiveStorms(); }
+
+// Re-fetch the forecast for the live storm on screen. The handler lives in
+// renderMap (it draws on that map); it leaves the page alone when the
+// forecast has not changed.
+function _refreshLiveForecast(){
+    const h = window._forecastRefresh;
+    if (document.hidden || !h || !window._isActiveStorm || !currentMap || _fetchInFlight) return;
+    if (h.sid !== window._forecastFetchedSid) return;
+    if (String(window._currentStormId || '').toUpperCase() !== h.sid) return;
+    if (!_storyIsOpen()) return;
+    window._forecastRefreshAt = Date.now();
+    h.run();
+}
+
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return;
+    const now = Date.now();
+    if (now - (window._activeFetchAt || 0) > ACTIVE_POLL_MS) fetchActiveStorms();
+    if (now - (window._forecastRefreshAt || 0) > FORECAST_REFRESH_MS) _refreshLiveForecast();
+});
+
+function startActiveStormPolling(intervalMs=ACTIVE_POLL_MS){
     // Server-injected hint (main.py serve_frontend): render + auto-load the
     // live storm IMMEDIATELY instead of serializing behind the ~560 ms
     // /storms/active fetch. Measured: the /track fetch (the gate on the map
@@ -4441,7 +4488,8 @@ function startActiveStormPolling(intervalMs=300000){ // 5 minutes
         }
     } catch (e) { console.warn('[HINT] active-storm bootstrap failed:', e); }
     _homeDefer(fetchActiveStorms);                   // the hint already drew the list
-    activeStormsPollTimer=setInterval(fetchActiveStorms,intervalMs);
+    activeStormsPollTimer=setInterval(_pollActiveStorms,intervalMs);
+    setInterval(_refreshLiveForecast, FORECAST_REFRESH_MS);
 }
 
 // DOM-ready helper. The previous version waited for defer'd external
@@ -4457,7 +4505,7 @@ function _onDomReady(cb) {
         // Wrap so the DOMContentLoaded event object isn't passed as cb's
         // first argument. Without this, `cb(event)` runs on fire, which
         // breaks anything that takes a meaningful first param —
-        // e.g. startActiveStormPolling(intervalMs=300000) saw the event
+        // e.g. startActiveStormPolling(intervalMs=ACTIVE_POLL_MS) saw the event
         // as its intervalMs, setInterval(fn, eventObject) coerced to 0ms,
         // and fetchActiveStorms hammered the API thousands of times/sec.
         document.addEventListener('DOMContentLoaded', () => cb(), { once: true });
@@ -7077,12 +7125,20 @@ function renderMap(data){
             // can't leave a stale override behind (defense-in-depth; renderActiveStorms
             // also gates the override on _currentStormId).
             window._currentPosOverride = null;
-            fetch(`${API_BASE}/storms/${sid}/forecast`).then(r=>r.ok?r.json():null).then(fc=>{
+            window._forecastSig = null;
+            // isRefresh: the periodic re-fetch (_refreshLiveForecast). It
+            // redraws only when the forecast changed, and never moves the map.
+            const _loadForecast = (isRefresh) => fetch(`${API_BASE}/storms/${sid}/forecast`).then(r=>r.ok?r.json():null).then(fc=>{
                 if(!fc||!currentMap)return;
                 // Staleness guard: a slow response for storm A resolving after
                 // a switch to storm B must not paint A's cone/stall/landfall
                 // panel over B. _forecastFetchedSid tracks the CURRENT storm.
                 if(window._forecastFetchedSid !== sid)return;
+                let _sig = null;
+                // (fetched_at_utc is the request time: it differs on every response.)
+                try { _sig = JSON.stringify(Object.assign({}, fc, { fetched_at_utc: null })); } catch(e) {}
+                if(isRefresh && _sig && _sig === window._forecastSig) return;
+                window._forecastSig = _sig;
                 window._forecastValidUtc = fc.valid_time_utc || null;  // forecast age for ERS line / tooltips
 
                 // ── Freshest current position ──────────────────────────────
@@ -7151,17 +7207,21 @@ function renderMap(data){
                 // never drop the cone/track drawing below.
                 try { renderLandfallPanel(fc, sid); } catch(e) { console.warn('[FORECAST] landfall panel failed:', e); }
 
+                // The forecast layers live in one group so a refresh can
+                // replace them (a new advisory moves the cone and the points).
+                try { if(window._forecastLayers) window._forecastLayers.remove(); } catch(e) {}
+                const _fcLayers = window._forecastLayers = L.layerGroup().addTo(currentMap);
                 // Draw forecast cone
                 if(fc.cone_polygon&&fc.cone_polygon.length>2){
                     L.polygon(fc.cone_polygon,{
                         color:'rgba(255,255,255,.25)',weight:1,fillColor:'rgba(255,255,255,.06)',fillOpacity:1,
                         dashArray:'4 4',interactive:false
-                    }).addTo(currentMap);
+                    }).addTo(_fcLayers);
                 }
                 // Draw forecast track line
                 if(fc.forecast_track&&fc.forecast_track.length>1){
                     const pts=fc.forecast_track.map(p=>[p.lat,p.lon]);
-                    L.polyline(pts,{color:'#fff',weight:2,opacity:.5,dashArray:'8 4',interactive:false}).addTo(currentMap);
+                    L.polyline(pts,{color:'#fff',weight:2,opacity:.5,dashArray:'8 4',interactive:false}).addTo(_fcLayers);
 
                     // Color-code forecast segments by stall risk speed
                     if(fc.stall_risk && fc.stall_risk.segments && fc.stall_risk.segments.length > 0) {
@@ -7171,7 +7231,7 @@ function renderMap(data){
                             const segColor = seg.speed_kt < 5 ? '#ef4444' : seg.speed_kt < 8 ? '#f97316' : seg.speed_kt < 12 ? '#fbbf24' : 'rgba(255,255,255,.4)';
                             L.polyline([pts[si], pts[si+1]], {
                                 color: segColor, weight: 4, opacity: .8, interactive: false
-                            }).addTo(currentMap);
+                            }).addTo(_fcLayers);
                         }
                     }
 
@@ -7181,7 +7241,7 @@ function renderMap(data){
                         const col=intensityColor(p.max_wind_kt);
                         const m=L.circleMarker([p.lat,p.lon],{
                             radius:5,fillColor:col,color:'rgba(255,255,255,.5)',weight:1.5,fillOpacity:.6
-                        }).addTo(currentMap);
+                        }).addTo(_fcLayers);
                         const label=`${p.time||('+'+(p.hour||0)+'h')}`;
                         // Mobile: permanent labels stack unreadably when late-track
                         // fixes cluster (12h spacing ≈ a few px at phone zoom) —
@@ -7189,11 +7249,19 @@ function renderMap(data){
                         m.bindTooltip(label,{permanent:window.innerWidth>900,direction:'right',offset:L.point(8,0),
                             className:'forecast-label'});
                     });
-                    // Extend map bounds to include forecast
-                    const allPts=data.map(d=>[d.lat,d.lon]).concat(pts);
-                    currentMap.fitBounds(allPts,{padding:[40,40]});
+                    // Extend map bounds to include forecast (first load only:
+                    // a refresh must not move a map the reader has panned).
+                    if(!isRefresh){
+                        const allPts=data.map(d=>[d.lat,d.lon]).concat(pts);
+                        currentMap.fitBounds(allPts,{padding:[40,40]});
+                    }
                 }
-            }).catch(()=>{ window._forecastFetchedSid = null; });
+                // Redrawn layers land on top; keep the current position above them.
+                try { if(isRefresh && window._currentPosMarker) window._currentPosMarker.bringToFront(); } catch(e) {}
+            }).catch(()=>{ if(!isRefresh) window._forecastFetchedSid = null; });
+            window._forecastRefresh = { sid: sid, run: () => _loadForecast(true) };
+            window._forecastRefreshAt = Date.now();
+            _loadForecast(false);
         }
         // (Previously cleared window._isActiveStorm here — that was a bug
         // that broke any post-render code path checking the active flag,

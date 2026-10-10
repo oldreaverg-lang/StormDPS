@@ -35,7 +35,8 @@ OPEN_METEO = "https://api.open-meteo.com/v1/forecast"
 _HEADERS = {"User-Agent": "StormDPS/1.0 (https://stormdps.com)", "Accept": "application/geo+json"}
 
 _NHC_BASINS = ("AL", "EP", "CP")
-_TTL_S = 30 * 60              # advisories: 3-6 h; NWS grids: ~hourly
+_TTL_S = 10 * 60              # advisories: 3-6 h; NWS grids: ~hourly. Was 30 min:
+                              # a new advisory's rainfall statement took too long to show
 _FAIL_TTL_S = 5 * 60
 _BUILD_TIMEOUT_S = 25.0
 _MAX_NWS_POINTS = 6
