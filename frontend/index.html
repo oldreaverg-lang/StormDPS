@@ -6313,14 +6313,44 @@ function _blendSnapshot(d1, d2, fr) {
     return o;
 }
 
+// For a LIVE storm the timeline's newest stop is "now": the newest ADVISORY's
+// position, intensity, pressure and motion on top of the newest track fix's
+// structure (wind radii, RMW). The best track runs up to ~6 h behind, and at
+// Isaias's landfall the wind field sat at the 18Z fix, 180 km south of the
+// current-position marker labelled 00Z. Rendering only: stormData is never
+// modified, so nothing here reaches scoring or the per-fix charts. Returns
+// null for every other stop, for historical storms, and when the advisory is
+// not newer than the fix.
+function _liveFrame(idx) {
+    try {
+        const d = window.stormData || [], cur = window._currentPosOverride;
+        if (!window._isActiveStorm || !cur || !d.length || idx !== d.length - 1) return null;
+        if (cur.lat == null || cur.lon == null) return null;
+        if (cur.id && window._currentStormId && String(cur.id).toUpperCase() !== String(window._currentStormId).toUpperCase()) return null;
+        const last = d[idx];
+        if (!(Date.parse(cur.valid_time_utc) > _utcDate(last.timestamp).getTime())) return null;
+        return Object.assign({}, last, {
+            lat: cur.lat, lon: cur.lon,
+            max_wind_ms: cur.max_wind_kt != null ? cur.max_wind_kt * 0.514444 : last.max_wind_ms,
+            min_pressure_hpa: cur.min_pressure_mb != null ? cur.min_pressure_mb : last.min_pressure_hpa,
+            forward_speed_knots: cur.movement_speed_kt != null ? cur.movement_speed_kt : last.forward_speed_knots,
+            forward_direction_deg: cur.movement_dir_deg != null ? cur.movement_dir_deg : last.forward_direction_deg,
+            _liveTime: cur.valid_time_utc,
+            _liveStamp: [cur.valid_time_utc, cur.lat, cur.lon, cur.max_wind_kt, cur.min_pressure_mb].join('|'),
+        });
+    } catch (e) { return null; }
+}
+
 function _windfieldImageFor(idx) {
     const st = window._windfieldState;
     if (!st.cache) st.cache = new Map();
-    if (st.cache.has(idx)) return st.cache.get(idx);
+    const live = _liveFrame(idx);
+    const key = live ? 'L' + live._liveStamp : idx;
+    if (st.cache.has(key)) return st.cache.get(key);
     const sd = window.stormData;
     if (!sd || idx < 0 || idx >= sd.length) return null;
-    const img = computeWindFieldImage(sd[idx], currentMap);
-    st.cache.set(idx, img);  // cache null too — don't recompute a known-null frame
+    const img = computeWindFieldImage(live || sd[idx], currentMap);
+    st.cache.set(key, img);  // cache null too — don't recompute a known-null frame
     return img;
 }
 
@@ -6386,7 +6416,8 @@ function _windfieldDraw(bi, ni, fr, latOff, lonOff) {
     if (qs < 0) qs = 0; else if (qs > S) qs = S;
     // Frame key = (segment start) or (segment + sub-step). The SHAPE only changes
     // when this key changes; POSITION glides every tick regardless.
-    const fkey = (qs <= 0) ? ('i' + bi) : (bi + ':' + qs);
+    const _lv = (qs <= 0) ? _liveFrame(bi) : null;
+    const fkey = _lv ? ('L' + _lv._liveStamp) : (qs <= 0) ? ('i' + bi) : (bi + ':' + qs);
     // Same frame (or its replacement still decoding): only slide the current
     // overlay's bounds by the interpolated center offset. No canvas recompute.
     if ((fkey === st.currentKey || fkey === st._pendingKey) && st.overlay && st._baseBounds) {
@@ -6600,10 +6631,12 @@ function _computeWindUVPayload(dp) {
 function _windUVPayloadFor(idx) {
     const st = window._windDirState;
     if (!st.cache) st.cache = new Map();
-    if (st.cache.has(idx)) return st.cache.get(idx);
+    const live = _liveFrame(idx);            // newest stop of a live storm = "now"
+    const key = live ? 'L' + live._liveStamp : idx;
+    if (st.cache.has(key)) return st.cache.get(key);
     const sd = window.stormData;
-    const p = (sd && idx >= 0 && idx < sd.length) ? _computeWindUVPayload(sd[idx]) : null;
-    st.cache.set(idx, p);
+    const p = (sd && idx >= 0 && idx < sd.length) ? _computeWindUVPayload(live || sd[idx]) : null;
+    st.cache.set(key, p);
     return p;
 }
 
@@ -6687,7 +6720,8 @@ window.setWindDirFrameByIdx = function (bi, ni, fr) {
     if (qs < 0) qs = 0; else if (qs > S) qs = S;
     // Recompute the flow field only when the quantized frame changes — the field
     // shape is unchanged between sub-steps, so skip the setData/rebuild otherwise.
-    const fkey = (qs <= 0) ? ('i' + bi) : (bi + ':' + qs);
+    const _lv = (qs <= 0) ? _liveFrame(bi) : null;
+    const fkey = _lv ? ('L' + _lv._liveStamp) : (qs <= 0) ? ('i' + bi) : (bi + ':' + qs);
     if (fkey === st.currentKey) return;
     st.currentKey = fkey;
     _windDirDraw(bi, ni, qs);
@@ -6794,6 +6828,10 @@ function refreshCurrentPos(){
             }
             try { if (window.updateStormCard && window._lastCardSnap) window.updateStormCard(window._lastCardSnap); } catch(e) {}
             _applyLiveErs();
+            try {
+                const _n = (window.stormData || []).length;
+                if (_n && !window.animationFrameId && window.lastSyncIndex === _n - 1) syncVisualization(_n - 1, true);
+            } catch(e) { console.warn('[CURRENT-POS] live-frame redraw failed:', e); }
         } else {
             window._currentPosOverride = null;
         }
@@ -7209,10 +7247,11 @@ function _updateScrubFill(){
 
 function updateScrubDisplay(i){
     const d=window.stormData;if(!d||!d[i])return;
-    const ts=_utcDate(d[i].timestamp);
+    const _live=_liveFrame(i);
+    const ts=_live?new Date(Date.parse(_live._liveTime)):_utcDate(d[i].timestamp);
     // Fixes are UTC and the label says "Z" — local getters shifted it by the
     // viewer's offset (Polo's 12:00Z first fix read "05:00Z" on Pacific time).
-    document.getElementById('scrubTime').textContent=ts.toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'UTC'})+' '+String(ts.getUTCHours()).padStart(2,'0')+':00Z';
+    document.getElementById('scrubTime').textContent=ts.toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'UTC'})+' '+String(ts.getUTCHours()).padStart(2,'0')+':'+String(ts.getUTCMinutes()).padStart(2,'0')+'Z'+(_live?' · latest advisory':'');
 }
 
 window.animationFrameId=null;window.animStartTime=null;window.animDurationMs=1000;window.currentAnimIndex=0;window.lastSyncIndex=-1;
@@ -7271,8 +7310,13 @@ function syncVisualization(fi,snap){
     // a traverse that never happened — hold at the last real fix instead, then
     // jump when the index rolls over (mirrors the dashed gap leg on the map).
     if(trackLegGapHours(d1,d2)>GAP_LEG_HOURS) fr=0;
-    const lat=d1.lat+(d2.lat-d1.lat)*fr;
-    const lon=d1.lon+(d2.lon-d1.lon)*fr;
+    // Newest stop of a LIVE storm: the frame is the newest advisory (see
+    // _liveFrame), so the centre is its position and the wind-field offset is
+    // measured from it (the image is already centred there).
+    const _live=(fr===0)?_liveFrame(bi):null;
+    const _base=_live||d1;
+    const lat=_live?_live.lat:d1.lat+(d2.lat-d1.lat)*fr;
+    const lon=_live?_live.lon:d1.lon+(d2.lon-d1.lon)*fr;
 
     if(bi!==window.lastSyncIndex||snap){
         window.lastSyncIndex=bi;
@@ -7326,7 +7370,7 @@ function syncVisualization(fi,snap){
     // so this smooths EVERY storm (historical included) with zero score impact.
     if (window._windfieldState && window._windfieldState.enabled
         && typeof window.setWindfieldFrameByIdx === 'function') {
-        window.setWindfieldFrameByIdx(bi, ni, fr, lat - d1.lat, lon - d1.lon);
+        window.setWindfieldFrameByIdx(bi, ni, fr, lat - _base.lat, lon - _base.lon);
     }
     if (window._windDirState && window._windDirState.enabled
         && typeof window.setWindDirFrameByIdx === 'function') {
