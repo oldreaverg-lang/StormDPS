@@ -509,7 +509,11 @@ _ACTIVE_TRACK_TTL_S = 5400  # 90 minutes
 #           took a waypoint key with no profile and was scored with a generic
 #           default built on US property values (Simon EP202026). Every East
 #           Pacific storm near Mexico recomputes.
-_DPS_CACHE_VERSION = "v19-mex-pacific"
+# v20-isthmus-basin (2026-10-10): the Atlantic / East Pacific line follows the
+#           isthmus instead of 100W (compile_cache.ISTHMUS_DIVIDE). East
+#           Pacific storms that live east of 100W (Otis 2023, Agatha 2022)
+#           were scored as ATLANTIC and must recompute.
+_DPS_CACHE_VERSION = "v20-isthmus-basin"
 
 # Cache for global IBTrACS catalog to avoid repeated large downloads/parses.
 # We also persist a json cache file so restarts can reuse the catalog quickly.

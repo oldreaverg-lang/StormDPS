@@ -229,6 +229,46 @@ BASIN_COEFFICIENTS = {
 }
 
 
+# Between 100W and 77W the Atlantic and the East Pacific share longitudes: the
+# Gulf of Tehuantepec lies due south of the Bay of Campeche, and Acapulco is at
+# 99.9W. A fixed 100W line therefore filed every East Pacific storm that lives
+# east of it as ATLANTIC: Otis 2023, the costliest East Pacific hurricane on
+# record, was scored with Atlantic tuning and without the East Pacific
+# rapid-intensification bonus or the Mexico multiplier (67, against 81 for
+# Lidia, a comparable storm 600 km up the coast that cost a hundredth as much).
+#
+# The line now follows the land: (longitude, latitude of the divide) from the
+# head of the Gulf of California down the isthmus to Panama, about a degree
+# inland of the Pacific coast (farther inland north of Guerrero, where there
+# is no Atlantic water to confuse it with). A point south of it is on the
+# Pacific side; Monterrey, Chihuahua and Texas are not. Mirrored in the page's
+# detectBasin (frontend/index.html, frontend/basin_dps_coefficients.js); keep
+# the three tables identical (tests/test_basin_isthmus.py compares them).
+ISTHMUS_DIVIDE = ((-115.0, 33.0), (-100.0, 20.0), (-98.0, 19.0), (-96.5, 17.6), (-95.0, 17.1), (-94.0, 17.2),
+    (-92.0, 16.3), (-90.5, 15.3), (-89.0, 14.4), (-87.5, 14.0), (-86.0, 12.8),
+    (-85.0, 11.6), (-84.0, 10.6), (-83.0, 9.7), (-82.0, 8.7), (-81.0, 8.45),
+    (-80.0, 8.75), (-79.5, 9.2), (-78.5, 9.0), (-77.0, 8.0),
+)
+
+
+def on_pacific_side(lat, lon):
+    """True for a Northern Hemisphere point on the Pacific side of Mexico or
+    Central America (see ISTHMUS_DIVIDE). West of 115W it is all Pacific;
+    east of 77W there is none."""
+    if lon > 180:
+        lon -= 360
+    if lon < -180:
+        lon += 360
+    if not (0 <= lat <= 35) or lon > ISTHMUS_DIVIDE[-1][0]:
+        return False
+    if lon < ISTHMUS_DIVIDE[0][0]:
+        return True
+    for (lo0, la0), (lo1, la1) in zip(ISTHMUS_DIVIDE, ISTHMUS_DIVIDE[1:]):
+        if lo0 <= lon <= lo1:
+            return lat < la0 + (la1 - la0) * (lon - lo0) / (lo1 - lo0)
+    return False
+
+
 def detect_basin(snapshots):
     """
     Detect basin from storm snapshots by analyzing lat/lon distribution.
@@ -253,6 +293,15 @@ def detect_basin(snapshots):
         norm_lon = norm_lon - 360
     if norm_lon < -180:
         norm_lon = norm_lon + 360
+
+    # Where the two oceans share longitudes, the storm belongs to the side of
+    # the isthmus it spent most of its fixes on (a crossover such as Julia
+    # 2022 stays with the ocean it lived in). Outside 100W-77W nothing changes.
+    if -100 <= norm_lon <= -77 and 0 <= mean_lat <= 35:
+        sides = [on_pacific_side(s["lat"], s["lon"]) for s in snapshots
+                 if "lat" in s and "lon" in s]
+        if sides and 2 * sum(sides) > len(sides):
+            return "EASTERN_PACIFIC"
 
     # Basin classification (using geographic boundaries)
     # Atlantic: 10°W–100°W, 0°–60°N

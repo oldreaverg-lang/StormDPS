@@ -80,11 +80,33 @@ const BASIN_COEFFICIENTS = {
  * - South Indian: 20°E to 120°E, -40° to 0°
  * - South Pacific: 120°E to 120°W, -50° to 0°
  */
+// The Atlantic / East Pacific line follows the isthmus, not 100W (Acapulco is
+// at 99.9W): [longitude, latitude of the divide], about a degree inland of the
+// Pacific coast. Mirrors compile_cache.ISTHMUS_DIVIDE / on_pacific_side and
+// the inline copy in index.html.
+const ISTHMUS_DIVIDE = [[-115,33],[-100,20],[-98,19],[-96.5,17.6],[-95,17.1],[-94,17.2],[-92,16.3],[-90.5,15.3],[-89,14.4],[-87.5,14],[-86,12.8],[-85,11.6],[-84,10.6],[-83,9.7],[-82,8.7],[-81,8.45],[-80,8.75],[-79.5,9.2],[-78.5,9],[-77,8]];
+
+function onPacificSide(lat, n) {
+    const d = ISTHMUS_DIVIDE;
+    if (lat < 0 || lat > 35 || n > d[d.length - 1][0]) return false;
+    if (n < d[0][0]) return true;
+    for (let i = 0; i < d.length - 1; i++) {
+        const a = d[i], b = d[i + 1];
+        if (n >= a[0] && n <= b[0]) return lat < a[1] + (b[1] - a[1]) * (n - a[0]) / (b[0] - a[0]);
+    }
+    return false;
+}
+
 function detectBasin(lat, lon) {
     // Normalize longitude to -180 to 180
     let normLon = lon;
     if (lon > 180) normLon = lon - 360;
     if (lon < -180) normLon = lon + 360;
+
+    // East Pacific storms east of 100W (Gulf of Tehuantepec, Acapulco)
+    if (normLon >= -100 && normLon <= -77 && onPacificSide(lat, normLon)) {
+        return "EASTERN_PACIFIC";
+    }
 
     // Atlantic Basin (includes Gulf/Caribbean)
     if (normLon >= -100 && normLon <= -10 && lat >= 0 && lat <= 60) {
@@ -187,6 +209,7 @@ function getBasinInfo(basin) {
 window.BasinDPS = {
     COEFFICIENTS: BASIN_COEFFICIENTS,
     detectBasin,
+    onPacificSide,
     applyBasinDPS,
     getBasinInfo
 };
