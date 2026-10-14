@@ -6,7 +6,9 @@ coastline waypoint DB. No network.
 from core.landfall_forecast import (
     CONE_ERR_NM,
     LANDFALL_KM,
+    _point_in_polygon,
     compute_forecast_landfall,
+    cone_reaches_coast,
     interp_err_nm,
 )
 
@@ -216,3 +218,32 @@ def test_interp_err_nm_matches_table_and_interpolates():
         assert interp_err_nm(h) == v
     assert interp_err_nm(18) == (CONE_ERR_NM[12] + CONE_ERR_NM[24]) / 2
     assert interp_err_nm(999) == CONE_ERR_NM[120]
+
+
+# ── a center line offshore is not "no landfall" (Trudy EP212026, 2026-10-14) ──
+
+TRUDY = [_pt(0, 11.9, -100.0, 55), _pt(9, 12.5, -100.8, 70), _pt(21, 13.2, -101.4, 80),
+         _pt(33, 14.0, -101.7, 95), _pt(45, 14.9, -102.0, 110), _pt(57, 15.8, -102.5, 115),
+         _pt(69, 16.9, -103.3, 110), _pt(93, 18.8, -105.3, 90), _pt(117, 19.4, -107.2, 65)]
+
+# NHC's cone for advisory 6, thinned to every 24th vertex.
+TRUDY_CONE = [[11.63, -100.01], [12.0, -99.75], [12.36, -100.1], [12.71, -100.43], [13.15, -100.7], [13.68, -100.84], [14.29, -100.92], [14.89, -101.01], [15.44, -101.15], [15.95, -101.33], [16.44, -101.53], [16.93, -101.74], [17.37, -101.99], [17.79, -102.26], [18.21, -102.53], [18.62, -102.81], [19.03, -103.11], [19.41, -103.4], [19.78, -103.72], [20.13, -104.06], [20.46, -104.45], [20.74, -104.84], [21.0, -105.28], [21.24, -105.73], [21.49, -106.18], [21.65, -106.7], [21.7, -107.35], [21.59, -107.93], [21.39, -108.42], [21.1, -108.84], [20.74, -109.18], [20.32, -109.44], [19.78, -109.6], [19.14, -109.62], [18.6, -109.47], [18.15, -109.23], [17.77, -108.9], [17.47, -108.51], [17.24, -108.03], [17.12, -107.47], [17.11, -106.83], [17.15, -106.17], [16.98, -105.66], [16.7, -105.26], [16.41, -104.86], [16.11, -104.46], [15.82, -104.07], [15.47, -103.72], [15.11, -103.39], [14.75, -103.08], [14.35, -102.78], [13.88, -102.56], [13.43, -102.31], [13.01, -102.05], [12.64, -101.72], [12.34, -101.33], [12.07, -100.91], [11.83, -100.46]]
+
+
+def test_closest_approach_carries_the_forecast_intensity():
+    lf = compute_forecast_landfall(TRUDY)
+    assert lf["expected"] is False
+    assert 60 < lf["min_distance_km"] < 100 and 85 <= lf["closest_hour"] <= 100
+    assert 85 <= lf["closest_wind_kt"] <= 100          # NHC: 90 kt at 96 h
+
+
+def test_the_cone_over_the_coast_is_recognised():
+    assert cone_reaches_coast(TRUDY_CONE)
+    assert not cone_reaches_coast([[la, lo - 8.0] for la, lo in TRUDY_CONE])   # out at sea
+    assert not cone_reaches_coast([]) and not cone_reaches_coast([[1, 2], [3, 4]])
+
+
+def test_point_in_polygon():
+    square = [[0, 0], [0, 10], [10, 10], [10, 0]]
+    assert _point_in_polygon(5, 5, square)
+    assert not _point_in_polygon(15, 5, square) and not _point_in_polygon(5, -1, square)

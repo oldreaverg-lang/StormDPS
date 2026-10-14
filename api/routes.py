@@ -1693,7 +1693,7 @@ async def get_storm_forecast(request: Request, storm_id: str):
     # Fail-open: an estimator error must never drop the cone/track/stall data
     # this endpoint already serves.
     try:
-        from core.landfall_forecast import anchor_track, compute_forecast_landfall
+        from core.landfall_forecast import anchor_track, compute_forecast_landfall, cone_reaches_coast
         lf_track = forecast.get("forecast_track", [])
         # Intermediate advisories move the centre without issuing a new track.
         # When the live list holds a position newer than the track's tau0,
@@ -1716,6 +1716,12 @@ async def get_storm_forecast(request: Request, storm_id: str):
             logger.info(f"[forecast] landfall anchor skipped for {storm_id}: {e}")
         forecast["landfall"] = compute_forecast_landfall(lf_track)
         forecast["landfall"]["anchored_utc"] = anchored_utc
+        try:
+            forecast["landfall"]["cone_reaches_coast"] = (
+                not forecast["landfall"].get("expected")
+                and cone_reaches_coast(forecast.get("cone_polygon")))
+        except Exception as e:
+            logger.info(f"[forecast] cone/coast test skipped for {storm_id}: {e}")
     except Exception as e:
         logger.warning(f"[forecast] landfall estimate failed for {storm_id}: {e}")
         forecast["landfall"] = {"expected": False, "coverage": True, "description": ""}
@@ -1838,6 +1844,44 @@ _HARVEY_STALL_HOURS = 48.0
 from core.pacific_coast import PACIFIC_COAST_POINTS as _STALL_PACIFIC_COAST  # noqa: E402
 
 
+_STALL_COAST_POINTS: Optional[list] = None
+
+
+def _stall_coast_points() -> list:
+    """The coastline points _stall_near_land measures against, built once."""
+    global _STALL_COAST_POINTS
+    if _STALL_COAST_POINTS is None:
+        try:
+            from core.land_proximity import _get_coastline_db
+            pts = [(w.lat, w.lon) for w in _get_coastline_db().waypoints
+                   if w.region_key != "open_ocean"]
+        except Exception:
+            pts = []
+        pts.extend((la, lo) for la, lo, _ in _STALL_PACIFIC_COAST)
+        # The US coastal towns: the waypoints alone have nothing within ~110 km
+        # of Cameron, Louisiana, so a stall on the Sabine coast read as offshore.
+        try:
+            from core.coastal_places import US_COASTAL_PLACES
+            pts.extend((la, lo) for la, lo, _ in US_COASTAL_PLACES)
+        except Exception:
+            pass
+        _STALL_COAST_POINTS = pts
+    return _STALL_COAST_POINTS
+
+
+def _near_land_fraction(a: tuple, b: tuple, step_km: float = 20.0) -> float:
+    """Share of the leg a -> b ((lat, lon) pairs) within _STALL_NEAR_LAND_KM of a
+    coast, sampled every ~step_km including both ends."""
+    import math
+    n = max(2, int(math.ceil(_haversine_km(a, b) / step_km)) + 1)
+    hits = 0
+    for i in range(n):
+        f = i / (n - 1)
+        if _stall_near_land(a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f):
+            hits += 1
+    return hits / n
+
+
 def _stall_near_land(lat: float, lon: float) -> bool:
     """True if a forecast point is within _STALL_NEAR_LAND_KM of a coastline.
 
@@ -1846,14 +1890,8 @@ def _stall_near_land(lat: float, lon: float) -> bool:
     point is within _STALL_COAST_DATA_KM the region has no coastline data, so
     defer to the legacy coastal-box test rather than silently calling it ocean.
     """
-    try:
-        from core.land_proximity import _get_coastline_db
-        points = [(w.lat, w.lon) for w in _get_coastline_db().waypoints
-                  if w.region_key != "open_ocean"]
-    except Exception:
-        points = []
-    points.extend((la, lo) for la, lo, _ in _STALL_PACIFIC_COAST)
-    nearest = min((_haversine_km((lat, lon), p) for p in points), default=float("inf"))
+    nearest = min((_haversine_km((lat, lon), p) for p in _stall_coast_points()),
+                  default=float("inf"))
     if nearest <= _STALL_COAST_DATA_KM:
         return nearest <= _STALL_NEAR_LAND_KM
     from core.cumulative_dpi import _is_near_coast
@@ -1910,6 +1948,7 @@ def _compute_stall_risk(forecast_track: list[dict]) -> dict:
         return 2 * R_nm * math.asin(math.sqrt(a))
 
     segments = []
+    legs = []           # ((lat1, lon1), (lat2, lon2)) per segment, same order
     speeds = []
     slow_hours = 0
     stall_hours = 0
@@ -1937,6 +1976,7 @@ def _compute_stall_risk(forecast_track: list[dict]) -> dict:
             "lat": lat2,
             "lon": lon2,
         })
+        legs.append(((lat1, lon1), (lat2, lon2)))
         speeds.append(speed_kt)
 
         if speed_kt < 8:
@@ -1950,25 +1990,48 @@ def _compute_stall_risk(forecast_track: list[dict]) -> dict:
     min_speed = min(speeds)
     mean_speed = sum(speeds) / len(speeds)
 
-    # ── Risk Scoring ──
-    # Combines: minimum forecast speed, slow-motion persistence, and near-stall duration
-    #
+    # ── Where the slow motion happens ──
+    # A stall is a FLOOD threat only where its rain reaches land, so the risk is
+    # scored on the forecast hours spent within _STALL_NEAR_LAND_KM of a coast:
+    # each segment is sampled along its length and its hours are weighted by the
+    # share of it that is near land. This used to be one yes/no test on the
+    # whole forecast, after which EVERY slow hour counted: Trudy EP212026
+    # (2026-10-14) crawled at 4-5 kt for two days 250-470 km off Guerrero, then
+    # passed Jalisco at 7 kt, and the banner read "EXTREME ... near-stall (4 kt)
+    # for 60+ hours near land ... Harvey-like" while NHC forecast 2-4 in of rain
+    # on the coast. Before that, Polo EP172026 drew the same banner from coarse
+    # coastal boxes ~250 km off Guerrero; Fay AL062026 is the open-ocean case.
+    land_hours = land_slow_h = land_stall_h = 0.0
+    land_min = None
+    for seg, leg in zip(segments, legs):
+        frac = _near_land_fraction(*leg)
+        if frac <= 0:
+            continue
+        h = (seg["hour_end"] - seg["hour_start"]) * frac
+        land_hours += h
+        spd = seg["speed_kt"]
+        land_min = spd if land_min is None else min(land_min, spd)
+        if spd < 8:
+            land_slow_h += h
+        if spd < 5:
+            land_stall_h += h
+
+    # ── Risk Scoring ── (on the near-land hours)
     # Risk = 40 × speed_factor + 35 × persistence_factor + 25 × stall_factor
-    #
-    # speed_factor: how slow the slowest forecast segment is
-    #   < 3 kt → 1.0, 3-6 kt → 0.5-1.0, 6-10 kt → 0.1-0.5, > 10 kt → 0
-    speed_factor = max(0, 1.0 - min_speed / 10.0)
+    #   speed_factor:       how slow the slowest near-land segment is
+    #                       (< 3 kt → 1.0, 6 kt → 0.4, > 10 kt → 0)
+    #   persistence_factor: near-land hours below 8 kt (Harvey had 72+)
+    #   stall_factor:       near-land hours below 5 kt
+    reach = f"within {_STALL_NEAR_LAND_KM:.0f} km of the coast"
+    if land_min is None or land_slow_h <= 0:
+        risk_score = 0
+    else:
+        speed_factor = max(0, 1.0 - land_min / 10.0)
+        persistence_factor = min(1.0, land_slow_h / 48.0)
+        stall_factor = min(1.0, land_stall_h / 24.0)
+        risk_score = round(40 * speed_factor + 35 * persistence_factor + 25 * stall_factor)
+        risk_score = min(100, max(0, risk_score))
 
-    # persistence_factor: how many hours below 8 kt (Harvey had 72+ hours)
-    persistence_factor = min(1.0, slow_hours / 48.0)
-
-    # stall_factor: how many hours of near-stall (< 5 kt)
-    stall_factor = min(1.0, stall_hours / 24.0)
-
-    risk_score = round(40 * speed_factor + 35 * persistence_factor + 25 * stall_factor)
-    risk_score = min(100, max(0, risk_score))
-
-    # Risk level thresholds
     if risk_score >= 70:
         risk_level = "extreme"
     elif risk_score >= 50:
@@ -1980,54 +2043,56 @@ def _compute_stall_risk(forecast_track: list[dict]) -> dict:
     else:
         risk_level = "none"
 
-    # Human-readable description
-    if risk_level == "extreme":
-        # "Harvey-like" means a multi-day stall (Harvey sat over Texas ~4 days);
-        # a half-day crawl is serious but not that — Polo EP172026 drew the
-        # Harvey label from a 9-hour slowdown.
-        spd = "under 1 kt" if min_speed < 1 else f"{min_speed:.0f} kt"
-        if stall_hours >= _HARVEY_STALL_HOURS:
-            desc = (f"EXTREME stall risk — forecast shows a near-stall ({spd}) for "
-                    f"{stall_hours:.0f}+ hours near land. Catastrophic multi-day rainfall "
-                    f"potential (Harvey-like scenario).")
+    if risk_level == "none":
+        if min_speed < 8 and land_slow_h <= 0:
+            # Slow, but nowhere near land: the map still colours the stretch.
+            desc = (f"Storm is forecast to slow to {min_speed:.0f} kt, but more than "
+                    f"{_STALL_NEAR_LAND_KM:.0f} km from any coast — the stall itself poses no "
+                    f"inland flooding threat. A stall like this near land would be a "
+                    f"serious rainfall-flood risk.")
         else:
-            desc = (f"EXTREME stall risk — forecast shows the storm crawling ({spd}) "
-                    f"near land, with {slow_hours:.0f}h below 8 kt. Heavy rainfall and flooding "
-                    f"are likely where it lingers.")
-    elif risk_level == "high":
-        desc = f"HIGH stall risk — forecast shows slow motion ({min_speed:.0f} kt min) with {slow_hours:.0f}h below 8 kt. Significant rainfall flooding threat."
-    elif risk_level == "moderate":
-        desc = f"Moderate stall risk — slowing forecast ({min_speed:.0f} kt min, {slow_hours:.0f}h slow). Enhanced rainfall expected near landfall."
-    elif risk_level == "low":
-        desc = f"Low stall risk — some deceleration forecast ({min_speed:.0f} kt min). Minor rainfall enhancement possible."
-    else:
-        desc = f"No stall risk — storm maintaining forward speed ({mean_speed:.0f} kt avg). Standard rainfall expected."
-
-    # Land-awareness: a stall is a FLOOD threat only if its heavy rain reaches
-    # land. Suppress the banner (risk_level none + score 0 -> displayStallRisk
-    # hides it and the IAS stall-boost is skipped) unless some slow/stalling
-    # segment is within _STALL_NEAR_LAND_KM of a coastline. The coarse coastal
-    # boxes this used before counted Polo EP172026 ~250 km off Guerrero as
-    # "near coast"; Fay AL062026 (mid-Atlantic) was the open-ocean case. The
-    # per-segment speeds are kept so the map's forecast-track coloring still
-    # shows the slow stretch factually.
-    slow_segs = [s for s in segments if s.get("speed_kt", 99) < 8]
-    stall_near_land = any(_stall_near_land(s.get("lat", 0), s.get("lon", 0)) for s in slow_segs)
-    if risk_level != "none" and not stall_near_land:
-        desc = (f"Storm is forecast to slow to {min_speed:.0f} kt, but more than "
-                f"{_STALL_NEAR_LAND_KM:.0f} km from any coast — the stall itself poses no "
-                f"inland flooding threat. A stall like this near land would be a "
-                f"serious rainfall-flood risk.")
-        risk_level = "none"
+            desc = (f"No stall risk — storm maintaining forward speed ({mean_speed:.0f} kt "
+                    f"avg). Standard rainfall expected.")
         risk_score = 0
+    else:
+        spd = "under 1 kt" if land_min < 1 else f"{land_min:.0f} kt"
+        if risk_level == "extreme" and land_stall_h >= _HARVEY_STALL_HOURS:
+            # "Harvey-like" means a multi-day stall at the coast (Harvey sat over
+            # Texas ~4 days); a half-day crawl is serious but not that.
+            desc = (f"EXTREME stall risk — forecast shows a near-stall ({spd}) for about "
+                    f"{land_stall_h:.0f} hours {reach}. Catastrophic multi-day rainfall "
+                    f"potential (Harvey-like scenario).")
+        elif risk_level == "extreme":
+            desc = (f"EXTREME stall risk — forecast shows the storm crawling ({spd}) {reach}, "
+                    f"about {land_slow_h:.0f} h below 8 kt there. Heavy rainfall and flooding "
+                    f"are likely where it lingers.")
+        elif risk_level == "high":
+            desc = (f"HIGH stall risk — forecast slows to {spd} {reach}, about "
+                    f"{land_slow_h:.0f} h below 8 kt there. Significant rainfall flooding threat.")
+        elif risk_level == "moderate":
+            desc = (f"Moderate stall risk — forecast slows to {spd} {reach}, about "
+                    f"{land_slow_h:.0f} h below 8 kt there. Enhanced rainfall near the coast.")
+        else:
+            desc = (f"Low stall risk — some slowing {reach} ({spd} min). Minor rainfall "
+                    f"enhancement possible.")
+        if min_speed + 0.5 < land_min:
+            desc += (f" Farther out it slows to {min_speed:.0f} kt, more than "
+                     f"{_STALL_NEAR_LAND_KM:.0f} km from any coast.")
 
     result.update({
         "risk_level": risk_level,
         "risk_score": risk_score,
-        "min_forecast_speed_kt": round(min_speed, 1),
+        # Near-land figures: what the banner, the storm card, the hazard
+        # bullets and the Impact Area rain boost describe.
+        "min_forecast_speed_kt": round(land_min if land_min is not None else min_speed, 1),
         "mean_forecast_speed_kt": round(mean_speed, 1),
-        "slow_hours": slow_hours,
-        "stall_hours": stall_hours,
+        "slow_hours": round(land_slow_h),
+        "stall_hours": round(land_stall_h),
+        "near_land_hours": round(land_hours),
+        # The whole forecast, near land or not.
+        "track_min_speed_kt": round(min_speed, 1),
+        "track_slow_hours": slow_hours,
+        "track_stall_hours": stall_hours,
         "segments": segments,
         "description": desc,
     })

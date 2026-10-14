@@ -269,6 +269,7 @@ def compute_forecast_landfall(forecast_track) -> dict:
         "eta_hour": None, "window_start_hour": None, "window_end_hour": None,
         "lat": None, "lon": None, "nearest_name": None, "region_key": None,
         "wind_kt": None, "min_distance_km": None, "closest_hour": None,
+        "closest_wind_kt": None,
         "description": "",
     }
     pts = [p for p in (forecast_track or [])
@@ -320,6 +321,7 @@ def compute_forecast_landfall(forecast_track) -> dict:
     min_h, _min_lat, min_lon, _min_wk, min_d, min_wp = profile[min_i]
     base["min_distance_km"] = round(min_d, 1)
     base["closest_hour"] = round(min_h)
+    base["closest_wind_kt"] = round(_min_wk) if _min_wk is not None else None
     base["nearest_name"] = _wp_display_name(min_wp)
 
     # East-Pacific gap (see constants above): far from every known coastline
@@ -375,3 +377,54 @@ def compute_forecast_landfall(forecast_track) -> dict:
             f"official track-error cone)."
         )
     return base
+
+
+def _point_in_polygon(lat: float, lon: float, poly) -> bool:
+    """Ray casting on (lat, lon) pairs; the cone never spans the dateline."""
+    inside = False
+    j = len(poly) - 1
+    for i in range(len(poly)):
+        yi, xi = poly[i][0], poly[i][1]
+        yj, xj = poly[j][0], poly[j][1]
+        if (yi > lat) != (yj > lat):
+            x_cross = xi + (lat - yi) * (xj - xi) / (yj - yi)
+            if lon < x_cross:
+                inside = not inside
+        j = i
+    return inside
+
+
+def cone_reaches_coast(cone_polygon) -> bool:
+    """True when any known coastal point lies inside the forecast cone.
+
+    A center line that stays offshore is not the same as "no landfall": Trudy
+    EP212026 (2026-10-14) was forecast to pass ~80 km off Jalisco as a major
+    hurricane, with the cone well over the coast, and the page only said
+    "Stays offshore". Coastal points: the waypoint DB, the Pacific supplement
+    and the US coastal towns.
+    """
+    poly = [p for p in (cone_polygon or []) if p and len(p) >= 2]
+    if len(poly) < 3:
+        return False
+    lats = [p[0] for p in poly]
+    lons = [p[1] for p in poly]
+    la0, la1, lo0, lo1 = min(lats), max(lats), min(lons), max(lons)
+    points = []
+    try:
+        from core.land_proximity import _get_coastline_db
+        points += [(w.lat, w.lon) for w in _get_coastline_db().waypoints
+                   if w.region_key != "open_ocean"]
+    except Exception:  # pragma: no cover
+        pass
+    try:
+        from core.pacific_coast import PACIFIC_COAST_POINTS
+        points += [(la, lo) for la, lo, _ in PACIFIC_COAST_POINTS]
+    except Exception:  # pragma: no cover
+        pass
+    try:
+        from core.coastal_places import US_COASTAL_PLACES
+        points += [(la, lo) for la, lo, _ in US_COASTAL_PLACES]
+    except Exception:  # pragma: no cover
+        pass
+    return any(la0 <= la <= la1 and lo0 <= lo <= lo1 and _point_in_polygon(la, lo, poly)
+               for la, lo in points)
