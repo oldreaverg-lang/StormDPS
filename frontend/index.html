@@ -642,6 +642,28 @@
         .alert-row .stall-bar.rain-expanded{box-shadow:0 0 0 2px currentColor inset}
         .alert-row .stall-bar:focus-visible{outline:2px solid var(--accent,#205493);outline-offset:2px}
         .alert-detail{border:1px solid var(--border);border-radius:var(--radius);padding:.45rem .7rem;font-size:.78rem;line-height:1.45;flex-shrink:0}
+        .alert-row .cl-short{display:none}
+        /* Phones: short labels ("Up to 6 in", "Near coast", "Stall: Moderate"),
+           tighter padding, a smaller font and no chevron, so three chips fit
+           one row at 360 px even with the longest headlines ("Flood 100/100",
+           "Coast ~36 h", "Stall: Extreme"). The row does not wrap: on a phone
+           narrower than that a label ends in an ellipsis instead.
+           The chip's aria-label keeps the full wording for screen readers. */
+        @media(max-width:600px){
+            .alert-row .cl-full{display:none}
+            .alert-row .cl-short{display:inline}
+            .alert-row{gap:.25rem;flex-wrap:nowrap}
+            .alert-row .stall-bar{padding:.22rem .35rem;gap:.2rem;font-size:.72rem}
+            .alert-row .stall-bar-icon{font-size:.8rem!important}
+            .alert-row .stall-bar::after{display:none!important}
+        }
+        /* Under 340 px (old 320 px phones) the landfall and stall chips drop
+           their icons: their labels already say what they are ("Near coast",
+           "Stall: Moderate"); the rain chip keeps its icon ("Up to 6 in"). */
+        @media(max-width:340px){
+            .alert-row .stall-bar{font-size:.7rem}
+            #landfallBar .stall-bar-icon,#stallRiskBar .stall-bar-icon{display:none!important}
+        }
         .alert-detail[hidden]{display:none}
 
         /* ── Breakdown Bars ── */
@@ -3363,6 +3385,18 @@ function _chipLabel(bar) {
     const sc = bar.querySelector('.stall-bar-score');
     return (sc ? sc.textContent : '').replace(/[\s\u2014\u2013-]+$/, '').trim() || 'Details';
 }
+// Phone labels: the icon already says rain / place / stall.
+function _chipShortLabel(full) {
+    return full
+        .replace(/^Rain up to /i, 'Up to ')
+        .replace(/^Flood risk /i, 'Flood ')
+        .replace(/^Passes near the coast$/i, 'Near coast')
+        .replace(/^Stays offshore$/i, 'Offshore')
+        .replace(/^Landfall in /i, 'Landfall ')
+        .replace(/^Coastal approach now$/i, 'At coast')
+        .replace(/^Coastal approach in /i, 'Coast ')
+        .replace(/^Stall risk: /i, 'Stall: ');
+}
 function _chipDetail(bar) {
     if (bar.id === 'stallRiskBar') {
         const t = (bar.querySelector('#stallBarText') || {}).textContent || '';
@@ -3383,10 +3417,15 @@ function _alertRowSync() {
         if (!lbl) {
             lbl = document.createElement('span');
             lbl.className = 'chip-label';
+            lbl.innerHTML = '<span class="cl-full"></span><span class="cl-short"></span>';
             bar.insertBefore(lbl, bar.children[1] || null);
         }
         const text = _chipLabel(bar);
-        if (lbl.textContent !== text) lbl.textContent = text;
+        const full = lbl.querySelector('.cl-full'), short = lbl.querySelector('.cl-short');
+        if (full.textContent !== text) full.textContent = text;
+        const shortText = _chipShortLabel(text);
+        if (short.textContent !== shortText) short.textContent = shortText;
+        if (bar.getAttribute('aria-label') !== text) bar.setAttribute('aria-label', text);
         if (!shown && bar.classList.contains('rain-expanded')) bar.classList.remove('rain-expanded');
         if (shown) any = true;
         if (shown && bar.classList.contains('rain-expanded')) open = bar;
