@@ -625,6 +625,25 @@
             #stallRiskBar.rain-expanded::after{content:'\25B4'}
         }
 
+        /* ── Warning chips (#alertRow) ─────────────────────────────────────
+           The bars keep their colours (set inline by their render functions);
+           in the row they shrink to a pill showing only the icon + .chip-label.
+           !important beats the ID-specific mobile fold rules above. */
+        .alert-row{display:none;flex-wrap:wrap;gap:.35rem;align-items:center;flex-shrink:0}
+        .alert-row.has-alerts{display:flex}
+        .alert-row .stall-bar{margin-top:0;flex:0 1 auto;min-width:0;max-width:100%;padding:.22rem .6rem;border-radius:999px;gap:.35rem;cursor:pointer;font-size:.76rem;line-height:1.25;transition:box-shadow .15s}
+        .alert-row .stall-bar .rainfall-text-scroll,
+        .alert-row .stall-bar .stall-bar-score,
+        .alert-row .stall-bar .stall-bar-text{display:none!important}
+        .alert-row .stall-bar-icon{font-size:.9rem!important;line-height:1}
+        .alert-row .chip-label{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .alert-row .stall-bar::after{content:'\25BE'!important;opacity:.6;font-size:.7rem;flex-shrink:0;align-self:center}
+        .alert-row .stall-bar.rain-expanded::after{content:'\25B4'!important}
+        .alert-row .stall-bar.rain-expanded{box-shadow:0 0 0 2px currentColor inset}
+        .alert-row .stall-bar:focus-visible{outline:2px solid var(--accent,#205493);outline-offset:2px}
+        .alert-detail{border:1px solid var(--border);border-radius:var(--radius);padding:.45rem .7rem;font-size:.78rem;line-height:1.45;flex-shrink:0}
+        .alert-detail[hidden]{display:none}
+
         /* ── Breakdown Bars ── */
         .breakdown-bar{display:flex;width:100%;height:6px;border-radius:3px;overflow:hidden;margin-top:6px;cursor:pointer;position:relative;transition:height .2s}
         .breakdown-bar:hover{height:10px}
@@ -849,25 +868,34 @@
             <div class="stat-card" id="ersCard"><div class="stat-label"><span class="label-full">Economic Risk</span><span class="label-short">Econ. Risk</span><span class="tip" data-tip="ERS: A 0-100 score measuring economic exposure along the storm's path. Combines coastal economic value with threat reach (storm size x intensity).">?</span></div><div class="stat-value" id="statPeakERS" style="color:var(--text-main);">-</div><div class="stat-sub" id="statERSLabel">-</div><div class="ers-forecast" id="ersForecastLine" style="display:none;font-size:.72rem;font-weight:600;color:#b45309;line-height:1.35;margin-top:.1rem"></div><div class="score-context" id="ersContext"></div><div class="breakdown-wrap" role="button" tabindex="0" aria-label="Toggle score breakdown" onclick="this.classList.toggle('open')"><div class="breakdown-bar" id="breakdownERS"></div><div class="breakdown-panel" id="panelERS"></div></div><div class="breakdown-hint">Score breakdown — tap or hover</div></div>
             <div class="stat-card" id="actualImpactCard" style="display:none"><div class="stat-label">Actual Impact<span class="tip" data-tip="What the storm actually did, from independent records: total damage (StormDPS curated dataset) and the federal disaster response (FEMA OpenFEMA — counties declared, major-disaster status). This is observed ground truth, shown alongside the DPS prediction.">?</span></div><div class="stat-value" id="statActualImpact" style="color:var(--text-main);">-</div><div class="stat-sub" id="statActualImpactSub">-</div><div class="score-context" id="actualImpactContext"></div></div>
         </div>
-        <div id="rainfallBar" class="stall-bar" style="display:none;border-color:rgba(239,68,68,.3);background:rgba(239,68,68,.06)" role="status" tabindex="0" onclick="this.classList.toggle('rain-expanded')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.classList.toggle('rain-expanded');}">
+        <!-- Warnings as one row of chips (rain, landfall / offshore, stall).
+             Each was a full-width bar: three of them took ~140 px of a laptop
+             screen. A chip shows its headline; clicking it opens the full text
+             in #alertDetail below (one at a time). The render functions still
+             write the bars exactly as before; _alertRowSync() derives the chip
+             labels and the panel from them. -->
+        <div id="alertRow" class="alert-row">
+        <div id="rainfallBar" class="stall-bar" style="display:none;border-color:rgba(239,68,68,.3);background:rgba(239,68,68,.06)" role="button" aria-expanded="false" tabindex="0" onclick="toggleAlertChip(this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleAlertChip(this);}">
             <span class="stall-bar-icon" style="font-size:1.1rem">&#127783;&#65039;</span>
             <span class="stall-bar-score" id="rainfallBarScore" style="color:#b3261e;white-space:nowrap"></span>
             <div class="rainfall-text-scroll">
                 <span class="stall-bar-text" id="rainfallBarText" style="color:#b3261e;font-size:.78rem;line-height:1.4"></span>
             </div>
         </div>
-        <div id="landfallBar" class="stall-bar" style="display:none;border-color:rgba(32,84,147,.35);background:rgba(32,84,147,.06)" role="status" tabindex="0" onclick="this.classList.toggle('rain-expanded')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.classList.toggle('rain-expanded');}">
+        <div id="landfallBar" class="stall-bar" style="display:none;border-color:rgba(32,84,147,.35);background:rgba(32,84,147,.06)" role="button" aria-expanded="false" tabindex="0" onclick="toggleAlertChip(this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleAlertChip(this);}">
             <span class="stall-bar-icon" style="font-size:1.05rem">&#128205;</span>
             <span class="stall-bar-score" id="landfallBarScore" style="color:#205493;white-space:nowrap"></span>
             <div class="rainfall-text-scroll">
                 <span class="stall-bar-text" id="landfallBarText" style="color:#16406f;font-size:.78rem;line-height:1.4"></span>
             </div>
         </div>
-        <div id="stallRiskBar" class="stall-bar" role="status" tabindex="0" onclick="this.classList.toggle('rain-expanded')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.classList.toggle('rain-expanded');}">
+        <div id="stallRiskBar" class="stall-bar" role="button" aria-expanded="false" tabindex="0" onclick="toggleAlertChip(this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleAlertChip(this);}">
             <span class="stall-bar-icon" id="stallBarIcon"></span>
             <span class="stall-bar-text" id="stallBarText"></span>
             <span class="stall-bar-score" id="stallBarScore"></span>
         </div>
+        </div>
+        <div id="alertDetail" class="alert-detail" role="region" aria-live="polite" hidden></div>
         <!-- Historical analogs strip ("storms like this one") — populated by
              loadAnalogs() from /storms/{id}/analogs; each chip deep-links
              into /compare. Hidden until the fetch succeeds; fail-open. -->
@@ -3318,18 +3346,117 @@ function calculateIAS(dataPoint) {
 // ============================================================
 window._activeStallRisk = null;
 
+// ── Warning chips ─────────────────────────────────────────────────────────
+// The three warning bars sit in #alertRow as chips. Their render functions are
+// unchanged; a MutationObserver keeps the chip labels, the row's visibility
+// and the open chip's detail panel in step with whatever they write. The open
+// state is the bars' existing 'rain-expanded' class, so every place that
+// already resets it (a new storm, a re-render) also closes the panel.
+// Extreme warnings start open (see _alertRowSync).
+function _chipLabel(bar) {
+    if (bar.id === 'stallRiskBar') {
+        const b = bar.querySelector('#stallBarText b');
+        const t = b ? b.textContent : 'Stall risk';
+        const m = t.match(/Stall Risk:\s*(\w+)/i);
+        return m ? 'Stall risk: ' + m[1].charAt(0) + m[1].slice(1).toLowerCase() : t;
+    }
+    const sc = bar.querySelector('.stall-bar-score');
+    return (sc ? sc.textContent : '').replace(/[\s\u2014\u2013-]+$/, '').trim() || 'Details';
+}
+function _chipDetail(bar) {
+    if (bar.id === 'stallRiskBar') {
+        const t = (bar.querySelector('#stallBarText') || {}).textContent || '';
+        const score = ((bar.querySelector('#stallBarScore') || {}).textContent || '').trim();
+        return t.replace(/^\s*Stall Risk:\s*\w+\s*\u2014\s*/i, '') + (score ? ' (stall risk ' + score + '/100)' : '');
+    }
+    const tx = bar.querySelector('.stall-bar-text');
+    return tx ? tx.textContent.trim() : '';
+}
+function _alertRowSync() {
+    const row = document.getElementById('alertRow');
+    const detail = document.getElementById('alertDetail');
+    if (!row || !detail) return;
+    let any = false, open = null;
+    row.querySelectorAll('.stall-bar').forEach(bar => {
+        const shown = getComputedStyle(bar).display !== 'none';
+        let lbl = bar.querySelector('.chip-label');
+        if (!lbl) {
+            lbl = document.createElement('span');
+            lbl.className = 'chip-label';
+            bar.insertBefore(lbl, bar.children[1] || null);
+        }
+        const text = _chipLabel(bar);
+        if (lbl.textContent !== text) lbl.textContent = text;
+        if (!shown && bar.classList.contains('rain-expanded')) bar.classList.remove('rain-expanded');
+        if (shown) any = true;
+        if (shown && bar.classList.contains('rain-expanded')) open = bar;
+        const exp = String(!!(shown && bar.classList.contains('rain-expanded')));
+        if (bar.getAttribute('aria-expanded') !== exp) bar.setAttribute('aria-expanded', exp);
+    });
+    row.classList.toggle('has-alerts', any);
+    // An EXTREME warning (rain at Extreme/Historic, an extreme stall risk)
+    // starts open, so its full text is on screen without a click. Once the
+    // reader opens or closes any chip for this storm, nothing auto-opens again
+    // (a forecast refresh re-renders the bars and would otherwise re-open it).
+    const sid = String(window._currentStormId || '');
+    if (!open && window._alertTouchedSid !== sid) {
+        const ext = Array.from(row.querySelectorAll('.stall-bar')).find(bar =>
+            getComputedStyle(bar).display !== 'none'
+            && (bar.classList.contains('rain-extreme') || bar.classList.contains('alert-extreme')));
+        if (ext) {
+            ext.classList.add('rain-expanded');
+            ext.setAttribute('aria-expanded', 'true');
+            open = ext;
+        }
+    }
+    if (open) {
+        const cs = getComputedStyle(open);
+        const text = _chipDetail(open);
+        if (detail.textContent !== text) detail.textContent = text;
+        detail.style.borderColor = cs.borderColor;
+        detail.style.background = cs.backgroundColor;
+        detail.style.color = cs.color;
+        detail.hidden = false;
+    } else if (!detail.hidden) {
+        detail.hidden = true;
+    }
+}
+function toggleAlertChip(bar) {
+    window._alertTouchedSid = String(window._currentStormId || '');
+    const opening = !bar.classList.contains('rain-expanded');
+    document.querySelectorAll('#alertRow .stall-bar.rain-expanded').forEach(b => b.classList.remove('rain-expanded'));
+    if (opening) bar.classList.add('rain-expanded');
+    _alertRowSync();
+}
+_onDomReady(() => {
+    const row = document.getElementById('alertRow');
+    if (!row || !window.MutationObserver) return;
+    let queued = false;
+    const mo = new MutationObserver(() => {
+        if (queued) return;
+        queued = true;
+        requestAnimationFrame(() => { queued = false; _alertRowSync(); });
+    });
+    mo.observe(row, { subtree: true, childList: true, characterData: true,
+                      attributes: true, attributeFilter: ['style', 'class'] });
+    _alertRowSync();
+});
+
 function displayStallRisk(stallRisk) {
     const bar = document.getElementById('stallRiskBar');
     if(!stallRisk || stallRisk.risk_level === 'none') {
-        bar.classList.remove('visible');
+        bar.classList.remove('visible', 'alert-extreme');
         return;
     }
+    bar.classList.toggle('alert-extreme', stallRisk.risk_level === 'extreme');
 
     const colors = {
-        low:      { bg:'rgba(96,165,250,.08)',  border:'rgba(96,165,250,.25)',  text:'#60a5fa' },
-        moderate: { bg:'rgba(251,191,36,.08)',   border:'rgba(251,191,36,.25)',  text:'#fbbf24' },
-        high:     { bg:'rgba(249,115,22,.1)',    border:'rgba(249,115,22,.3)',   text:'#f97316' },
-        extreme:  { bg:'rgba(239,68,68,.1)',     border:'rgba(239,68,68,.3)',    text:'#ef4444' },
+        // Text colours are the dark shade of each hue: the chip is small, and
+        // amber #fbbf24 on its pale fill was ~1.7:1 contrast.
+        low:      { bg:'rgba(96,165,250,.10)',  border:'rgba(96,165,250,.45)',  text:'#1d4ed8' },
+        moderate: { bg:'rgba(251,191,36,.14)',  border:'rgba(217,119,6,.45)',   text:'#92400e' },
+        high:     { bg:'rgba(249,115,22,.12)',  border:'rgba(234,88,12,.45)',   text:'#9a3412' },
+        extreme:  { bg:'rgba(239,68,68,.12)',   border:'rgba(220,38,38,.5)',    text:'#991b1b' },
     };
     const icons = { low: '\u26a0', moderate: '\u26a0\ufe0f', high: '\ud83c\udf0a', extreme: '\ud83d\udea8' };
     const c = colors[stallRisk.risk_level] || colors.low;
