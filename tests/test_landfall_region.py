@@ -146,7 +146,10 @@ def test_a_fix_with_its_own_coast_ignores_the_landfall_region():
 
 def test_the_engine_takes_the_forecast_landfall_for_a_live_storm():
     at_sea = ISAIAS[:4]
-    plain = compute_storm_dps(storm_id="AL092026", snapshots=at_sea, storm_name="Isaias", storm_year=2026)
+    # Live, forecast not read: nearest-waypoint scoring (no hint at all would
+    # mean a finished track that never reached land, which is damped).
+    plain = compute_storm_dps(storm_id="AL092026", snapshots=at_sea, storm_name="Isaias", storm_year=2026,
+                              landfall_hint={"unknown": True})
     hinted = compute_storm_dps(storm_id="AL092026", snapshots=at_sea, storm_name="Isaias", storm_year=2026,
                                landfall_hint={"region_key": "gulf_fl_panhandle", "time_utc": "2026-10-10T01:00:00"})
     assert hinted["dps"] < plain["dps"] - 10       # Louisiana's profile no longer sets the peak

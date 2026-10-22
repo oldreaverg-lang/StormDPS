@@ -76,6 +76,12 @@ class IKEResponse(BaseModel):
         description="Surge Destructive Potential (Powell & Reinhold 2007), 0-6 scale, "
                     "derived from IKE_TS (the >=34-kt IKE). Higher = greater surge/wave threat.",
     )
+    coast_km: Optional[float] = Field(
+        None,
+        description="Distance to land at this point, km (0 over land; 510 = 510 or more). "
+                    "Atlantic and East / Central Pacific only (core/coast_distance.py); None elsewhere. "
+                    "Drives the Impact Area's near-land test.",
+    )
     sdp_label: Optional[str] = Field(
         None, description="SDP band: Minimal / Low / Moderate / High / Very High / Extreme.",
     )

@@ -134,6 +134,7 @@ def compute_dpi(
     real_sst_c: Optional[float] = None,          # °C from Open-Meteo/Google
     storm_approach_heading_deg: Optional[float] = None,  # For terrain module
     apply_land_dampening: bool = True,            # Apply open-ocean score reduction
+    land_proximity_override: Optional[float] = None,  # 0-1; replaces the waypoint-distance factor
 ) -> DPIResult:
     """
     Compute the unified Destructive Potential Index.
@@ -414,9 +415,16 @@ def compute_dpi(
     lp = _get_land_proximity()
     if lp is not None and apply_land_dampening:
         try:
-            land_prox_factor = lp.compute_land_proximity_factor(
-                snapshot.lat, snapshot.lon
-            )
+            # The cumulative layer passes its own factor for offshore fixes,
+            # measured to land on core.coast_distance's grid rather than to
+            # the nearest waypoint (core.cumulative_dpi.offshore_fixes); same
+            # sigmoid either way.
+            if land_proximity_override is not None:
+                land_prox_factor = max(0.0, min(1.0, float(land_proximity_override)))
+            else:
+                land_prox_factor = lp.compute_land_proximity_factor(
+                    snapshot.lat, snapshot.lon
+                )
             dist_info = lp.compute_distance_to_coast(snapshot.lat, snapshot.lon)
             if dist_info:
                 distance_to_coast = dist_info.get("distance_km")
@@ -494,6 +502,7 @@ def compute_dpi_simple(
     real_sst_c: Optional[float] = None,
     storm_approach_heading_deg: Optional[float] = None,
     apply_land_dampening: bool = True,
+    land_proximity_override: Optional[float] = None,
 ) -> DPIResult:
     """
     Convenience function to compute DPI from raw parameters (no snapshot needed).
@@ -505,6 +514,8 @@ def compute_dpi_simple(
         real_sst_c: Live sea surface temperature (°C) from weather APIs
         storm_approach_heading_deg: Storm heading for terrain windward/leeward calc
         apply_land_dampening: Whether to apply open-ocean score reduction
+        land_proximity_override: 0-1 land-proximity factor to use instead of
+            the one measured to the nearest coastline waypoint
     """
     snapshot = HurricaneSnapshot(
         storm_id=storm_id,
@@ -530,4 +541,5 @@ def compute_dpi_simple(
         real_sst_c=real_sst_c,
         storm_approach_heading_deg=storm_approach_heading_deg,
         apply_land_dampening=apply_land_dampening,
+        land_proximity_override=land_proximity_override,
     )

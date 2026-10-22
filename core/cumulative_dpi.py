@@ -332,15 +332,29 @@ def _plausible_ike_tj(snapshot: Dict) -> float:
     breadth factor at its cap. When the (vmax, r34) pair is implausible the
     snapshot's IKE is clamped to 20 TJ — generous for any storm below
     hurricane strength (the glitch rows' clean neighbors run 3-17 TJ).
+
+    The two size ceilings apply only outside NHC's area (2026-10-21). NHC's
+    radii are analysed, and its subtropical and hybrid storms really do carry
+    gale fields that wide: Subtropical Storm Josephine AL102026, 55 kt with
+    34-kt winds 360 nm out (NHC advisory 1, scatterometer-based), was clamped
+    from 97 TJ to 20 and reported as a small storm. "No 34-kt wind at all"
+    stays a glitch everywhere.
     """
     ike = snapshot.get("ike_total_tj", 0) or 0
     r34 = snapshot.get("r34_nm", 0) or 0
     if not r34 or ike <= 20.0:
         return ike
     vmax = snapshot.get("max_wind_ms", 0) or 0
+    if vmax < 17.5:                        # no 34-kt wind exists at all
+        return min(ike, 20.0)
+    try:
+        nhc_area = float(snapshot["lat"]) >= 0.0 and float(snapshot["lon"]) < 0.0
+    except (KeyError, TypeError, ValueError):
+        nhc_area = False
+    if nhc_area:
+        return ike
     implausible = (
-        vmax < 17.5                        # no 34-kt wind exists at all
-        or (vmax < 25.7 and r34 > 150)     # <50 kt: 150 nm gale-radius ceiling
+        (vmax < 25.7 and r34 > 150)        # <50 kt: 150 nm gale-radius ceiling
         or (vmax < 33.0 and r34 > 250)     # <64 kt: 250 nm ceiling
     )
     return min(ike, 20.0) if implausible else ike
@@ -657,6 +671,135 @@ def _coast_km(lat: float, lon: float) -> float:
     return best
 
 
+# ── Fixes far offshore with no coast ahead ───────────────────────────────────
+# A fix with no coast within LANDFALL_NEAR_KM and no landfall ahead used to be
+# scored at full strength against its coastal box or the nearest coastline
+# waypoint's region (930 km reach). Subtropical Storm Josephine AL102026
+# (2026-10-21), 55 kt and 460-550 km off the Carolinas and New Jersey on a
+# forecast track AWAY from the US, was scored with the Mid-Atlantic's surge and
+# economic profile and read 58 "Severe ... comparable to a large Cat 2-3
+# hurricane", above Isaias's 90 kt landfall (52). Scored as open ocean: 19.
+#
+# Such a fix, in Atlantic / East and Central Pacific waters, now gets the
+# engine's own land-proximity dampening (core.dpi.compute_dpi: surge/rain and
+# economic scaled by a distance sigmoid, IKE kept whole, floor 60% of the
+# undamped score). Josephine reads ~35 Moderate.
+#
+# "Far from land" and "coast ahead" are measured on core.coast_distance's land
+# grid (Natural Earth land plus our coast points), not on the coast point
+# sets: those have holes (nothing between Veracruz and Brownsville, little in
+# the Bahamas) and no inland, and a first cut built on them damped Joaquin
+# over the southern Bahamas and Eta over Honduras. A fix over land is never
+# offshore. Without the grid nothing is damped. For a live storm the caller
+# passes the forecast (forecast_track_hint); when the forecast is unknown the
+# newest fixes are left undamped rather than guessed.
+OFFSHORE_FADE_KM = 200.0         # land_proximity's sigmoid: 0.5 at 200 km ...
+OFFSHORE_FADE_STEEPNESS = 0.05   # ... 0.92 at 150, 0.08 at 250, ~0 past 300
+
+
+def _land_km(lat: float, lon: float) -> Optional[float]:
+    """km to land (0 over land) from core.coast_distance; None = unknown."""
+    try:
+        from core.coast_distance import coast_km
+        return coast_km(lat, lon)
+    except Exception:  # pragma: no cover
+        return None
+
+
+def offshore_land_factor(lat: float, lon: float) -> float:
+    """land_proximity's sigmoid on the distance to land."""
+    d = _land_km(lat, lon)
+    if d is None:
+        return 1.0
+    d = min(d, 600.0)
+    return 1.0 / (1.0 + math.exp(OFFSHORE_FADE_STEEPNESS * (d - OFFSHORE_FADE_KM)))
+
+
+def _land_contact_times(points: List[Tuple[datetime, float, float]]) -> List[datetime]:
+    """When the track first comes within LANDFALL_CONTACT_KM of land, once
+    per approach."""
+    out: List[datetime] = []
+    inside = False
+    for t, la, lo in _track_samples(points):
+        d = _land_km(la, lo)
+        if d is not None and d <= LANDFALL_CONTACT_KM:
+            if not inside:
+                out.append(t)
+            inside = True
+        else:
+            inside = False
+    return out
+
+
+def _offshore_rule_applies(lat: float, lon: float) -> bool:
+    """Atlantic, East and Central Pacific waters: WP / NI / SH fixes carry
+    explicit regions with their own open-ocean pin."""
+    return lat >= 0.0 and -180.0 <= lon < 0.0
+
+
+def offshore_fixes(snapshots: List[Dict], landfall_hint: Optional[Dict] = None) -> List[bool]:
+    """For each snapshot, True when it is scored as far offshore (see the
+    block comment above): eligible waters, more than LANDFALL_NEAR_KM from
+    land, and the track does not come within LANDFALL_CONTACT_KM of land in
+    the LANDFALL_LOOKAHEAD_H after it.
+
+    landfall_hint (live storms, forecast_track_hint): {"coast_utc"} is the
+    forecast's first land contact; {"unknown": True} means the forecast
+    could not be read, so the end of the track counts as "coast ahead".
+    """
+    n = len(snapshots)
+    out = [False] * n
+    try:
+        from core.coast_distance import available
+        if not available():
+            return out
+    except Exception:  # pragma: no cover
+        return out
+    times: List[Optional[datetime]] = []
+    for s in snapshots:
+        try:
+            times.append(_parse_timestamp(s.get("timestamp", "")))
+        except ValueError:
+            times.append(None)
+    pts = [(t, float(s["lat"]), float(s["lon"])) for s, t in zip(snapshots, times) if t is not None]
+    if not pts:
+        return out
+    try:
+        contacts = _land_contact_times(pts)
+    except Exception:  # pragma: no cover - never let the look-ahead break a score
+        logger.debug("offshore look-ahead failed; no fix damped", exc_info=True)
+        return out
+    if landfall_hint:
+        if landfall_hint.get("unknown"):
+            contacts.append(pts[-1][0])
+        else:
+            for key in ("coast_utc", "time_utc"):
+                try:
+                    contacts.append(max(_parse_timestamp(str(landfall_hint.get(key) or "")), pts[-1][0]))
+                    break
+                except ValueError:
+                    continue
+    contacts.sort()
+
+    j = 0
+    for i in range(n):
+        t = times[i]
+        if t is None:
+            continue
+        lat, lon = float(snapshots[i]["lat"]), float(snapshots[i]["lon"])
+        if not _offshore_rule_applies(lat, lon):
+            continue
+        while j < len(contacts) and contacts[j] < t:
+            j += 1
+        if j < len(contacts) and (contacts[j] - t).total_seconds() <= LANDFALL_LOOKAHEAD_H * 3600.0:
+            continue
+        d = _land_km(lat, lon)
+        if d is None or d <= LANDFALL_NEAR_KM:
+            continue
+        out[i] = True
+    return out
+
+
 def _region_at(lat: float, lon: float) -> Optional[str]:
     """The region a fix AT this point is scored against today: its coastal
     box, else the nearest coastline waypoint's region."""
@@ -731,6 +874,27 @@ def forecast_landfall_hint(forecast_points: List[Dict]) -> Optional[Dict]:
     return {"region_key": key, "time_utc": t.strftime("%Y-%m-%dT%H:%M:%S")}
 
 
+def forecast_track_hint(forecast_points: List[Dict]) -> Dict:
+    """Everything the scoring path needs from a live storm's forecast:
+    forecast_landfall_hint's region contact (or None) plus "coast_utc", the
+    first time the forecast comes within LANDFALL_CONTACT_KM of any land
+    (Atlantic Canada and Hawaii included), for offshore_fixes.
+    {"unknown": True} when the forecast has fewer than two usable points."""
+    pts: List[Tuple[datetime, float, float]] = []
+    for p in forecast_points or []:
+        try:
+            pts.append((_parse_timestamp(str(p.get("timestamp") or "")), float(p["lat"]), float(p["lon"])))
+        except (KeyError, TypeError, ValueError):
+            continue
+    if len(pts) < 2:
+        return {"unknown": True}
+    pts.sort(key=lambda p: p[0])
+    out: Dict = dict(forecast_landfall_hint(forecast_points) or {"region_key": None, "time_utc": None})
+    land_hits = _land_contact_times(pts)
+    out["coast_utc"] = land_hits[0].strftime("%Y-%m-%dT%H:%M:%S") if land_hits else None
+    return out
+
+
 def landfall_regions(snapshots: List[Dict], landfall_hint: Optional[Dict] = None) -> List[Optional[str]]:
     """For each snapshot, the region of the coast the storm reaches next, or
     None where the snapshot keeps today's behaviour (see the block comment).
@@ -786,13 +950,16 @@ def landfall_regions(snapshots: List[Dict], landfall_hint: Optional[Dict] = None
     return out
 
 
-def compute_snapshot_dpi(snapshot: Dict, landfall_region: Optional[str] = None) -> Tuple[float, DPIResult]:
+def compute_snapshot_dpi(snapshot: Dict, landfall_region: Optional[str] = None,
+                         offshore: bool = False) -> Tuple[float, DPIResult]:
     """
     Compute single-snapshot DPI from a preload bundle snapshot.
 
     landfall_region: the coast the storm reaches next (landfall_regions). Used
     only where the fix has no coast of its own, in place of the nearest
     coastline waypoint.
+    offshore: the fix is far offshore with no coast ahead (offshore_fixes):
+    land-proximity dampening on, with offshore_land_factor.
 
     Returns: (dpi_score, full_result)
     """
@@ -846,7 +1013,10 @@ def compute_snapshot_dpi(snapshot: Dict, landfall_region: Optional[str] = None) 
             region_key=region,
             storm_id=snapshot.get("storm_id", "UNKNOWN"),
             name=snapshot.get("storm_id", "Unknown"),
-            apply_land_dampening=False,  # We handle land proximity ourselves
+            # We handle land proximity ourselves: only far-offshore fixes with
+            # no coast ahead are dampened (offshore_fixes).
+            apply_land_dampening=bool(offshore),
+            land_proximity_override=offshore_land_factor(lat, lon) if offshore else None,
         )
         return result.dpi_score, result
     except Exception as e:
@@ -892,8 +1062,9 @@ def compute_cumulative_dpi(
     # Compute DPI for each snapshot
     dpi_series = []
     _lf_regions = landfall_regions(snapshots, landfall_hint)
-    for snap, _lf_region in zip(snapshots, _lf_regions):
-        dpi_val, result = compute_snapshot_dpi(snap, _lf_region)
+    _offshore = offshore_fixes(snapshots, landfall_hint)
+    for snap, _lf_region, _off in zip(snapshots, _lf_regions, _offshore):
+        dpi_val, result = compute_snapshot_dpi(snap, _lf_region, _off)
         ts = snap.get("timestamp", "")
         lat, lon = snap["lat"], snap["lon"]
         near_coast = _is_near_coast(lat, lon)

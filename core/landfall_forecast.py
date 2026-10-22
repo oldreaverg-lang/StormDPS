@@ -174,6 +174,26 @@ def _nearest_coastal_wp(lat, lon, coastal_wps):
     return best, best_d
 
 
+# Pseudo region keys for the supplement points (not COASTAL_PROFILES keys).
+_US_TOWN = "us_coastal_place"
+_CANADA = "atlantic_canada"
+
+
+def _profile_region(wp):
+    """The COASTAL_PROFILES region for a landfall at this point: the
+    waypoint's own key, the region a fix at a US town is scored against, and
+    None for Atlantic Canada (no profile)."""
+    if wp is None or wp.region_key == _CANADA:
+        return None
+    if wp.region_key == _US_TOWN:
+        try:
+            from core.cumulative_dpi import _region_at
+            return _region_at(wp.lat, wp.lon)
+        except Exception:  # pragma: no cover
+            return None
+    return wp.region_key
+
+
 def _wp_display_name(wp):
     """Display name for a coastline waypoint: the real town at its
     coordinates where core.coastal_places covers the area (the waypoint's own
@@ -296,6 +316,20 @@ def compute_forecast_landfall(forecast_track) -> dict:
                 for la, lo, nm in PACIFIC_COAST_POINTS]
     except Exception as e:  # pragma: no cover — supplement is best-effort
         logger.warning(f"[landfall] Pacific coast supplement unavailable: {e}")
+    # The US coastal towns and Atlantic Canada (2026-10-21). With waypoints
+    # alone, Subtropical Storm Josephine AL102026 passing ~365 km south of
+    # Nantucket read "closest approach ~440 km from New London, CT", and a
+    # storm bound for Nova Scotia or Newfoundland could only ever "stay
+    # offshore". The scoring path's land grid (core/coast_distance.py) includes
+    # these points too.
+    try:
+        from core.land_proximity import CoastlineWaypoint
+        from core.coastal_places import US_COASTAL_PLACES
+        from core.atlantic_canada import ATLANTIC_CANADA_POINTS
+        wps += [CoastlineWaypoint(la, lo, _US_TOWN, 0.0, nm) for la, lo, nm in US_COASTAL_PLACES]
+        wps += [CoastlineWaypoint(la, lo, _CANADA, 0.0, nm) for la, lo, nm in ATLANTIC_CANADA_POINTS]
+    except Exception as e:  # pragma: no cover — supplement is best-effort
+        logger.warning(f"[landfall] town / Canada supplement unavailable: {e}")
     coastal = [w for w in wps if w.region_key != "open_ocean"]
     if not wps or not coastal:
         return base
@@ -362,7 +396,7 @@ def compute_forecast_landfall(forecast_track) -> dict:
         "window_end_hour": round(w_end),
         "lat": round(lat, 2), "lon": round(lon, 2),
         "nearest_name": _landfall_display_name(profile, eta_h, hit_wp),
-        "region_key": hit_wp.region_key if hit_wp else None,
+        "region_key": _profile_region(hit_wp),
         "wind_kt": round(wk) if wk is not None else None,
     })
     nearest_name = base["nearest_name"]
@@ -400,8 +434,8 @@ def cone_reaches_coast(cone_polygon) -> bool:
     A center line that stays offshore is not the same as "no landfall": Trudy
     EP212026 (2026-10-14) was forecast to pass ~80 km off Jalisco as a major
     hurricane, with the cone well over the coast, and the page only said
-    "Stays offshore". Coastal points: the waypoint DB, the Pacific supplement
-    and the US coastal towns.
+    "Stays offshore". Coastal points: the waypoint DB, the Pacific supplement,
+    the US coastal towns and Atlantic Canada.
     """
     poly = [p for p in (cone_polygon or []) if p and len(p) >= 2]
     if len(poly) < 3:
@@ -424,6 +458,11 @@ def cone_reaches_coast(cone_polygon) -> bool:
     try:
         from core.coastal_places import US_COASTAL_PLACES
         points += [(la, lo) for la, lo, _ in US_COASTAL_PLACES]
+    except Exception:  # pragma: no cover
+        pass
+    try:
+        from core.atlantic_canada import ATLANTIC_CANADA_POINTS
+        points += [(la, lo) for la, lo, _ in ATLANTIC_CANADA_POINTS]
     except Exception:  # pragma: no cover
         pass
     return any(la0 <= la <= la1 and lo0 <= lo <= lo1 and _point_in_polygon(la, lo, poly)

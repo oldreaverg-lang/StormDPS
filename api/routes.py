@@ -513,7 +513,16 @@ _ACTIVE_TRACK_TTL_S = 5400  # 90 minutes
 #           isthmus instead of 100W (compile_cache.ISTHMUS_DIVIDE). East
 #           Pacific storms that live east of 100W (Otis 2023, Agatha 2022)
 #           were scored as ATLANTIC and must recompute.
-_DPS_CACHE_VERSION = "v20-isthmus-basin"
+# v21-offshore-damping (2026-10-21): a fix over water with no land within
+#           150 km and none ahead in 120 h gets the engine's land-proximity
+#           dampening instead of a coast's profile at full strength
+#           (core/cumulative_dpi.offshore_fixes, on core/coast_distance's land
+#           grid). Subtropical Storm Josephine AL102026, ~500 km off the
+#           Mid-Atlantic and moving away, read 58 "Severe"; now ~35 Moderate.
+#           The live hint also carries the forecast's first land contact
+#           (Atlantic Canada included), and NHC-area IKE is no longer clamped
+#           by the WP glitch ceilings (_plausible_ike_tj).
+_DPS_CACHE_VERSION = "v21-offshore-damping"
 
 # Cache for global IBTrACS catalog to avoid repeated large downloads/parses.
 # We also persist a json cache file so restarts can reuse the catalog quickly.
@@ -669,6 +678,21 @@ def _ike_cache_id_matches(data: dict, storm_id: str) -> bool:
 _SYNTH_TRACK_SOURCES = frozenset({"jtwc"})
 
 
+def _with_coast_km(rows):
+    """Fill coast_km (core.coast_distance) on /track rows that lack it: rows
+    cached before the field existed are served straight from the cache."""
+    if not isinstance(rows, list):
+        return rows
+    try:
+        from core.coast_distance import coast_km
+    except Exception:  # pragma: no cover
+        return rows
+    for row in rows:
+        if isinstance(row, dict) and row.get("coast_km") is None and row.get("lat") is not None:
+            row["coast_km"] = coast_km(row.get("lat"), row.get("lon"))
+    return rows
+
+
 def _load_ike_cache_entry(storm_id: str, grid_res_km: float, skip: int) -> dict | None:
     """Full cached payload (results + provenance), IGNORING age.
 
@@ -750,6 +774,14 @@ def _dict_to_ike_response(d: dict) -> "IKEResponse":
     return IKEResponse(**d)
 
 
+def _coast_km_at(lat, lon):
+    try:
+        from core.coast_distance import coast_km
+        return coast_km(lat, lon)
+    except Exception:  # pragma: no cover
+        return None
+
+
 def _ike_to_response(result, snapshot=None) -> IKEResponse:
     """Helper to convert IKEResult to API response, including wind field params."""
     from api.schemas import QuadrantRadii
@@ -805,6 +837,7 @@ def _ike_to_response(result, snapshot=None) -> IKEResponse:
         radii_confidence=radii_confidence,
         sdp=_sdp_val,
         sdp_label=sdp_label(_sdp_val),
+        coast_km=_coast_km_at(snapshot.lat, snapshot.lon) if snapshot else None,
     )
 
 
@@ -2960,7 +2993,7 @@ async def get_storm_track(
     if cached:
         logger.info(f"[CACHE HIT] {storm_id} — {len(cached)} cached IKE results"
                     + (" (live, within TTL)" if _is_live else ""))
-        return JSONResponse(content=cached, headers={
+        return JSONResponse(content=_with_coast_km(cached), headers={
             "X-Track-Cache": "hit", "Cache-Control": "public, max-age=120"})
     if _is_live and not _swr_bypass:
         # Stale-while-revalidate: a TTL-expired live cache (normally one
@@ -2976,7 +3009,7 @@ async def get_storm_track(
             _t.add_done_callback(_track_swr_tasks.discard)
             logger.info(f"[CACHE STALE→SWR] {storm_id} — served {len(stale)} "
                         f"stale results, background refresh spawned")
-            return JSONResponse(content=stale, headers={
+            return JSONResponse(content=_with_coast_km(stale), headers={
                 "X-Track-Cache": "stale-refreshing",
                 "Cache-Control": "public, max-age=120"})
 
@@ -3244,7 +3277,7 @@ async def get_storm_track(
                 _ike_cache_file(storm_id, grid_resolution_km, skip_points).touch()
             except OSError:
                 pass
-            return JSONResponse(content=_prior["results"], headers={
+            return JSONResponse(content=_with_coast_km(_prior["results"]), headers={
                 "X-Track-Cache": "stale-observed",
                 "X-Track-Degraded": "bdeck-unavailable",
                 "Cache-Control": "public, max-age=60"})
@@ -4027,10 +4060,21 @@ _landfall_hint_memo: dict = {}         # STORM_ID -> (monotonic time, hint or No
 
 
 async def _live_landfall_hint(storm_id: str) -> Optional[dict]:
+    """A live storm's forecast, as the scoring path reads it
+    (core.cumulative_dpi.forecast_track_hint): the forecast landfall region
+    and the first contact with any coast. None for a storm that is not live
+    (its track is complete). {"unknown": True} when the storm may be live but
+    its forecast cannot be read: offshore_fixes then leaves its newest fixes
+    undamped instead of assuming there is no coast ahead."""
     key = (storm_id or "").upper()
     # WP / NI / SH fixes carry explicit regions and never use the hint.
     if len(key) != 8 or key[:2] not in ("AL", "EP", "CP"):
         return None
+    if not _active_storms_cache:
+        # Cold start: the live list has not loaded, so a current-season id
+        # may be a live storm.
+        this_year = str(datetime.now(timezone.utc).year)
+        return {"unknown": True} if key[4:] == this_year else None
     row = next((r for r in (_active_storms_cache or [])
                 if str(r.get("id") or "").upper() == key), None)
     if row is None:
@@ -4038,9 +4082,9 @@ async def _live_landfall_hint(storm_id: str) -> Optional[dict]:
     hit = _landfall_hint_memo.get(key)
     if hit and (time.monotonic() - hit[0]) < _LANDFALL_HINT_TTL_S:
         return hit[1]
-    hint = None
+    hint = {"unknown": True}
     try:
-        from core.cumulative_dpi import forecast_landfall_hint
+        from core.cumulative_dpi import forecast_track_hint
         async with NOAAClient() as client:
             fc = await asyncio.wait_for(client.get_forecast_track(storm_id), timeout=25)
         pts = [{"timestamp": pt.get("valid_time_utc"), "lat": pt.get("lat"), "lon": pt.get("lon")}
@@ -4052,7 +4096,7 @@ async def _live_landfall_hint(storm_id: str) -> Optional[dict]:
         if t1 and lat is not None and lon is not None:
             pts = [{"timestamp": t1.isoformat(), "lat": lat, "lon": lon}] + [
                 pt for pt in pts if (_parse_ts_utc(pt["timestamp"]) or t1) > t1]
-        hint = forecast_landfall_hint(pts)
+        hint = forecast_track_hint(pts)
     except Exception as e:
         logger.info(f"[DPS] forecast landfall hint unavailable for {storm_id}: {e}")
     if len(_landfall_hint_memo) > 64:

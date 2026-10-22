@@ -1658,6 +1658,16 @@ def compile():
         cat_note = f" Cat:{bundle['category']}" + (f"(life:{bundle['category_lifetime']})" if bundle['category'] != bundle['category_lifetime'] else "")
         print(f"DPS {bundle['dps']:.1f} (peak {bundle['peak_dps']:.0f}){adj_note}{adj_details}{exp_note}{perp_note}{stall_note}{rain_inland_note}{inland_note}{rain_flag}{cat_note}{lf_info}")
 
+    # Distance to land per fix (core.coast_distance: 0 over land, km over
+    # water) for the page's Impact Area near-land test. Left off outside the
+    # grid (WP / NI / SH), where the page keeps its shelf boxes alone.
+    from core.coast_distance import coast_km as _coast_km_at
+    for _snaps in storms_raw.values():
+        for _s in _snaps:
+            _d = _coast_km_at(_s.get("lat"), _s.get("lon"))
+            if _d is not None:
+                _s["coast_km"] = _d
+
     # Build output
     output = {
         "version": "v4-basin-specific",
