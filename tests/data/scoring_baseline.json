@@ -65,7 +65,7 @@
 "dps_label": "Moderate"
 },
 "2026076S12157": {
-"category": 4,
+"category": 0,
 "dps": 13.68,
 "dps_label": "Low"
 },
@@ -755,7 +755,7 @@
 "dps_label": "Moderate"
 },
 "AL132019": {
-"category": 5,
+"category": 4,
 "dps": 37.1,
 "dps_label": "Moderate"
 },
